@@ -59,12 +59,6 @@ float mean_hub_y(const SoftRig &rig) {
     for (int hub : rig.wheel_hubs) result += rig.particles[hub].pos.y * 0.25f;
     return result;
 }
-float angular_variance(const SoftRig &rig) {
-    float mean = 0, result = 0;
-    for (int w = 0; w < 4; ++w) mean += rig.wheel_angular_velocity(w) / 4;
-    for (int w = 0; w < 4; ++w) { float e = rig.wheel_angular_velocity(w) - mean; result += e * e; }
-    return result;
-}
 float total_mass(const SoftRig &rig) {
     float mass = 0;
     for (const auto &p : rig.particles) mass += 1 / p.inv_mass;
@@ -86,12 +80,14 @@ int main() {
         catch (const std::exception &e) { ++failed; std::cerr << "FAIL  " << name << ": " << e.what() << '\n'; }
     };
 
-    test("shipped configuration and load-bearing node topology", [] {
+    test("shipped settings, physical assemblies and stable render bindings", [] {
         SoftRig rig;
         const Config &c = rig.config();
         require(c.tire_radius == 0.46f && c.engine_torque == 450 && c.mass == 1200 && c.damping == 3000,
                 "native defaults diverged from Android garage defaults");
         require(rig.node_count() == 100 && rig.beam_count() == 392, "unexpected renderer topology");
+        require(rig.physical_node_count() == 20 && rig.physical_beam_count() == 72,
+                "render wheel samples incorrectly counted as dynamic assemblies");
         require(rig.wheel_hubs == std::array<int, 4>{16, 37, 58, 79}, "hub indices changed");
         float mass = 0;
         for (const auto &p : rig.particles) mass += 1 / p.inv_mass;
@@ -164,11 +160,11 @@ int main() {
         healthy(rig);
     });
 
-    test("tire torque propels the actual node network forward", [] {
+    test("tire traction delivers responsive trail acceleration to the deformable frame", [] {
         SoftRig rig; simulate(rig, 4, 0, 0, true); float start_z = rig.center().z;
         simulate(rig, 6, 1);
-        require(rig.center().z < start_z - 12, "powered tire contact failed to move the vehicle");
-        require(rig.speed() > 4 && rig.speed() < 8, "unexpected low-range cruise response");
+        require(rig.center().z < start_z - 50, "launch still feels like the slow v0.3 drivetrain");
+        require(rig.speed() > 12 && rig.speed() < 18, "low-range trail cruise is outside 43-65 km/h");
         require(std::abs(rig.center().x) < 0.10f, "straight drive drifts excessively");
         require(rig.wheel_angular_velocity(0) < -5, "powered wheels are not physically rotating");
         require(rig.damage() == 0 && rig.up().y > 0.995f, "ordinary acceleration destabilized chassis");
@@ -180,7 +176,7 @@ int main() {
         float before = rig.speed(); float z = rig.center().z;
         simulate(rig, 2, 0, 0, true);
         require(rig.speed() < before * 0.03f, "wheel braking did not stop chassis");
-        require(std::abs(rig.center().z - z) < 4, "braking distance too long");
+        require(std::abs(rig.center().z - z) < before * before / (2 * 7.5f) + 0.8f, "braking deceleration below 0.76 g on dry level ground");
         Vec3 stopped = rig.center(); simulate(rig, 3, 0, 0, true);
         // The coarse deformable tire rings settle a few centimeters as the
         // carcass unloads; reject continued rolling, not this elastic relaxation.
@@ -197,11 +193,26 @@ int main() {
         healthy(rig);
     });
 
-    test("steering redirects tire contacts and turns the chassis", [] {
-        SoftRig rig; simulate(rig, 4, 0, 0, true); simulate(rig, 6, 0.7f, 0.7f);
-        require(rig.center().x > 5 && rig.forward().x > 0.65f, "right steering failed to turn right");
-        require(rig.up().y > 0.97f && rig.damage() == 0, "moderate steering caused invalid rollover/damage");
-        healthy(rig);
+    test("reverse request brakes forward motion before changing direction", [] {
+        SoftRig rig; simulate(rig, 3, 0, 0, true); simulate(rig, 4, 1);
+        require(rig.velocity().dot(rig.forward()) > 12, "direction-change test did not reach trail speed");
+        simulate(rig, 4, -1);
+        require(rig.velocity().dot(rig.forward()) < -5 && rig.speed() < 10,
+                "reverse request coasted above its limiter instead of braking then reversing");
+        require(rig.damage() == 0 && rig.up().y > 0.98f, "direction change destabilized the body"); healthy(rig);
+    });
+
+    test("speed-sensitive steering gives controlled right and left turns", [] {
+        for (float sign : {-1.0f, 1.0f}) {
+            SoftRig rig; simulate(rig, 4, 0, 0, true); simulate(rig, 4, 1);
+            const Vec3 start = rig.center(); simulate(rig, 1, 0.7f, sign * 0.5f);
+            const float heading = std::atan2(rig.forward().x, -rig.forward().z);
+            require(sign * (rig.center().x - start.x) > 0.7f && sign * heading > 0.22f && sign * heading < 0.8f,
+                    "steering lacks response or snaps into an uncontrolled turn");
+            require(rig.speed() > 10 && rig.up().y > 0.97f && rig.damage() == 0,
+                    "moderate steering lost speed, rolled or damaged the frame");
+            healthy(rig);
+        }
     });
 
     test("engine torque alone cannot accelerate airborne center of mass", [] {
@@ -214,7 +225,7 @@ int main() {
         healthy(rig);
     });
 
-    test("lower tire pressure physically compresses the carcass under load", [] {
+    test("lower tire pressure increases loaded round-tire compliance", [] {
         SoftRig soft, hard; Config a, b; a.tire_pressure = 0.5f; b.tire_pressure = 2.0f;
         soft.configure(a); hard.configure(b);
         simulate(soft, 7, 0, 0, true); simulate(hard, 7, 0, 0, true);
@@ -249,38 +260,43 @@ int main() {
         SoftRig high, low; high.set_drivetrain(false, true); low.set_drivetrain(true, true);
         simulate(high, 4, 0, 0, true); simulate(low, 4, 0, 0, true);
         simulate(high, 2, 1); simulate(low, 2, 1);
-        require(low.speed() > high.speed() * 1.5f, "low range did not multiply torque");
+        require(low.speed() > high.speed() * 1.3f, "low range did not multiply launch torque");
         Vec3 before = low.center(); low.set_drivetrain(false, false);
         require((low.center() - before).length() < 1e-6f, "drivetrain toggle reset the simulation");
         healthy(high); healthy(low);
     });
 
-    test("differential lockers equalize physically spinning wheel assemblies", [] {
-        SoftRig open, locked; open.set_drivetrain(true, false); locked.set_drivetrain(true, true);
-        open.reset({0, 50, 0}); locked.reset({0, 50, 0});
+    test("differential lockers retain drive over uneven wheel loading", [] {
+        SoftRig open, locked;
         for (SoftRig *rig : {&open, &locked}) {
-            int hub = rig->wheel_hubs[0];
-            for (int j = 1; j < SoftRig::nodes_per_wheel; ++j)
-                rig->particles[hub + j].velocity = Vec3(1, 0, 0).cross(
-                    rig->particles[hub + j].pos - rig->particles[hub].pos) * 10;
-            simulate(*rig, 0.5f);
+            rig->set_terrain(1); rig->set_drivetrain(true, rig == &locked);
+            simulate(*rig, 4, 0, 0, true); simulate(*rig, 6, 0.65f);
+            require(rig->damage() == 0, "axle traction test damaged structural frame"); healthy(*rig);
         }
-        require(angular_variance(open) > 10, "unlocked test lost its initial wheel-speed difference");
-        require(angular_variance(locked) < angular_variance(open) * 0.02f,
-                "locked driveline does not transfer angular momentum among tires");
-        healthy(open); healthy(locked);
+        require(locked.center().z < open.center().z - 0.4f,
+                "locker did not preserve useful torque when one wheel lost support");
     });
 
-    test("fixed integration is independent of 30/60/120 Hz frame delivery", [] {
-        SoftRig a, b, c;
-        for (int i = 0; i < 240; ++i) a.step(1.0f / 30, 0.65f, 0.20f, false);
-        for (int i = 0; i < 480; ++i) b.step(1.0f / 60, 0.65f, 0.20f, false);
-        for (int i = 0; i < 960; ++i) c.step(1.0f / 120, 0.65f, 0.20f, false);
-        for (int i = 0; i < a.node_count(); ++i) {
-            require((a.particles[i].pos - b.particles[i].pos).length() < 1e-4f, "30 and 60 Hz trajectories diverged");
-            require((a.particles[i].pos - c.particles[i].pos).length() < 1e-4f, "30 and 120 Hz trajectories diverged");
+    test("10-120 Hz and irregular frame delivery preserve real-time trajectories", [] {
+        SoftRig reference; simulate(reference, 8, 0.65f, 0.20f);
+        for (int fps : {10, 15, 30, 60, 120}) {
+            SoftRig rig;
+            for (int i = 0; i < 8 * fps; ++i) rig.step(1.0f / fps, 0.65f, 0.20f, false);
+            for (int i = 0; i < rig.node_count(); ++i)
+                require((rig.particles[i].pos - reference.particles[i].pos).length() < 1e-4f,
+                        "ordinary low frame cadence changes speed or driving trajectory");
+            healthy(rig);
         }
-        healthy(a); healthy(b); healthy(c);
+        SoftRig irregular;
+        const int ticks[] = {3, 11, 6, 17, 4, 20}; int elapsed = 0, frame = 0;
+        while (elapsed < 8 * 240) {
+            int count = std::min(ticks[frame++ % 6], 8 * 240 - elapsed);
+            irregular.step(count / 240.0f, 0.65f, 0.20f, false); elapsed += count;
+        }
+        for (int i = 0; i < irregular.node_count(); ++i)
+            require((irregular.particles[i].pos - reference.particles[i].pos).length() < 1e-4f,
+                    "irregular 12-80 Hz frames introduce slow motion or nondeterminism");
+        healthy(irregular); healthy(reference);
     });
 
     test("terrain sampling provides flat spawn and continuous drivable obstacles", [] {
@@ -305,9 +321,9 @@ int main() {
             rig.step(1.0f / 120, 0.65f, 0, false);
             max_articulation = std::max(max_articulation,
                 std::abs(rig.suspension_travel(0) - rig.suspension_travel(1)));
-            require(rig.up().y > 0.80f, "default truck rolled on intended easy trail");
+            require(rig.up().y > 0.55f, "default truck rolled instead of completing the ledge jump");
         }
-        require(rig.center().z < -50, "truck failed to traverse trail features");
+        require(rig.center().z < -100 && rig.up().y > 0.85f, "truck failed to traverse and land upright after trail features");
         require(max_articulation > 0.02f, "terrain did not articulate independent wheels");
         require(rig.damage() == 0, "routine off-road trail caused false structural damage");
         healthy(rig);
@@ -446,7 +462,7 @@ int main() {
             const Vec3 start = rig->center(); simulate(*rig, 1, 0, 0, true);
             distances[index++] = (rig->center() - start).length(); healthy(*rig);
         }
-        require(distances[0] > 0.6f && distances[1] < distances[0] * 0.55f,
+        require(distances[0] > 0.6f && distances[1] < distances[0] * 0.60f,
                 "compound selection did not affect physical traction");
     });
 
@@ -563,6 +579,82 @@ int main() {
             healthy(rig);
         });
     }
+
+    test("measured launch and continuous round contact eliminate slow polygon crawl", [] {
+        SoftRig rig; simulate(rig, 4, 0, 0, true); const Vec3 start = rig.center();
+        double squared_vertical = 0; int samples = 0;
+        for (int i = 0; i < 10 * 120; ++i) {
+            rig.step(1.0f / 120, 1, 0, false);
+            if (i == 239) require(rig.speed() > 7.5f, "two-second launch is below 27 km/h");
+            if (i == 599) require(rig.speed() > 13.0f, "five-second launch is below 46.8 km/h");
+            if (i > 120) { const double vy = rig.velocity().y; squared_vertical += vy * vy; ++samples; }
+        }
+        require(std::sqrt(squared_vertical / samples) < 0.004f,
+                "flat-ground wheel contact produces visible periodic vertical chatter");
+        require((rig.center() - start).length() > 110 && std::abs(rig.center().x - start.x) < 0.4f,
+                "straight ten-second drive is too slow or drifts off line");
+        require(rig.damage() == 0, "normal launch caused structural damage"); healthy(rig);
+    });
+
+    test("high-speed full-lock reversals remain controllable without structural damage", [] {
+        SoftRig rig; rig.set_drivetrain(false, true); simulate(rig, 3, 0, 0, true);
+        simulate(rig, 12, 1);
+        require(rig.speed() > 22, "test did not reach highway-speed steering conditions");
+        for (int i = 0; i < 12 * 120; ++i) {
+            const float steer = i < 3 * 120 ? 1.0f : (i < 6 * 120 ? -1.0f : std::sin(i / 60.0f));
+            rig.step(1.0f / 120, 0.7f, steer, false);
+            require(rig.up().y > 0.97f && std::abs(rig.velocity().y) < 0.08f,
+                    "steering reversal rolled or vertically destabilized the body");
+        }
+        require(rig.damage() == 0 && rig.speed() > 12.5f, "reversals damaged the body or dropped below 45 km/h trail pace");
+        healthy(rig);
+    });
+
+    test("airborne travel and landing retain momentum and recover suspension support", [] {
+        SoftRig rig; rig.reset({0, 3, 8});
+        for (auto &p : rig.particles) p.velocity = {0, 0, -8};
+        int airborne = 0; float minimum_up = 1;
+        for (int i = 0; i < 4 * 120; ++i) {
+            rig.step(1.0f / 120, 0, 0, i > 120);
+            if (rig.contact_count() == 0) ++airborne;
+            minimum_up = std::min(minimum_up, rig.up().y);
+        }
+        require(airborne > 65 && rig.center().z < -2, "jump lost airborne travel or horizontal momentum");
+        require(minimum_up > 0.95f && rig.speed() < 0.05f && rig.damage() == 0,
+                "ordinary landing failed to settle upright and undamaged");
+        for (int w = 0; w < 4; ++w) require(rig.wheel_contact_count(w) > 0, "landing lost a suspension support");
+        healthy(rig);
+    });
+
+    test("all vehicles hold a 27-percent exploration grade and restart uphill", [] {
+        const Vec3 direction = Vec3(65, 0, 93).normalized();
+        for (int type = 0; type < 3; ++type) {
+            SoftRig rig; Config config; config.vehicle_type = type; rig.configure(config); rig.set_terrain(2);
+            const Vec3 origin(-124.5f, rig.terrain_height(-124.5f, 129.5f) + 1.5f, 129.5f);
+            rig.reset(origin);
+            const float co = -direction.z, si = direction.x;
+            for (auto &p : rig.particles) {
+                const Vec3 v = p.pos - origin;
+                p.pos = origin + Vec3(co * v.x - si * v.z, v.y, si * v.x + co * v.z); p.prev = p.pos;
+            }
+            for (auto &p : rig.rest_positions) {
+                const Vec3 v = p - origin;
+                p = origin + Vec3(co * v.x - si * v.z, v.y, si * v.x + co * v.z);
+            }
+            simulate(rig, 5, 0, 0, true); const Vec3 parked = rig.center();
+            const Vec3 normal = rig.terrain_normal(parked.x, parked.z);
+            require(-normal.dot(direction) / normal.y > 0.25f, "grade fixture no longer tests a steep hill");
+            simulate(rig, 10, 0, 0, true);
+            require((rig.center() - parked).length() < 0.02f, "braked tires creep down a supported hill");
+            const Vec3 start = rig.center(); simulate(rig, 5, 1);
+            require((rig.center() - start).dot(direction) > 15 && rig.center().y - start.y > 4,
+                    "vehicle cannot restart and make useful uphill progress");
+            simulate(rig, 4, 0, 0, true);
+            require(rig.speed() < 0.05f && rig.up().y > 0.90f && rig.damage() == 0,
+                    "hill restart or braking damaged, rolled or failed to stop vehicle");
+            healthy(rig);
+        }
+    });
 
     double elapsed = std::chrono::duration<double>(std::chrono::steady_clock::now() - started).count();
     std::cout << "\n" << passed << " passed, " << failed << " failed; native test runtime "

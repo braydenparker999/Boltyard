@@ -18,9 +18,6 @@ class SoftBodyRig : public RefCounted {
     GDCLASS(SoftBodyRig, RefCounted)
     boltyard::SoftRig rig;
     double sim_ms = 0.0;
-    double accumulator = 0.0;
-    double dropped_time = 0.0;
-    static constexpr double FIXED_DT = 1.0 / 120.0;
     static Vector3 gv(const boltyard::Vec3 &p) { return Vector3(p.x, p.y, p.z); }
     static boltyard::Vec3 cv(const Vector3 &p) { return {(float)p.x, (float)p.y, (float)p.z}; }
     static float number(const Dictionary &d, const char *key, float fallback, float lo, float hi) {
@@ -42,6 +39,7 @@ protected:
         ClassDB::bind_method(D_METHOD("terrain_normal", "x", "z"), &SoftBodyRig::terrain_normal);
         ClassDB::bind_method(D_METHOD("terrain_surface", "x", "z"), &SoftBodyRig::terrain_surface);
         ClassDB::bind_method(D_METHOD("get_obstacles"), &SoftBodyRig::get_obstacles);
+        ClassDB::bind_method(D_METHOD("get_terrain_samples"), &SoftBodyRig::get_terrain_samples);
         ClassDB::bind_method(D_METHOD("get_rest_nodes"), &SoftBodyRig::get_rest_nodes);
         ClassDB::bind_method(D_METHOD("get_nodes"), &SoftBodyRig::get_nodes);
         ClassDB::bind_method(D_METHOD("get_beams"), &SoftBodyRig::get_beams);
@@ -77,20 +75,14 @@ public:
         c.low_range = d.get("low_range",true);
         c.locked_diffs = d.get("locked_diffs",true);
         rig.configure(c);
-        accumulator = 0.0;
-        dropped_time = 0.0;
     }
-    void reset(const Vector3 &origin) { rig.reset(cv(origin)); accumulator = 0.0; dropped_time = 0.0; }
+    void reset(const Vector3 &origin) { rig.reset(cv(origin)); }
     void step(double dt, double throttle, double steer, bool brake) {
         if (!std::isfinite(dt) || dt <= 0.0) return;
         auto start = std::chrono::steady_clock::now();
-        // Fixed simulation time; bound catch-up after a pause rather than making a giant step.
-        dropped_time += std::max(0.0,dt-0.05);
-        accumulator += std::min(dt, 0.05);
-        while (accumulator + 1e-9 >= FIXED_DT) {
-            rig.step((float)FIXED_DT, (float)std::clamp(throttle,-1.0,1.0), (float)std::clamp(steer,-1.0,1.0),brake);
-            accumulator -= FIXED_DT;
-        }
+        // SoftRig owns the only accumulator. Ordinary 10-120 Hz frame cadence
+        // advances all supplied time; a long pause is bounded inside the core.
+        rig.step((float)dt, (float)throttle, (float)steer, brake);
         auto end = std::chrono::steady_clock::now();
         sim_ms = std::chrono::duration<double,std::milli>(end-start).count();
     }
@@ -99,6 +91,18 @@ public:
     double terrain_height(double x, double z) const { return rig.terrain_height((float)x,(float)z); }
     Vector3 terrain_normal(double x, double z) const { return gv(rig.terrain_normal((float)x,(float)z)); }
     double terrain_surface(double x, double z) const { return rig.terrain_surface((float)x,(float)z); }
+    Dictionary get_terrain_samples() const {
+        const auto &terrain = boltyard::exploration_detail::cache();
+        PackedFloat32Array heights, surfaces;
+        heights.resize(terrain.height.size()); surfaces.resize(terrain.surface.size());
+        for (int i = 0; i < (int)terrain.height.size(); ++i) {
+            heights.set(i, terrain.height[i]); surfaces.set(i, terrain.surface[i]);
+        }
+        Dictionary out;
+        out["heights"] = heights; out["surfaces"] = surfaces;
+        out["side"] = 385; out["spacing"] = 2.0; out["origin"] = -384.0;
+        return out;
+    }
     Array get_obstacles() const {
         Array out;
         for (const auto &o : boltyard::exploration_obstacles()) {
@@ -153,11 +157,17 @@ public:
         for (int w=0;w<4;++w) if (rig.wheel_contact_count(w)>0) ++wheels_grounded;
         d["wheels_grounded"]=wheels_grounded;
         d["nodes"]=rig.node_count(); d["beams"]=rig.beam_count();
+        d["physical_nodes"]=rig.physical_node_count(); d["render_nodes"]=rig.render_node_count();
+        d["physical_beams"]=rig.physical_beam_count();
+        d["velocity"]=gv(rig.linear_velocity()); d["steering_angle"]=rig.steering_angle();
+        PackedFloat32Array wheel_spin, suspension;
+        for (int w=0; w<4; ++w) { wheel_spin.push_back(rig.wheel_angular_velocity(w)); suspension.push_back(rig.suspension_travel(w)); }
+        d["wheel_spin"]=wheel_spin; d["suspension"]=suspension;
         d["position"]=gv(rig.center()); d["forward"]=gv(rig.forward()); d["up"]=gv(rig.up());
         d["sim_ms"]=sim_ms;
         d["safety_clamps"]=rig.safety_clamp_count();
         d["rejected_states"]=rig.rejected_state_count();
-        d["dropped_time"]=rig.time_dropped()+dropped_time;
+        d["dropped_time"]=rig.time_dropped();
         return d;
     }
     void apply_impact(const Vector3 &impulse) { rig.apply_impact(cv(impulse)); }

@@ -1,59 +1,91 @@
-# Bolt Yard 0.3 — implemented simulation
+# Bolt Yard 0.4 — handling model and validation
 
-The native C++ model in `native/soft_rig.hpp` drives the vehicle through deformable mass nodes, constraints, wheel torque and contact. Godot receives node positions through `native/binding.cpp` and draws the body and tires around them. There is no underlying rigid vehicle body supplying scripted forward acceleration. This is an experimental game model, not a calibrated vehicle or crash-engineering simulation.
+Version 0.4 replaces the independently simulated tire rings with four continuous round tire contacts. The frame and cab remain deformable XPBD structures: gravity, suspension loads, traction and collisions act on their actual mass nodes, and structural beams still yield and break. This is an approachable off-road game model, not a calibrated vehicle or crash-engineering simulator.
 
-## Three structures and physical parts
+## Physical structure and render bindings
 
-All vehicles retain **100 finite-mass nodes**: eight frame nodes, eight cab/cage nodes, and four wheels containing one hub plus two ten-node sidewall rings. Their dimensions, structure and mass distribution differ:
+There are **20 dynamic assemblies**: eight frame nodes, eight cab/cage nodes, and four wheel hubs carrying their complete unsprung assembly masses. The existing **100 render positions** and wheel indices `{16,37,58,79}` remain stable. Eighty sidewall samples follow wheel position, steering, spin and contact flattening; they are render proxies, not independently integrated tire masses.
 
-| Vehicle type | Beam records | Frame / cab / wheel mass shares* | Structural differences |
-|---|---:|---|---|
-| Pickup | 392 | 60% / 18% / 22% | Short cab above the standard frame; twelve cab-floor attachments |
-| Scout SUV | 400 | 54% / 25% / 21% | Longer, taller cab with eight additional roof-to-frame braces; slightly front-biased frame mass |
-| Nomad buggy | 404 | 59% / 15% / 26% | Lower, narrower cage with twelve additional braces; rear-biased frame mass |
+| Vehicle | Physical beam/guide records | Render graph records | Frame / cab / wheel base-mass shares |
+|---|---:|---:|---|
+| Pickup | 72 | 392 | 60% / 18% / 22% |
+| Scout SUV | 80 | 400 | 54% / 25% / 21% |
+| Nomad buggy | 84 | 404 | 59% / 15% / 26% |
 
-*Shares apply before front and roof accessories are added. Each total includes 320 tire links and four suspension descriptors. Suspension descriptors are solved through the axis guides below rather than as ordinary distance beams. Both eight-node structural cells are internally braced complete graphs, not detailed reproductions of real frame tubing or sheet metal.
+Each physical total includes four suspension guides. The 320 tire graph links remain available for the structural display but are not solved as independent tire constraints. Telemetry reports `physical_nodes`, `render_nodes` and `physical_beams` separately. Legacy per-sample mass metadata still sums to the configured vehicle mass; the solver lumps all 21 wheel sample shares at the corresponding physical hub.
 
-The catalog composes each build's configuration. `mass` is the **total vehicle mass including accessories**. The core subtracts the front and roof accessory masses before distributing the base mass, then places the specified front mass equally at the four front frame nodes and roof mass at the four upper cab/cage nodes. Accessories therefore change axle loading and centre of mass without double counting weight. Other catalog mass adjustments, including wheels, change the distributed base mass; they are not separate component inertias.
+The SUV has a longer, taller cab with additional roof-to-frame braces and slightly front-biased mass. The buggy has a low cage, additional bracing and rear-biased frame mass. Front and roof accessory masses are subtracted before base-mass distribution and then placed at their actual frame/roof attachment nodes, preserving the selected total mass without double counting.
 
-Parts can change physical tire radius, sidewall spacing, carcass stiffness, friction, spring rate, damping, ride height, travel stops and final drive. Tire width is `0.58 × radius × tire_width_scale`. Front and roof parts contribute weight at their attachment nodes; fitting them does **not** add separate collision meshes, mechanical joints or structural beams. Paint and visual details have no mechanical effect.
+Tire radius, width, pressure-dependent compliance, compound grip, spring rate, damping, ride height, travel stops, final drive and accessory mass affect the physical model. Tire width supplies three support lines across the tread on uneven ground. Paint has no mechanical effect. Pressure is a dimensionless relative setting, not bar.
 
-Positions use metres, mass kilograms, time seconds, torque N m, spring rate N/m and suspension damping N s/m. Tire pressure is a **dimensionless relative stiffness setting**, not bar or a measured gas pressure.
+## Integration and contact
 
-## Integration, suspension and deformation
+The core owns a single accumulator, uses fixed **1/240-second substeps** and **nine constraint iterations**, and alternates structural constraint traversal. Godot runs at 60 physics ticks per second with a 16-step catch-up limit. The redundant binding accumulator and its 50 ms frame cutoff were removed. Ordinary 10–120 Hz or irregular frame delivery advances the same amount of simulated time. A single frame above 100 ms is bounded, and discarded time remains observable in `dropped_time`.
 
-The solver uses fixed **1/240 s substeps** and **nine constraint iterations**. The Godot binding accumulates time in 1/120 s increments. Each substep applies drive torque and gravity, predicts node positions, solves structural distances and suspension guides, resolves ground and obstacle contact, then reconstructs velocities and applies damping. Structural-beam traversal reverses on alternate iterations.
+Each substep predicts the 20 physical assembly positions under gravity, solves frame/cab distance constraints and suspension guides, resolves ground and scenery contact, reconstructs velocities, applies material/suspension damping, then applies unbraked tire traction and updates wheel render samples. All distances are metres, masses kilograms, torques N m, spring rates N/m and damping coefficients N s/m.
 
-Distance constraints use XPBD compliance: with length error `C`, compliance `α = 1/stiffness`, node inverse masses `w₁,w₂`, and timestep `h`, the multiplier increment is `Δλ = (-C - αλ/h²) / (w₁ + w₂ + α/h²)`. Corrections are distributed by inverse mass. Multipliers accumulate within a substep and reset between substeps. The formulation follows [XPBD](https://matthias-research.github.io/pages/publications/XPBD.pdf); the finite iteration count is still an approximation.
+The body uses XPBD compliant distance constraints. Each hub has prismatic lateral/longitudinal location guides, a configurable vertical spring, compression/droop stops and an implicit damper acting on the complete unsprung mass. Frame/cab beams permanently change rest lengths above selected trial-strain thresholds and break at larger strains. The damage percentage summarizes this structural history; it is not a measured fraction of destroyed material.
 
-Each hub has compliant prismatic guides relative to a lower frame corner. Lateral and longitudinal guides locate the wheel; the vertical guide supplies spring force. Configured travel sets extension, while compression is limited to `min(travel × 0.28/0.22, ride_height × 0.72)`. The damper applies opposing vertical impulses to the frame anchor and the complete wheel assembly using an implicit damping update. It does not treat the lightweight hub as the whole unsprung mass.
+Tires contact terrain continuously as round supports, removing the changing facets of the old ten-segment dynamic rings. Loaded tire compliance is `300000 × relative_pressure` N/m. Across-width terrain samples let a wider tire bridge a narrow rut. Structural nodes retain small sphere contacts. Braked tires solve tangential position constraints, providing static hill holding as well as speed-dependent stopping. Unbraked tires use longitudinal force and lateral slip relaxation within a shared friction circle.
 
-These guides are not simulated control arms, solid axles, camber curves or anti-roll bars. Both front wheels share a speed-dependent steering angle; Ackermann geometry and wheel detachment are absent. Tire spokes, ring links and cross-width links form deformable carcasses, with pressure-dependent compliance and modest axial damping. There is no enclosed-gas volume law, temperature, puncture or calibrated tire-force curve.
+Body render vertices follow their own vehicle's undeformed binding and current frame/cab positions. Tire render samples follow their physical hubs. Neither body triangles nor sidewall proxies are independent collision meshes; render triangles do not tear when a beam breaks.
 
-Frame and cab beams can permanently change their physical rest lengths above chosen trial-strain thresholds and break at larger strains. Tire links and suspension guides do not fail. The damage percentage summarizes structural plastic history and breakage; it is not a measured percentage of destroyed material.
+## Driving response
 
-The renderer binds each vehicle's skin to its own undeformed `rest_positions`. Body vertices follow frame/cab nodes, and tire surfaces follow the actual ring nodes. Driving does not mutate this bind pose; rebuilding or recovery refreshes it. Render triangles have no independent mass, do not tear when beams break, and are not a collision mesh.
+Engine force is divided across four wheels with reductions of **5.5 in low range** and **3.8 in high range**, multiplied by final drive and divided by tire radius. Torque is nearly flat at low speed, then falls smoothly toward artificial road-speed limits of 16.5 m/s in low range, 31 m/s in high range and 9 m/s in reverse; final drive divides those limits. These are game tuning values, not a modeled RPM curve or automatic gearbox.
 
-## Torque, gearing and friction
+Positive steering turns right. Front steering changes smoothly and reduces at speed. Tire lateral slip has a finite relaxation time, so a steering input redirects the physical chassis through suspension loads. An open axle limits both wheels to the traction supported by its lower-traction contact; locking retains drive at its planted wheel. Wheel-spin states supply rotation and bounded airborne spin, rather than estimating rotation from deforming polygon nodes.
 
-Wheel angular velocity and inertia are estimated from the tire nodes. Drive torque produces tangential node impulses, with a hub correction for net linear impulse and an opposing chassis torque. Ground friction converts tire rotation into propulsion.
+Brakes suppress drive and use the same tire-ground contact forces as ordinary traction. An opposing direction request first brakes forward motion, then engages reverse near walking speed. Airborne throttle can spin wheels but cannot inject horizontal vehicle momentum. There is no scripted position, heading, forward velocity or upright recovery applied during normal driving.
 
-Torque is divided among four wheels, multiplied by the low-range ratio of 2.65 or high-range ratio of 1, and by `final_drive`. Final drive also divides the wheel-speed limiter, trading terminal speed for tractive torque. The limiter is artificial; there is no engine RPM curve, clutch or discrete gearbox. Brakes oppose wheel rotation and suppress drive torque. The locker applies a finite torsional coupling toward the average speed of **all four wheels**, not separately modeled front, rear and centre differentials.
+The base tire coefficient is 1.18, multiplied by compound, a bounded relative-pressure factor and the terrain surface multiplier. Body friction is 0.45. These are simplified Coulomb-style forces; there is no calibrated slip-ratio curve, dynamic soil or hydrodynamic tire behavior.
 
-Ground contact uses unilateral compliant normal constraints and bounded tangential position corrections. Tire friction starts at 1.20, multiplied by tire compound, a bounded relative-pressure factor and terrain surface. Other nodes start at 0.45. Juniper Valley surface multipliers are 1.0 on roads, 0.84 on grass, 0.94 in the quarry and 0.58 on the shallow lake bed, with interpolation between samples. These are simplified Coulomb-style coefficients, without distinct static/dynamic tire curves, deformable soil or hydrodynamics.
+## World geometry
 
-## Juniper Valley terrain and solid props
+`native/terrain_v03.hpp` retains its filename as the shared terrain API. It supplies the 768 × 768 m landscape and exact 2 m grid triangles used by nearby scenery and tire contacts. The binding's `get_terrain_samples()` exports the height and surface arrays in one call to avoid hundreds of thousands of per-sample startup calls.
 
-`native/terrain_v03.hpp` authors a **768 × 768 m** landscape containing a connected trail loop, hills, quarry, lake basin and groves. Heights are cached on a 385 × 385 grid at 2 m spacing. Physics interpolates the two triangles within each cell, matching the nearby rendered terrain; contact normals come from those same triangle slopes. Distant scenery uses an 8 m mesh and is a coarser visual approximation. The spawn clearing is flat. Terrain modes 0 and 1 retain the flat test plane and original demonstration trail.
+Trees, rocks and posts use fixed, ground-relative cylinder proxies. Physical nodes collide with cylinder sides/caps, and intact structural beams also collide with sides so a narrow post cannot pass through gaps between body nodes. The road traversal regression found a hand-placed rock obstructing the route; hand-authored rocks now receive the same road-clearance treatment as generated scenery.
 
-Trees, boulders and wayfinding posts use fixed, ground-relative **cylinder proxies**. A nearby-object broad phase runs once per substep. Mass nodes collide with cylinder sides and caps; intact structural beams also collide with cylinder sides, distributing contact corrections through interpolated endpoint masses. This additional beam contact prevents narrow posts from passing through the gap between body nodes. It remains a skeleton/cylinder approximation, not full vehicle-versus-scenery mesh collision. Cylinder contacts are discrete, so sufficiently fast motion can tunnel.
+Water is visual above a solid low-grip lake bed. There is no buoyancy, fluid mud, movable scenery or arbitrary concave collision mesh. The flat plane and original short demonstration course remain terrain modes 0 and 1; the exploration map is mode 2.
 
-Water appearance does not supply buoyancy or drag: tires contact the solid lake bed. The map has no flowing or deforming mud, movable rocks, destructible trees or arbitrary concave collision meshes. The analytical ground continues outside the authored extent with enclosing slopes; the game handles exploration boundaries separately.
+## Recorded results
 
-## Verification and limits
+Default pickup, flat ground, four seconds of braked settling followed by full throttle. Both versions use C++17 `g++ -O2` on the same desktop container. Native timings exclude rendering and are **not Samsung A15 frame-rate measurements**.
 
-The standalone native suite passes **73 checks**, retaining all 47 v0.2 cases and adding 26 cases for distinct structures, exact accessory masses and centre-of-mass shifts, tire width and compound, gearing, suspension travel, bind poses, exploration samples, equipped vehicles, narrow-post contact and legal part endpoints. Tests assert actual motion and deformation as well as finite state. Ordinary-operation cases require zero velocity safety clamps and zero nonfinite recovery events. These results establish regression behavior, not real-world calibration or exhaustive coverage of every combined build and collision.
+| Measurement | v0.3 | v0.4 |
+|---|---:|---:|
+| Speed after 2 seconds | 9.88 km/h | 29.87 km/h |
+| Speed after 5 seconds | 17.39 km/h | 52.89 km/h |
+| Speed after 10 seconds | 19.78 km/h | 57.88 km/h |
+| Distance after 10 seconds | 41.50 m | 123.48 m |
+| Flat vertical chassis-velocity RMS | 0.0444 m/s | about 0.0002 m/s |
+| Native elapsed time per 60 Hz frame, flat | 0.607 ms | 0.17–0.31 ms across repeat runs |
 
-The solver uses single-precision floats. It caps node velocity at 240 m/s, rejects malformed inputs, reports nonfinite recovery and sheds excess elapsed time after stalls. These safeguards are observable in telemetry; invoking them is not evidence that an extreme event was simulated correctly. Position and speed telemetry average the eight frame nodes rather than the whole vehicle's mass-weighted centre. `sim_ms` excludes drawing and most game work.
+Elapsed timings vary with other work on the shared host; the latest complete benchmark output is retained rather than selecting only the fastest run.
 
-Only one selected vehicle is active. There is no self-collision, full triangle collision, continuous collision detection, multi-vehicle collision, dynamic soil, calibrated crash material or complete suspension/gearbox mechanism. Severe collapse can stretch or invert the render skin. The user reported smooth operation of v0.2 on a Samsung A15; v0.3's additional scenery and rendering still require testing on that phone. Desktop tests and native timings do not establish Android frame rate, thermal behavior or battery cost.
+Additional measured behavior:
+
+- Braking from 15.2 m/s stops in approximately 9.7 m, with about 0.001 m/s residual speed after three seconds.
+- All three vehicle structures hold a 27% exploration grade with no more than 0.00071 m drift over ten seconds, then climb 19–20 m horizontally in five seconds from rest.
+- The 1.30 km exploration route completes at 29 km/h cruise and 45 km/h cruise with braking for bends. Maximum centreline error is below 1.6 m; the vehicle stays upright and undamaged.
+- Full-lock steering reversals and alternating slalom remain stable through measured speeds of 26.8 m/s. Airborne travel, landing, reverse engagement and recovery are separately checked.
+- Ordinary driving regressions require zero structural damage, velocity safety clamps, nonfinite-state recoveries and discarded frame time.
+
+Reproduce the native checks and benchmark:
+
+```sh
+g++ -std=c++17 -O2 -Wall -Wextra -pedantic native/test_soft_rig.cpp -o /tmp/test_soft_rig
+/tmp/test_soft_rig
+g++ -std=c++17 -O2 -Wall -Wextra -pedantic native/test_road_drive.cpp -o /tmp/test_road_drive
+/tmp/test_road_drive
+g++ -std=c++17 -O2 native/benchmark_handling.cpp -o /tmp/benchmark_handling
+/tmp/benchmark_handling
+```
+
+The baseline is preserved in `native/handling_v03_baseline.txt`, and the new benchmark output in `native/handling_v04_results.txt`. The core suite passes **78 checks** and the separate road suite passes **both complete-route cases**. Tests cover meaningful acceleration, braking, direction changes, steering at speed, road traversal, grade holding/restart, jumps, deformation, exact mass distribution, legal equipment ranges and variable frame cadence.
+
+## Limits
+
+This remains one active vehicle, single-precision simulation and discrete scenery collision. There is no self-collision, continuous collision detection, full triangle collision, simulated control-arm geometry, Ackermann steering, detailed drivetrain reaction torque, gyroscopic wheel dynamics, wheel detachment, tire punctures or independently deformable tire carcass. Severe structural collapse can stretch/invert the render skin. Velocity caps and malformed-input recovery are diagnostics, not evidence that an extreme event was simulated correctly.
+
+Position and speed telemetry average the eight frame nodes. Desktop checks establish regression behavior, not real-world calibration or Android performance, thermal behavior and battery cost. Version 0.4 still needs the user's Samsung A15 test for touch feel, visual smoothness and sustained frame rate.

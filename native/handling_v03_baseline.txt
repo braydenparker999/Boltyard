@@ -1,0 +1,22 @@
+Bolt Yard v0.3 baseline, recorded 2026-09-05 before native handling redesign.
+Host C++17 g++ -O2 standalone. 240Hz core, nine iterations, default1200kg pickup.
+4s braked settle, then full-throttle straight launch (same benchmark_handling.cpp protocol).
+Times measure native core on this desktop container, NOT Samsung A15 FPS.
+
+Flat: 2s=2.745m/s (9.88km/h), 3.32m traveled.
+Flat: 5s=4.829m/s (17.39km/h), 14.92m traveled.
+Flat:10s=5.495m/s (19.78km/h), 41.50m traveled, lateral0.010m.
+Flat: native CPU0.607ms per60Hz simulation frame.
+Flat: vertical chassis velocity RMS0.0444m/s, max0.1330m/s on perfectly flat ground.
+Original demonstration trail: native CPU1.021ms/frame;10s distance40.34m, speed6.148m/s.
+v0.3 exploration start: native CPU0.607ms/frame;10s distance41.49m, speed5.504m/s.
+
+After5s straight acceleration +6s throttle0.7/steer0.35:
+speed4.568m/s, heading1.625rad; braking3s distance0.897m, end0.0013m/s.
+After5s straight acceleration +6s throttle0.7/steer1.0:
+speed3.175m/s, heading-2.693rad; braking3s distance0.438m, end0.0001m/s.
+
+Code diagnosis: ten-segment independently dynamic tire rings produce periodic
+flat-ground contact changes; torque-limited launch becomes~20km/h cruise.
+Binding separately clipped incoming delta above50ms before the core's100ms cap.
+The rendering workload and actual A15 frame pacing require on-device validation.

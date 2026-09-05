@@ -1,26 +1,47 @@
-// Persistent vehicle vertices bind to the actual native particles. No rigid-body
-// substitute: paint, glass, cage, rims and tires all follow the same solver.
+// Frame/cabin transforms are factored once per update on the CPU. The body
+// uses a single continuous rest-space field: a shared edge cannot open merely
+// because its adjoining panel used to belong to a different solver cell.
 uniform vec3 node_positions[100];
+uniform vec3 body_coefficients[16];
 uniform vec3 ring_centers[8];
 uniform vec3 rig_center = vec3(0.0);
+uniform vec3 cab_offset = vec3(0.0);
+uniform vec3 cab_scale = vec3(1.0);
+uniform float body_height = 0.3;
+uniform float blend_start = 0.20;
+uniform float blend_end = 0.94;
 uniform float tire_padding = 0.0552;
 varying vec3 bind_position;
+varying vec3 bind_normal;
 
-vec3 box_skin(int b, vec3 p) {
-    vec3 low = mix(mix(node_positions[b], node_positions[b + 1], p.x),
-                   mix(node_positions[b + 2], node_positions[b + 3], p.x), p.z);
-    vec3 high = mix(mix(node_positions[b + 4], node_positions[b + 5], p.x),
-                    mix(node_positions[b + 6], node_positions[b + 7], p.x), p.z);
-    return mix(low, high, p.y);
+void cell_skin(int b, vec3 p, out vec3 point, out vec3 dx, out vec3 dy, out vec3 dz) {
+    vec3 cx = body_coefficients[b + 1];
+    vec3 cy = body_coefficients[b + 2];
+    vec3 cz = body_coefficients[b + 3];
+    vec3 cxy = body_coefficients[b + 4];
+    vec3 cxz = body_coefficients[b + 5];
+    vec3 cyz = body_coefficients[b + 6];
+    vec3 cxyz = body_coefficients[b + 7];
+    point = body_coefficients[b] + cx*p.x + cy*p.y + cz*p.z
+        + cxy*p.x*p.y + cxz*p.x*p.z + cyz*p.y*p.z + cxyz*p.x*p.y*p.z;
+    dx = cx + cxy*p.y + cxz*p.z + cxyz*p.y*p.z;
+    dy = cy + cxy*p.x + cyz*p.z + cxyz*p.x*p.z;
+    dz = cz + cxz*p.x + cyz*p.y + cxyz*p.x*p.y;
 }
-vec3 box_normal(int b, vec3 p, vec3 n) {
-    vec3 dx = box_skin(b, vec3(1.0, p.y, p.z)) - box_skin(b, vec3(0.0, p.y, p.z));
-    vec3 dy = box_skin(b, vec3(p.x, 1.0, p.z)) - box_skin(b, vec3(p.x, 0.0, p.z));
-    vec3 dz = box_skin(b, vec3(p.x, p.y, 1.0)) - box_skin(b, vec3(p.x, p.y, 0.0));
-    // Cofactors are inverse-transpose up to a common determinant. This remains
-    // finite when severe crashes collapse a cell (unlike matrix inversion).
-    vec3 result = cross(dy, dz) * n.x + cross(dz, dx) * n.y + cross(dx, dy) * n.z;
-    return length(result) > 0.000001 ? normalize(result) : vec3(0.0, 1.0, 0.0);
+void body_skin(vec3 p, vec3 normal, out vec3 point, out vec3 mapped_normal) {
+    vec3 f, fx, fy, fz;
+    vec3 c, cx, cy, cz;
+    cell_skin(0, p, f, fx, fy, fz);
+    cell_skin(8, cab_offset + p * cab_scale, c, cx, cy, cz);
+    float t = clamp((p.y * body_height - blend_start) / (blend_end - blend_start), 0.0, 1.0);
+    float blend = t * t * (3.0 - 2.0*t);
+    float derivative = 6.0*t*(1.0-t) * body_height / (blend_end - blend_start);
+    point = mix(f, c, blend);
+    vec3 dx = mix(fx, cx * cab_scale.x, blend);
+    vec3 dy = mix(fy, cy * cab_scale.y, blend) + (c-f)*derivative;
+    vec3 dz = mix(fz, cz * cab_scale.z, blend);
+    vec3 n = cross(dy, dz)*normal.x + cross(dz, dx)*normal.y + cross(dx, dy)*normal.z;
+    mapped_normal = dot(n,n) > 0.00000001 ? normalize(n) : vec3(0.0, 1.0, 0.0);
 }
 vec3 ring_sample(int first, float phase) {
     float f = fract(phase) * 10.0;
@@ -30,8 +51,9 @@ vec3 ring_sample(int first, float phase) {
     vec3 b = node_positions[first + k];
     vec3 c = node_positions[first + (k + 1) % 10];
     vec3 d = node_positions[first + (k + 2) % 10];
-    // Catmull-Rom passes through every physical ring node. Extra render vertices
-    // improve the silhouette while retaining local contact-patch deformation.
+    // Catmull-Rom follows derived wheel-ring guides. Their continuous rotation
+    // and small supported-patch squash come from the four physical wheel hubs;
+    // these 80 samples are not independent dynamic tire particles.
     return 0.5 * ((2.0 * b) + (c - a) * t +
         (2.0 * a - 5.0 * b + 4.0 * c - d) * t * t +
         (-a + 3.0 * b - 3.0 * c + d) * t * t * t);
@@ -46,11 +68,13 @@ vec3 wheel_skin(int hub, vec3 p) {
 }
 void vertex() {
     bind_position = VERTEX;
+    bind_normal = NORMAL;
     int binding = int(round(UV2.x));
     vec3 point;
     if (binding < 16) {
-        point = box_skin(binding, VERTEX);
-        NORMAL = box_normal(binding, VERTEX, NORMAL);
+        vec3 mapped_normal;
+        body_skin(VERTEX, NORMAL, point, mapped_normal);
+        NORMAL = mapped_normal;
     } else if (binding >= 100) {
         int wheel = (binding - 100) % 4;
         vec3 upper = node_positions[wheel + (binding < 104 ? 4 : 0)];

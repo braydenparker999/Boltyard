@@ -1,0 +1,44 @@
+{
+  "dirt": {
+    "albedo": "terrain_dirt.png",
+    "normal": "terrain_dirt_normal.png",
+    "roughness": "terrain_dirt_roughness.png",
+    "mean_srgb_255": [
+      117.2,
+      97.4,
+      73.6
+    ],
+    "size": [
+      512,
+      512
+    ]
+  },
+  "grass": {
+    "albedo": "terrain_grass.png",
+    "normal": "terrain_grass_normal.png",
+    "roughness": "terrain_grass_roughness.png",
+    "mean_srgb_255": [
+      90.6,
+      90.7,
+      58.9
+    ],
+    "size": [
+      512,
+      512
+    ]
+  },
+  "rock": {
+    "albedo": "terrain_rock.png",
+    "normal": "terrain_rock_normal.png",
+    "roughness": "terrain_rock_roughness.png",
+    "mean_srgb_255": [
+      110.4,
+      102.4,
+      87.4
+    ],
+    "size": [
+      512,
+      512
+    ]
+  }
+}

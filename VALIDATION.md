@@ -1,47 +1,27 @@
-# Validation record — Bolt Yard 0.3, 2026-09-05
+# Validation record — Bolt Yard 0.4, 2026-09-05
 
-The integrated Android build passes **204 automated checks**. Actual rendered screenshots were inspected in both orientations, with all three vehicles and the exploration map. Artifact identity and packaging verification are recorded below.
+The handling rebuild passes 78 native checks and two complete exploration-road driving scenarios. Local Godot tests pass 31 retained construction checks, 18 offroad integration checks, 47 catalog checks, 36 exploration/save/orientation checks, and 257 vehicle geometry checks: **467 assertions plus two road scenarios**.
 
-## Verified APK
+## Handling
 
-[Successful Android build](https://github.com/braydenparker999/Boltyard/actions/runs/33987686884)
+Default pickup speed after five seconds increases from 17.39 to 52.89 km/h on flat ground. Ten-second distance increases from 41.50 to 123.48 metres; flat vertical chassis velocity RMS falls from 0.0444 to 0.00018 m/s. The same host benchmark measures native CPU around 0.17–0.31 ms per 60 Hz frame versus 0.607 ms previously. Timing varies with concurrent host work and excludes graphics.
 
-Code commit: `985be43678fe103ca1a13b297efa70ef9d9a68da`
+All three vehicles hold a 27% grade within 0.00071 m over ten seconds and restart uphill. A 1.299 km route completes with 28.8 and 45 km/h cruise targets and braking for bends, without damage, rejected states or velocity clamps. Driving cadence matches exactly at 10/15/30/60/120 Hz and with irregular frame intervals. Reverse-at-speed first brakes before reversing.
 
-Artifact: `bolt-yard-0.3.0-explorer.apk`, 27,290,312 bytes.
+The local 21-second actual-control movie reaches 38.9 km/h along the trail, has minimum upright-vector y of 0.972, no damage or solver recoveries, and brakes to rest. A final movie with the finished materials is also required by the Android workflow. These are software-rendered host captures, not phone frame-rate results.
 
-SHA-256: `9648c48a951997a77b879cddaf6bebd9c3eed5fbec6b3fd610b5179590b25f02`
+## Bodywork and graphics
 
-The downloaded APK matched the workflow checksum and passed ZIP integrity checks. Its ARM64 solver, C++ runtime, extension registration and vehicle shader include are present. Test files and the development keystore are excluded from APK assets.
+The 257 geometry checks cover stock and fully fitted pickup, Scout and buggy builds. They inspect deformed vertices under steering, impact, cab dents and far-origin repair, rejecting nonfinite/degenerate triangles, opened shared seams and mesh-reuse failures. The stock models have 10,132 / 10,202 / 8,678 triangles; fully fitted variants have 10,296 / 10,366 / 8,574.
 
-Android apksigner verified v1, v2 and v3 signatures. The signing certificate fingerprint matches the downloaded v0.2 APK, supporting an in-place update. The binary manifest confirms `games.boltyard.prototype`, version 0.3.0 / code 3, orientation `fullUser` (13), and no requested permissions. The package supports minimum API 21 and targets API 34. Both screen orientations are permitted subject to Android's auto-rotation setting.
+Actual OpenGL views were inspected for all three vehicles from front, side and rear, plus installed accessory combinations. Fixes include continuous shared panel deformation, enclosed wheel wells and interiors, supported buggy braces, attached roof/spare hardware, readable lamps, correct metal wheels and distinct paint/glass/rubber response.
 
-All 204 checks passed in the final workflow. Final capture logs contain no script, shader or runtime errors, and visual review confirmed the layout corrections, intact vehicles, clearer shadows and revised lake/boulder appearance. Some distant terrain remains coarse and the graphics are procedural and stylized.
+World checks cover source-color conversion, mipmapped materials, ground/physics agreement, rock/shore geometry, detailed foliage, shadows, cached reflections and the new photographic sky, stone and foliage assets. Generated material prompts and provenance are in assets/world. Water remains scenery over a solid low-grip lake bed; it does not simulate buoyancy.
 
-The APK/checksum and all validation logs/screenshots are available as `bolt-yard-android` and `bolt-yard-build-logs` in the linked workflow. No further code changes were made after this verified build; the subsequent commit only updates these documents.
+## Android build
 
-## Automated coverage
+The workflow builds and tests the native Linux and Android ARM64 libraries, renders 13 static views plus four driving frames and a controlled 21-second movie, exports the APK, and verifies signatures, package information and checksum. The downloaded artifact identity will be recorded here after that build completes.
 
-- 73 native C++ checks: all 47 retained physics cases plus distinct vehicle structures, equipment effects, exact mass accounting, centre-of-mass shifts, native terrain, narrow-post contacts and part endpoints.
-- 17 native-extension/offroad scene checks: registration, contact telemetry, load support, propulsion, live drivetrain changes, recovery, fixed cadence and combined control inputs.
-- 31 retained engine checks for the earlier construction prototype.
-- 47 catalog checks: three vehicle setups, compatible parts, physical composition, invalid values, tuning precedence and JSON round trips.
-- 36 explorer checks: migration that preserves the legacy file, separately saved builds, equipment application, destination/discovery rules, map pause, settings persistence, both orientations, input clearing, camp reset, settled sidebar bounds, footer visibility and navigation size.
+## Device scope
 
-The native suite also passed locally with strict warnings; headless Godot checks passed locally. A separate renderer sweep instantiated all 54 compatible vehicle/part selections and verified that normal frame updates reuse the existing source mesh. This is one part selection at a time, not an exhaustive test of all combined equipment builds.
-
-## Rendering review
-
-The first capture pass rendered all three vehicles, portrait garage/driving, map, exploration, beam diagnostics and impact views with Godot 4.4.1 under Xvfb/Mesa. The vehicle skin, tires, windows, cage and equipment were visible without shader errors.
-
-Review found oversized containers caused by wrapped text retaining a previous minimum size. Layout now settles over subsequent frames, and the automated suite checks the resulting bounds. The next screenshot pass confirmed the sidebar/footer and portrait navigation fixes, and removed the diagonal shadow striping. Additional fixes closed two hood side gaps, corrected lake/canopy triangle winding, adjusted daylight/shadow bias, applied the saved quality level after lighting creation, and restricted the static camp reflection to scenery. The final scenery pass replaced visibly repetitive water-color waves with gentle reflection-normal ripples, varied the shoreline and rounded boulder geometry.
-
-The capture script renders 13 views, including a static camp reflection enabled with Balanced quality and a separate across-lake camera view to inspect the shoreline. No script, shader or runtime errors were present in successful capture logs. The runner emits a driver V-Sync warning.
-
-The screenshot runner uses software rendering; its displayed FPS is not a Galaxy A15 measurement. Directional shadows and clearcoat/reflections use the GL Compatibility renderer. They are modest mobile-oriented effects, not ray tracing or real-time mirror surfaces.
-
-## Device status
-
-The user reported smooth operation and working customization for v0.2 on a Samsung A15. No physical Android device or Android emulator was accessed for v0.3. Installation/update, actual multitouch comfort, system auto-rotation, background/resume, sustained FPS, temperature and battery use still need a run on that phone.
-
-Start with the default Performance setting. Balanced and High increase scenery/shadow reach and enable a static reflection at camp. Numerical tests establish regression behavior, not real-vehicle calibration or BeamNG-level fidelity. See [SIMULATION.md](SIMULATION.md) for the implemented mechanics and limitations.
+The user tested earlier versions on a Samsung A15 and identified slow/glitchy handling and incomplete vehicle geometry in 0.3. No physical Android device or emulator has been accessed for 0.4. Installation/update behavior, actual touch feel, frame rate, temperature, background/resume and sustained battery cost still need validation on that phone. Existing package, signing key, save paths and orientation support are retained.

@@ -19,6 +19,7 @@ var destination = ""
 var quality = 0
 var truck
 var world
+var trail_dust
 var camera: Camera3D
 var ui: Control
 var garage_panel: PanelContainer
@@ -68,7 +69,7 @@ var toast_remaining = 0.0
 var tuning_delay = -1.0
 var telemetry_delay = 0.0
 var recovery_cooldown = 0.0
-var orbit = 0.72
+var orbit = 2.24
 var orbit_distance = 9.3
 var camera_target = Vector3.ZERO
 var follow_direction = Vector3.BACK
@@ -102,6 +103,9 @@ func _ready() -> void:
 	camera.near = 0.08
 	camera.far = 800.0
 	add_child(camera)
+	trail_dust = preload("res://scripts/trail_dust.gd").new()
+	add_child(trail_dust)
+	apply_display_quality()
 	build_ui()
 	sync_controls()
 	get_viewport().size_changed.connect(layout_ui)
@@ -203,7 +207,7 @@ func build_ui() -> void:
 	var brand = column(header_row, 0)
 	brand.name = "Brand"
 	label(brand, "BOLT YARD", 22)
-	label(brand, "VALLEY EXPEDITION  /  0.3", 10, ACCENT)
+	label(brand, "VALLEY EXPEDITION  /  0.4", 10, ACCENT)
 	var spacer = Control.new()
 	spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	header_row.add_child(spacer)
@@ -297,7 +301,7 @@ func build_garage() -> void:
 		quality_picker.add_item(quality_name)
 	quality_picker.item_selected.connect(change_quality)
 	options.add_child(quality_picker)
-	var quality_note = label(options, "Performance keeps a lighter view for longer exploration. Rotate your phone at any time.", 12, MUTED)
+	var quality_note = label(options, "Performance uses a lighter 3D resolution with sharp controls. Balanced and High add detail. Rotate your phone at any time.", 12, MUTED)
 	quality_note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	garage_footer = row(content, 7)
 	button(garage_footer, "Save build", save_with_toast, 90).size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -594,8 +598,15 @@ func clear_tuning() -> void:
 func change_quality(index: int) -> void:
 	quality = clampi(index, 0, 2)
 	world.set_quality(quality)
+	apply_display_quality()
 	save_settings()
 	toast("Graphics: %s. Use Performance if exploration starts to slow down." % ["Performance", "Balanced", "High"][quality])
+
+func apply_display_quality() -> void:
+	var viewport = get_viewport()
+	viewport.scaling_3d_mode = Viewport.SCALING_3D_MODE_BILINEAR
+	viewport.scaling_3d_scale = [0.75, 0.85, 1.0][quality]
+	viewport.msaa_3d = Viewport.MSAA_DISABLED if quality == 0 else Viewport.MSAA_2X
 
 func update_paint_buttons() -> void:
 	for color in paint_buttons:
@@ -665,7 +676,7 @@ func toggle_xray() -> void:
 	truck.wireframe = xray
 	xray_button.text = "X-ray ✓" if xray else "X-ray"
 	xray_button.add_theme_stylebox_override("normal", box(Color("56634f") if xray else Color("2b3c43"), 10))
-	toast("Structure view: the physical beams and tire nodes." if xray else "Body view restored.")
+	toast("Structure view: frame, suspension and wheel guides." if xray else "Body view restored.")
 
 func toggle_mode() -> void:
 	if help_open or backgrounded or map_overlay.visible:
@@ -800,7 +811,7 @@ func show_help() -> void:
 	var dialog = AcceptDialog.new()
 	dialog.title = "Bolt Yard · Field guide"
 	dialog.process_mode = Node.PROCESS_MODE_ALWAYS
-	dialog.dialog_text = "BUILD YOUR RIG\nPickup, Scout and Buggy each keep a separate build.\nEquipment changes compatible parts and their matching settings.\nFine tuning overrides those settings. Reset tuning restores installed parts.\n\nEXPLORE\nSelect a destination on the map, then follow the compass.\nPlaces are discovered when you actually drive close to them.\nCamp repairs the vehicle and returns you to the workshop.\nHold GO plus a steering arrow. REV reverses; BRAKE slows the wheels.\nLow range and locked differentials help with slow climbs.\nKeyboard: WASD / arrows, Space brake, R camp, M map, Tab garage.\n\nDISPLAY & SAVES\nBoth portrait and landscape layouts work; rotate at any time.\nPerformance, Balanced and High adjust scenery and shadows.\nAll builds and discoveries save on this device. The old setup is retained.\n\nPHYSICS\nThe frame and tires are deformable. Parts change the simulated build.\nRelative tire pressure is a stiffness/grip multiplier, not calibrated bar.\nTire, suspension and drivetrain models remain simplified."
+	dialog.dialog_text = "BUILD YOUR RIG\nPickup, Scout and Buggy each keep a separate build.\nEquipment changes compatible parts and their matching settings.\nFine tuning overrides those settings. Reset tuning restores installed parts.\n\nEXPLORE\nSelect a destination on the map, then follow the compass.\nPlaces are discovered when you actually drive close to them.\nCamp repairs the vehicle and returns you to the workshop.\nHold GO plus a steering arrow. REV reverses; BRAKE slows the wheels.\nLow range and locked differentials help with slow climbs.\nKeyboard: WASD / arrows, Space brake, R camp, M map, Tab garage.\n\nDISPLAY & SAVES\nBoth portrait and landscape layouts work; rotate at any time.\nPerformance, Balanced and High adjust scenery and shadows.\nAll builds and discoveries save on this device. The old setup is retained.\n\nPHYSICS\nThe frame and cabin deform; tires use round contacts and visual squash. Parts change the simulated build.\nRelative tire pressure is a stiffness/grip multiplier, not calibrated bar.\nTire, suspension and drivetrain models remain simplified."
 	ui.add_child(dialog)
 	dialog.confirmed.connect(dialog.queue_free)
 	dialog.canceled.connect(dialog.queue_free)
@@ -907,6 +918,7 @@ func _process(delta: float) -> void:
 			apply_tuning()
 	current_telemetry = truck.get_telemetry()
 	update_camera(delta)
+	trail_dust.update_trail(delta, driving and not xray, truck.core, truck._nodes, current_telemetry, camera, float(settings.get("tire_radius", 0.46)))
 	telemetry_delay -= delta
 	var position: Vector3 = current_telemetry.get("position", CAMP)
 	if telemetry_delay <= 0:
@@ -930,14 +942,18 @@ func update_camera(delta: float) -> void:
 	var target = position + Vector3.UP * 0.3
 	var desired: Vector3
 	if driving:
+		var speed: float = absf(float(current_telemetry.get("speed", 0.0)))
 		var forward: Vector3 = current_telemetry.get("forward", Vector3.FORWARD)
 		forward.y = 0.0
 		if forward.length_squared() > 0.01:
-			follow_direction = follow_direction.lerp(-forward.normalized(), 1.0 - exp(-1.8 * delta)).normalized()
-		desired = target + follow_direction * (9.5 if portrait else 8.8) + Vector3.UP * (5.1 if portrait else 4.4)
-		# A little look-ahead keeps the trail visible in the narrower portrait view.
-		target -= follow_direction * (2.0 if portrait else 0.7)
+			follow_direction = follow_direction.lerp(-forward.normalized(), 1.0 - exp(-3.2 * delta)).normalized()
+		desired = target + follow_direction * ((8.6 if portrait else 7.7) + minf(speed * 0.055, 1.2)) + Vector3.UP * (3.5 if portrait else 2.4)
+		# Look along the trail from closer to driver height; preserve the horizon.
+		target -= follow_direction * (3.0 + minf(speed * 0.07, 1.6))
+		target.y = maxf(target.y, float(truck.core.terrain_height(target.x, target.z)) + 0.7)
+		camera.fov = lerpf(camera.fov, 60.0 + minf(speed * 0.3, 8.0), 1.0 - exp(-2.0 * delta))
 	else:
+		camera.fov = lerpf(camera.fov, 52.0, 1.0 - exp(-4.0 * delta))
 		var preview_distance = orbit_distance * (1.14 if portrait else 1.0)
 		var offset = Vector3(sin(orbit) * preview_distance, preview_distance * 0.53, cos(orbit) * preview_distance)
 		desired = position + offset
@@ -949,6 +965,14 @@ func update_camera(delta: float) -> void:
 			desired -= camera_right * 1.9
 	# Follow terrain when the camera crosses a hill instead of disappearing below it.
 	desired.y = maxf(desired.y, float(truck.core.terrain_height(desired.x, desired.z)) + 1.2)
+	# Keep the whole sightline above hill crests, including between its endpoints.
+	var lift = 0.0
+	for sample in range(1, 9):
+		var fraction = float(sample) / 8.0
+		var point = target.lerp(desired, fraction)
+		var clearance = float(truck.core.terrain_height(point.x, point.z)) + 0.35 - point.y
+		lift = maxf(lift, clearance / fraction)
+	desired.y += lift
 	if not did_position_camera:
 		camera_target = target
 		camera.position = desired
@@ -965,7 +989,7 @@ func update_telemetry() -> void:
 	var broken = int(current_telemetry.get("broken_beams", 0))
 	var grounded = clampi(int(current_telemetry.get("wheels_grounded", 0)), 0, 4)
 	speed_label.text = "%02d  km/h" % roundi(speed)
-	drive_status.text = "%d wheels grounded · %s" % [grounded, "LOW" if settings.low_range else "HIGH"]
+	drive_status.text = "%d wheels · %s · %d fps" % [grounded, "LOW" if settings.low_range else "HIGH", Engine.get_frames_per_second()]
 	drive_damage.text = "CHASSIS %d%% · %d broken" % [roundi((1.0 - damage) * 100.0), broken]
 	drive_damage.add_theme_color_override("font_color", Color("f09375") if damage > 0.25 or broken > 0 else ACCENT)
 	garage_status.text = "%d%% chassis · %d broken beams · %d fps\n%d / %d places discovered" % [roundi((1.0 - damage) * 100.0), broken, Engine.get_frames_per_second(), discovered.size(), landmarks.size()]

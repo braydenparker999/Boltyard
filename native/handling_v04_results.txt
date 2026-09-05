@@ -1,0 +1,14 @@
+terrain=0 time=2s speed=8.297m/s (29.87km/h) distance=8.53m lateral=-0.002m damage=0.00000
+terrain=0 time=5s speed=14.692m/s (52.89km/h) distance=45.28m lateral=-0.010m damage=0.00000
+terrain=0 time=10s speed=16.077m/s (57.88km/h) distance=123.48m lateral=-0.148m damage=0.00000
+terrain=0 CPU=0.313ms/60Hz-frame vertical_RMS=0.00018m/s vertical_max=0.0030m/s min_up=1.0000
+terrain=1 time=2s speed=8.280m/s (29.81km/h) distance=8.53m lateral=-0.002m damage=0.00000
+terrain=1 time=5s speed=11.061m/s (39.82km/h) distance=37.70m lateral=0.131m damage=0.00000
+terrain=1 time=10s speed=14.605m/s (52.58km/h) distance=86.65m lateral=0.142m damage=0.00000
+terrain=1 CPU=0.526ms/60Hz-frame vertical_RMS=1.91017m/s vertical_max=6.6491m/s min_up=0.7115
+terrain=2 time=2s speed=8.297m/s (29.87km/h) distance=8.53m lateral=-0.002m damage=0.00000
+terrain=2 time=5s speed=14.696m/s (52.90km/h) distance=45.28m lateral=-0.013m damage=0.00000
+terrain=2 time=10s speed=15.175m/s (54.63km/h) distance=119.82m lateral=2.087m damage=0.00000
+terrain=2 CPU=0.298ms/60Hz-frame vertical_RMS=1.33143m/s vertical_max=2.9319m/s min_up=0.9038
+steer=0.35 turn_min_up=0.99974 brake_from=15.205m/s brake_distance=9.678m speed_after_3s=0.00100m/s damage=0.00000
+steer=1.00 turn_min_up=0.99910 brake_from=11.651m/s brake_distance=5.768m speed_after_3s=0.00046m/s damage=0.00000

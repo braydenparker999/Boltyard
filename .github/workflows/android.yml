@@ -48,6 +48,7 @@ jobs:
           path: |
             build/*.log
             build/*.png
+            build/*.json
+            build/*.mp4
           if-no-files-found: ignore
-
 

@@ -1,13 +1,13 @@
 #pragma once
 
-// Bolt Yard's CPU node-and-beam vehicle. SI units throughout.
-// This is a deliberately bounded mobile prototype, not a BeamNG reimplementation.
-// The chassis, cab and both sidewalls of each tire are simulated mass nodes.
-// XPBD distance constraints transmit forces; structural beams can yield and break.
-// Wheel-plane guides and prismatic suspension approximate knuckles/control arms.
-// There is no rigid-body stand-in, canned driving force or cosmetic crash pose.
-// Limitations: one active vehicle, analytic terrain/cylinder contact, no self-contact, heat, fluid mud,
-// carcass hysteresis, clutch/gearbox transients, or full suspension link geometry.
+// Bolt Yard v0.4: deformable XPBD frame with four continuous tire contacts.
+// SI units. The 16 frame/cab particles and four lumped wheel assemblies carry
+// mass, gravity, suspension loads, contact traction and collision impulses.
+// The 80 sidewall samples preserve render bindings; they follow the round tire
+// contact model and are not independently integrated mass nodes. Structural
+// beams still yield and break, so impacts permanently deform the actual body.
+// Bounded mobile model: no self-contact, fluid mud, detailed clutch/transmission,
+// or independently deformable tire carcass. Pressure changes tire compliance.
 
 #include <algorithm>
 #include <array>
@@ -50,7 +50,7 @@ struct Config {
     float spring_rate = 30000.0f;   // N/m per corner
     float damping = 3000.0f;        // N s/m damping coefficient per corner
     float ride_height = 0.35f;      // m from frame underside to unloaded hub
-    float engine_torque = 450.0f;  // N m total torque before low-range ratio
+    float engine_torque = 450.0f;   // N m engine torque before reduction
     bool low_range = true;
     bool locked_diffs = true;
     float mass = 1200.0f;           // kg, entire vehicle including wheels
@@ -129,7 +129,7 @@ public:
         particles.clear(); beams.clear(); rest_positions.clear();
         accumulator_ = 0; steering_ = 0; contact_count_ = 0;
         velocity_limit_count_ = 0; nonfinite_count_ = 0; dropped_time_ = 0;
-        wheel_contact_counts_.fill(0);
+        wheel_contact_counts_.fill(0); wheel_spin_.fill(0); wheel_phase_.fill(0);
         const float frame_x = cfg_.track_width * 0.38f;
         const float frame_z = cfg_.wheelbase * 0.50f;
         const bool suv = cfg_.vehicle_type == 1;
@@ -207,14 +207,13 @@ public:
                     }
                 }
             }
-            // These observable spring beams are solved along the suspension axis,
-            // not as free distance links; this avoids hidden rigid-body suspension.
+            // Physical prismatic suspension spring, with compression/droop
+            // stops and a damper acting on the whole unsprung assembly.
             add_beam(w, wheel_hubs[w], SUSPENSION, 1.0f / cfg_.spring_rate);
         }
         contact_lambdas_.assign(particles.size(), 0);
         friction_offsets_.assign(particles.size(), Vec3{});
         contact_normals_.assign(particles.size(), Vec3(0, 1, 0));
-        wheel_plane_lambdas_.assign(particles.size(), 0);
         for (const auto &p : particles) rest_positions.push_back(p.pos);
         nearby_obstacles_.clear(); obstacle_lambdas_.clear(); obstacle_friction_.clear(); obstacle_normals_.clear();
         beam_contact_lambdas_.clear(); beam_contact_t_.clear(); beam_contact_normals_.clear();
@@ -233,7 +232,7 @@ public:
             accumulator_ -= fixed_dt;
             ++count;
         }
-        accumulator_ = std::max(0.0f, std::min(accumulator_, fixed_dt));
+        accumulator_ = std::clamp(accumulator_, 0.0, double(fixed_dt));
     }
 
     void set_terrain(int mode) { terrain_mode_ = std::clamp(mode, 0, 2); }
@@ -311,10 +310,17 @@ public:
     int contact_count() const { return contact_count_; }
     int wheel_contact_count(int wheel) const { return wheel >= 0 && wheel < 4 ? wheel_contact_counts_[wheel] : 0; }
     int node_count() const { return int(particles.size()); }
+    int physical_node_count() const { return 20; }
+    int physical_beam_count() const {
+        int count = 0; for (const auto &b : beams) if (b.kind != TIRE) ++count; return count;
+    }
+    int render_node_count() const { return int(particles.size()); }
+    float steering_angle() const { return steering_; }
+    Vec3 velocity() const { return linear_velocity(); }
     int beam_count() const { return int(beams.size()); }
     float wheel_angular_velocity(int wheel) const {
         if (wheel < 0 || wheel > 3) return 0;
-        return angular_velocity(wheel, wheel_axis(wheel));
+        return wheel_spin_[wheel];
     }
     float suspension_travel(int wheel) const {
         if (wheel < 0 || wheel > 3) return 0;
@@ -340,12 +346,14 @@ public:
 private:
     Config cfg_;
     int terrain_mode_ = 0;
-    float accumulator_ = 0, steering_ = 0, tire_width_ = 0.28f;
+    double accumulator_ = 0;
+    float steering_ = 0, tire_width_ = 0.28f;
+    std::array<float, 4> wheel_spin_{}, wheel_phase_{};
     int contact_count_ = 0;
     int velocity_limit_count_ = 0, nonfinite_count_ = 0;
     float dropped_time_ = 0;
     std::array<int, 4> wheel_contact_counts_{};
-    std::vector<float> contact_lambdas_, wheel_plane_lambdas_;
+    std::vector<float> contact_lambdas_;
     std::vector<Vec3> friction_offsets_, contact_normals_;
     std::array<std::array<float, 3>, 4> suspension_lambdas_{};
     struct NearbyObstacle { Vec3 base; float radius, height; };
@@ -355,6 +363,12 @@ private:
     std::vector<float> beam_contact_lambdas_, beam_contact_t_;
     std::vector<Vec3> beam_contact_normals_;
 
+    float dynamic_inv_mass(const Particle &p) const {
+        return p.wheel >= 0 ? p.inv_mass / float(nodes_per_wheel) : p.inv_mass;
+    }
+    float contact_radius(const Particle &p) const {
+        return p.wheel >= 0 ? cfg_.tire_radius : p.radius;
+    }
     static float safe_clamp(float x, float lo, float hi, float fallback) {
         return std::isfinite(x) ? std::clamp(x, lo, hi) : fallback;
     }
@@ -403,74 +417,94 @@ private:
         float angle = wheel < 2 ? steering_ : 0;
         return (r * std::cos(angle) - f * std::sin(angle)).normalized();
     }
-    float angular_velocity(int wheel, Vec3 axis) const {
-        const auto &hub = particles[wheel_hubs[wheel]];
-        float numerator = 0, denominator = 0;
-        for (int j = 1; j < nodes_per_wheel; ++j) {
-            const auto &p = particles[wheel_hubs[wheel] + j];
-            Vec3 r = p.pos - hub.pos;
-            Vec3 tangent = axis.cross(r);
-            float m = 1 / p.inv_mass;
-            numerator += m * tangent.dot(p.velocity - hub.velocity);
-            denominator += m * tangent.length_squared();
-        }
-        return denominator > 1e-5f ? numerator / denominator : 0;
-    }
-    float wheel_inertia(int w, Vec3 axis) const {
-        float result = 0;
-        const Vec3 hub = particles[wheel_hubs[w]].pos;
-        for (int j = 1; j < nodes_per_wheel; ++j) {
-            const auto &p = particles[wheel_hubs[w] + j];
-            result += axis.cross(p.pos - hub).length_squared() / p.inv_mass;
-        }
-        return std::max(0.1f, result);
-    }
-    void wheel_torque(int w, Vec3 axis, float torque) {
-        float inertia = wheel_inertia(w, axis);
-        const Vec3 hub = particles[wheel_hubs[w]].pos;
-        Vec3 tire_impulse;
-        for (int j = 1; j < nodes_per_wheel; ++j) {
-            auto &p = particles[wheel_hubs[w] + j];
-            Vec3 dv = axis.cross(p.pos - hub) * (torque / inertia * fixed_dt);
-            p.velocity += dv;
-            tire_impulse += dv / p.inv_mass;
-        }
-        // Remove tiny net force from asymmetric carcass, conserving drive momentum.
-        particles[wheel_hubs[w]].velocity -= tire_impulse * particles[wheel_hubs[w]].inv_mass;
-        // Engine/axle reaction torque is transmitted to the chassis node network.
-        Vec3 c = center();
-        float body_inertia = 0;
-        for (int i = 0; i < 8; ++i)
-            body_inertia += axis.cross(particles[i].pos - c).length_squared() / particles[i].inv_mass;
-        if (body_inertia > 1e-5f) for (int i = 0; i < 8; ++i)
-            particles[i].velocity -= axis.cross(particles[i].pos - c) * (torque / body_inertia * fixed_dt);
-    }
-    void apply_drivetrain(float throttle, bool brake) {
-        std::array<Vec3, 4> axes;
-        std::array<float, 4> omega;
-        float mean = 0, fastest = 0;
+    void solve_tire_traction(float throttle, bool brake) {
+        const float forward_speed = linear_velocity().dot(forward());
+        const float ratio = (cfg_.low_range ? 5.5f : 3.8f) * cfg_.final_drive;
+        const float top_speed = (throttle < 0 ? 9.0f : (cfg_.low_range ? 16.5f : 31.0f)) / cfg_.final_drive;
+        const float demand_speed = std::abs(forward_speed);
+        // Flat low-speed torque, then a smooth power/road-speed falloff.
+        const float limiter = std::clamp(1.0f - std::pow(demand_speed / top_speed, 3.0f), 0.0f, 1.0f);
+        const float engine_force = throttle * cfg_.engine_torque * ratio / (4.0f * cfg_.tire_radius) * limiter;
+        std::array<float, 4> traction_capacity{};
         for (int w = 0; w < 4; ++w) {
-            axes[w] = wheel_axis(w); omega[w] = angular_velocity(w, axes[w]);
-            mean += omega[w] * 0.25f; fastest = std::max(fastest, std::abs(omega[w]));
+            const auto &hub = particles[wheel_hubs[w]];
+            traction_capacity[w] = contact_lambdas_[wheel_hubs[w]] / (fixed_dt * fixed_dt) *
+                cfg_.tire_grip * 1.18f * terrain_surface(hub.pos.x, hub.pos.z);
         }
-        const float ratio = (cfg_.low_range ? 2.65f : 1.0f) * cfg_.final_drive;
-        const float wheel_limit = (cfg_.low_range ? 10.5f : 26.0f) / (cfg_.tire_radius * cfg_.final_drive);
-        const float limiter = std::clamp(1.0f - std::pow(fastest / wheel_limit, 2.0f), 0.0f, 1.0f);
         for (int w = 0; w < 4; ++w) {
-            float inertia = wheel_inertia(w, axes[w]);
-            float drive = -throttle * cfg_.engine_torque * ratio * 0.25f * limiter;
-            // Equal torque for open diffs; a finite torsional coupling for lockers.
-            float locking = cfg_.locked_diffs ? (mean - omega[w]) * inertia * 13.0f : 0;
-            locking = std::clamp(locking, -1500.0f, 1500.0f);
-            float rolling_loss = -omega[w] * 0.65f;
-            float braking = brake ? std::clamp(-omega[w] * inertia / fixed_dt, -2300.0f, 2300.0f) : 0;
-            if (brake) drive = 0;
-            wheel_torque(w, axes[w], drive + locking + rolling_loss + braking);
+            auto &hub = particles[wheel_hubs[w]];
+            const float inv_mass = dynamic_inv_mass(hub);
+            const float inertia = std::max(1.0f, 0.5f / inv_mass * cfg_.tire_radius * cfg_.tire_radius);
+            const float normal_impulse = contact_lambdas_[wheel_hubs[w]] / fixed_dt;
+            if (normal_impulse > 1e-5f) {
+                // Braked tires solve static/dynamic friction in the position
+                // constraints, so slopes hold without velocity-only creep.
+                if (brake) { wheel_spin_[w] = 0; continue; }
+                const Vec3 n = contact_normals_[wheel_hubs[w]];
+                Vec3 axle = wheel_axis(w);
+                Vec3 rolling = n.cross(axle).normalized();
+                if (rolling.dot(forward()) < 0) rolling = -rolling;
+                const Vec3 lateral = rolling.cross(n).normalized();
+                const float longitudinal_speed = hub.velocity.dot(rolling);
+                const float lateral_speed = hub.velocity.dot(lateral);
+                const float quarter_mass = cfg_.mass * 0.25f;
+                // Each tire handles its share of sprung-body slip over a finite
+                // relaxation time. The Coulomb circle couples braking and turn grip.
+                // An open axle can only supply the torque supported by its
+                // lower-traction wheel; a locker keeps loading the planted tire.
+                const float axle_capacity = cfg_.locked_diffs ? traction_capacity[w] :
+                    std::min(traction_capacity[w], traction_capacity[w ^ 1]);
+                float longitudinal = std::clamp(engine_force, -axle_capacity, axle_capacity) * fixed_dt;
+                const float rolling_resistance = std::min(std::abs(longitudinal_speed) * quarter_mass,
+                    quarter_mass * (0.10f + 0.0012f * longitudinal_speed * longitudinal_speed) * fixed_dt);
+                longitudinal -= std::copysign(rolling_resistance, longitudinal_speed);
+                if (brake) longitudinal = -longitudinal_speed / inv_mass;
+                float lateral_impulse = -lateral_speed * quarter_mass * std::min(1.0f, fixed_dt / 0.065f);
+                Vec3 impulse = rolling * longitudinal + lateral * lateral_impulse;
+                float mu = cfg_.tire_grip * 1.18f * terrain_surface(hub.pos.x, hub.pos.z);
+                mu *= std::clamp(1.05f - 0.10f * (cfg_.tire_pressure - 1), 0.88f, 1.12f);
+                const float limit = mu * normal_impulse;
+                const float requested = impulse.length();
+                if (requested > limit && requested > 1e-7f) impulse *= limit / requested;
+                hub.velocity += impulse * inv_mass;
+                float slip_spin = brake ? 0 : std::max(0.0f, requested - limit) * cfg_.tire_radius / inertia;
+                wheel_spin_[w] = -longitudinal_speed / cfg_.tire_radius - std::copysign(slip_spin, throttle);
+            } else {
+                const float drive_torque = brake ? 0 : -throttle * cfg_.engine_torque * ratio * 0.25f;
+                wheel_spin_[w] += drive_torque / inertia * fixed_dt;
+                wheel_spin_[w] *= brake ? std::exp(-16 * fixed_dt) : std::exp(-0.18f * fixed_dt);
+                wheel_spin_[w] = std::clamp(wheel_spin_[w], -top_speed / cfg_.tire_radius, top_speed / cfg_.tire_radius);
+            }
+        }
+        if (cfg_.locked_diffs) {
+            const float mean = (wheel_spin_[0] + wheel_spin_[1] + wheel_spin_[2] + wheel_spin_[3]) * 0.25f;
+            for (float &omega : wheel_spin_) omega += (mean - omega) * std::min(1.0f, 14.0f * fixed_dt);
+        }
+    }
+    void update_wheel_skin() {
+        const Vec3 u = up();
+        for (int w = 0; w < 4; ++w) {
+            const auto &hub = particles[wheel_hubs[w]];
+            const Vec3 axle = wheel_axis(w);
+            const Vec3 radial = axle.cross(u).normalized();
+            wheel_phase_[w] = std::remainder(wheel_phase_[w] + wheel_spin_[w] * fixed_dt, 6.28318530718f);
+            const float ground = terrain_height(hub.pos.x, hub.pos.z);
+            for (int side = 0; side < 2; ++side) for (int j = 0; j < tire_segments; ++j) {
+                auto &p = particles[wheel_hubs[w] + 1 + side * tire_segments + j];
+                const float theta = 6.28318530718f * j / tire_segments + wheel_phase_[w];
+                Vec3 radius = (u * std::cos(theta) + radial * std::sin(theta)) * (cfg_.tire_radius * 0.88f);
+                p.prev = p.pos;
+                p.pos = hub.pos + axle * ((side == 0 ? -0.5f : 0.5f) * tire_width_) + radius;
+                // Pressure/contact compression flattens just the supported patch.
+                if (contact_lambdas_[wheel_hubs[w]] > 0)
+                    p.pos.y = std::max(p.pos.y, ground + p.radius * 0.65f);
+                p.velocity = hub.velocity + axle.cross(radius) * wheel_spin_[w];
+            }
         }
     }
 
     void solve_beam(Beam &b) {
-        if (b.broken || b.kind == SUSPENSION) return;
+        if (b.broken || b.kind == SUSPENSION || b.kind == TIRE) return;
         auto &a = particles[b.a]; auto &c = particles[b.b];
         Vec3 delta = c.pos - a.pos; float len = delta.length();
         if (len < 1e-7f) return;
@@ -487,9 +521,10 @@ private:
         auto &a = particles[a_idx]; auto &b = particles[b_idx];
         float error = (b.pos - a.pos).dot(axis) - target;
         float alpha = compliance / (fixed_dt * fixed_dt);
-        float dl = (-error - alpha * lambda) / (a.inv_mass + b.inv_mass + alpha);
+        float ai = dynamic_inv_mass(a), bi = dynamic_inv_mass(b);
+        float dl = (-error - alpha * lambda) / (ai + bi + alpha);
         lambda += dl;
-        a.pos -= axis * (dl * a.inv_mass); b.pos += axis * (dl * b.inv_mass);
+        a.pos -= axis * (dl * ai); b.pos += axis * (dl * bi);
     }
     void solve_suspension() {
         Vec3 u = up(), r = right(), f = forward();
@@ -508,38 +543,47 @@ private:
                 float stop_lambda = 0;
                 solve_axis(w, hub, u, std::clamp(vertical, lower, upper), 1.0f / 4500000.0f, stop_lambda);
             }
-            Vec3 axis = wheel_axis(w);
-            for (int side = 0; side < 2; ++side) for (int j = 0; j < tire_segments; ++j) {
-                int n = hub + 1 + side * tire_segments + j;
-                solve_axis(hub, n, axis, (side == 0 ? -0.5f : 0.5f) * tire_width_,
-                           1.0f / (480000.0f * cfg_.tire_pressure), wheel_plane_lambdas_[n]);
-            }
+
         }
     }
-    void solve_contacts() {
+    void solve_contacts(bool brake) {
         for (std::size_t i = 0; i < particles.size(); ++i) {
             auto &p = particles[i];
+            if (p.tire) continue;
+            const float radius = contact_radius(p);
+            const float inv_mass = dynamic_inv_mass(p);
             float h = terrain_height(p.pos.x, p.pos.z);
-            if (p.pos.y - h > p.radius + 0.04f && contact_lambdas_[i] <= 0) continue;
+            if (p.pos.y - h > radius + 0.04f && contact_lambdas_[i] <= 0) continue;
             Vec3 normal = terrain_normal(p.pos.x, p.pos.z);
-            float C = (p.pos.y - h) * normal.y - p.radius;
-            // A stiff contact foundation; pressure works through the actual carcass.
-            float alpha = 1.0f / (4500000.0f * fixed_dt * fixed_dt);
-            float dl = (-C - alpha * contact_lambdas_[i]) / (p.inv_mass + alpha);
+            float C = (p.pos.y - h) * normal.y - radius;
+            // Three support lines across the tire width keep a wide tire from
+            // falling into a rut that it physically spans. Body contacts remain
+            // point spheres; the round tire has no rotating polygon facets.
+            if (p.wheel >= 0 && terrain_mode_ != 0) {
+                const Vec3 half_axle = wheel_axis(p.wheel) * (tire_width_ * 0.46f);
+                for (float sign : {-1.0f, 1.0f}) {
+                    const Vec3 sample = p.pos + half_axle * sign;
+                    const float sample_height = terrain_height(sample.x, sample.z);
+                    const Vec3 sample_normal = terrain_normal(sample.x, sample.z);
+                    const float candidate = (sample.y - sample_height) * sample_normal.y - radius;
+                    if (candidate < C) { C = candidate; normal = sample_normal; }
+                }
+            }
+            const float stiffness = p.wheel >= 0 ? 300000.0f * cfg_.tire_pressure : 4500000.0f;
+            float alpha = 1.0f / (stiffness * fixed_dt * fixed_dt);
+            float dl = (-C - alpha * contact_lambdas_[i]) / (inv_mass + alpha);
             float new_lambda = std::max(0.0f, contact_lambdas_[i] + dl);
             dl = new_lambda - contact_lambdas_[i]; contact_lambdas_[i] = new_lambda;
-            p.pos += normal * (dl * p.inv_mass);
+            p.pos += normal * (dl * inv_mass);
             contact_normals_[i] = normal;
-            if (new_lambda <= 0) continue;
+            if (new_lambda <= 0 || (p.wheel >= 0 && !brake)) continue;
             Vec3 displacement = p.pos - p.prev;
             Vec3 slip = displacement - normal * displacement.dot(normal);
             Vec3 proposed = friction_offsets_[i] + slip;
-            float mu = p.tire ? 1.20f : 0.45f;
-            mu *= terrain_surface(p.pos.x, p.pos.z);
-            // Simplified pressure/contact-patch grip; it is intentionally bounded.
-            if (p.tire) mu *= cfg_.tire_grip * std::clamp(1.06f - 0.10f * (cfg_.tire_pressure - 1), 0.85f, 1.14f);
-            float bound = mu * new_lambda * p.inv_mass;
-            float l = proposed.length();
+            const float mu = p.wheel >= 0 ? 1.18f * cfg_.tire_grip *
+                std::clamp(1.05f - 0.10f * (cfg_.tire_pressure - 1), 0.88f, 1.12f) : 0.45f;
+            const float bound = mu * terrain_surface(p.pos.x, p.pos.z) * new_lambda * inv_mass;
+            const float l = proposed.length();
             if (l > bound && l > 1e-8f) proposed *= bound / l;
             p.pos -= proposed - friction_offsets_[i];
             friction_offsets_[i] = proposed;
@@ -577,13 +621,16 @@ private:
             const auto &o = nearby_obstacles_[k];
             for (std::size_t i = 0; i < particles.size(); ++i) {
                 auto &p = particles[i];
+                if (p.tire) continue;
+                const float radius = contact_radius(p);
+                const float inv_mass = dynamic_inv_mass(p);
                 const std::size_t pair = k * particles.size() + i;
                 const Vec3 relative = p.pos - o.base;
                 const float radial_sq = relative.x * relative.x + relative.z * relative.z;
-                const float broad_radius = o.radius + p.radius + 0.04f;
+                const float broad_radius = o.radius + radius + 0.04f;
                 if (obstacle_lambdas_[pair] <= 0 &&
-                    (radial_sq > broad_radius * broad_radius || relative.y < -p.radius - 0.04f ||
-                     relative.y > o.height + p.radius + 0.04f)) continue;
+                    (radial_sq > broad_radius * broad_radius || relative.y < -radius - 0.04f ||
+                     relative.y > o.height + radius + 0.04f)) continue;
                 const float radial = std::sqrt(radial_sq);
                 const float qr = radial - o.radius;
                 const float center_y = relative.y - o.height * 0.5f;
@@ -597,18 +644,18 @@ private:
                     normal = (nr * qr + ny * qy) / distance;
                 } else if (qr > qy) { distance = qr; normal = nr; }
                 else { distance = qy; normal = ny; }
-                const float C = distance - p.radius;
+                const float C = distance - radius;
                 const float alpha = 1.0f / (4500000.0f * fixed_dt * fixed_dt);
-                float dl = (-C - alpha * obstacle_lambdas_[pair]) / (p.inv_mass + alpha);
+                float dl = (-C - alpha * obstacle_lambdas_[pair]) / (inv_mass + alpha);
                 const float next_lambda = std::max(0.0f, obstacle_lambdas_[pair] + dl);
                 dl = next_lambda - obstacle_lambdas_[pair];
                 obstacle_lambdas_[pair] = next_lambda;
                 obstacle_normals_[pair] = normal;
-                p.pos += normal * (dl * p.inv_mass);
+                p.pos += normal * (dl * inv_mass);
                 if (next_lambda <= 0) continue;
                 const Vec3 displacement = p.pos - p.prev;
                 Vec3 proposed = obstacle_friction_[pair] + displacement - normal * displacement.dot(normal);
-                const float bound = (p.tire ? 0.85f * cfg_.tire_grip : 0.45f) * next_lambda * p.inv_mass;
+                const float bound = (p.wheel >= 0 ? 0.85f * cfg_.tire_grip : 0.45f) * next_lambda * inv_mass;
                 const float l = proposed.length();
                 if (l > bound && l > 1e-8f) proposed *= bound / l;
                 p.pos -= proposed - obstacle_friction_[pair];
@@ -672,7 +719,7 @@ private:
         // Pair impulses remove axial vibration while preserving pair momentum and
         // rigid translation/rotation. They cannot arbitrarily damp the whole car.
         for (const auto &b : beams) {
-            if (b.broken || b.kind == SUSPENSION) continue;
+            if (b.broken || b.kind == SUSPENSION || b.kind == TIRE) continue;
             auto &a = particles[b.a]; auto &c = particles[b.b];
             Vec3 n = (c.pos - a.pos).normalized();
             float rel = (c.velocity - a.velocity).dot(n);
@@ -684,20 +731,15 @@ private:
         for (int w = 0; w < 4; ++w) {
             auto &a = particles[w];
             const int hub = wheel_hubs[w];
-            // Implicit damper on the unsprung assembly; distributing its equal
-            // velocity increment avoids treating the light hub as the whole wheel.
-            Vec3 assembly_velocity;
-            for (int j = 0; j < nodes_per_wheel; ++j) assembly_velocity += particles[hub + j].velocity;
-            assembly_velocity *= 1.0f / nodes_per_wheel;
-            float unsprung_inv_mass = particles[hub].inv_mass / nodes_per_wheel;
-            float inv_mass_sum = a.inv_mass + unsprung_inv_mass;
-            float rel = (assembly_velocity - a.velocity).dot(u);
-            float chm = cfg_.damping * fixed_dt * inv_mass_sum;
-            float blend = chm / (1.0f + chm);
-            float impulse = -rel * blend / inv_mass_sum;
+            auto &wheel = particles[hub];
+            const float unsprung_inv_mass = dynamic_inv_mass(wheel);
+            const float inv_mass_sum = a.inv_mass + unsprung_inv_mass;
+            const float rel = (wheel.velocity - a.velocity).dot(u);
+            const float chm = cfg_.damping * fixed_dt * inv_mass_sum;
+            const float blend = chm / (1.0f + chm);
+            const float impulse = -rel * blend / inv_mass_sum;
             a.velocity -= u * (impulse * a.inv_mass);
-            for (int j = 0; j < nodes_per_wheel; ++j)
-                particles[hub + j].velocity += u * (impulse * unsprung_inv_mass);
+            wheel.velocity += u * (impulse * unsprung_inv_mass);
         }
     }
     void update_damage() {
@@ -719,11 +761,15 @@ private:
         }
     }
     void substep(float throttle, float steer, bool brake) {
+        // A direction change first uses the tire brakes, then engages reverse
+        // near walking speed. It must not wait for a reverse speed limiter to
+        // coast the vehicle down from forward trail speed.
+        const bool braking = brake || throttle * linear_velocity().dot(forward()) < -0.35f;
         find_nearby_obstacles();
-        const float target = steer * 0.54f / (1.0f + speed() * 0.027f);
+        const float target = steer * 0.60f / (1.0f + std::pow(speed() / 10.0f, 1.5f));
         steering_ += (target - steering_) * std::min(1.0f, fixed_dt * 8.0f);
-        apply_drivetrain(throttle, brake);
         for (auto &p : particles) {
+            if (p.tire) continue;
             p.velocity.y -= 9.81f * fixed_dt;
             p.velocity *= 1.0f - 0.010f * fixed_dt;
             limit_velocity(p.velocity);
@@ -733,14 +779,13 @@ private:
         for (auto &b : beams) { b.lambda = 0; b.peak_delta = 0; }
         std::fill(contact_lambdas_.begin(), contact_lambdas_.end(), 0);
         std::fill(friction_offsets_.begin(), friction_offsets_.end(), Vec3{});
-        std::fill(wheel_plane_lambdas_.begin(), wheel_plane_lambdas_.end(), 0);
         for (auto &l : suspension_lambdas_) l.fill(0);
         constexpr int iterations = 9;
         for (int iteration = 0; iteration < iterations; ++iteration) {
             if (iteration % 2 == 0) for (auto &b : beams) solve_beam(b);
             else for (auto it = beams.rbegin(); it != beams.rend(); ++it) solve_beam(*it);
             solve_suspension();
-            solve_contacts();
+            solve_contacts(braking);
             solve_obstacle_contacts();
             solve_structural_obstacle_contacts();
         }
@@ -748,11 +793,12 @@ private:
         contact_count_ = 0; wheel_contact_counts_.fill(0);
         for (std::size_t i = 0; i < particles.size(); ++i) {
             auto &p = particles[i];
+            if (p.tire) continue;
             if (!p.pos.finite()) { p.pos = p.prev; p.velocity = {}; ++nonfinite_count_; }
             p.velocity = (p.pos - p.prev) / fixed_dt;
             if (contact_lambdas_[i] > 1e-7f) {
                 ++contact_count_;
-                if (p.tire) ++wheel_contact_counts_[p.wheel];
+                if (p.wheel >= 0) ++wheel_contact_counts_[p.wheel];
                 // Inelastic normal response avoids point-contact chatter.
                 float vn = p.velocity.dot(contact_normals_[i]);
                 if (vn < 0) p.velocity -= contact_normals_[i] * vn;
@@ -761,7 +807,7 @@ private:
                 const std::size_t pair = k * particles.size() + i;
                 if (obstacle_lambdas_[pair] <= 1e-7f) continue;
                 ++contact_count_;
-                if (p.tire) ++wheel_contact_counts_[p.wheel];
+                if (p.wheel >= 0) ++wheel_contact_counts_[p.wheel];
                 const float vn = p.velocity.dot(obstacle_normals_[pair]);
                 if (vn < 0) p.velocity -= obstacle_normals_[pair] * vn;
             }
@@ -784,6 +830,8 @@ private:
             ++contact_count_;
         }
         material_damping();
+        solve_tire_traction(throttle, braking);
+        update_wheel_skin();
     }
 };
 

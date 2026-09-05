@@ -15,13 +15,19 @@ assert sum(p['kind'] == 'seat' for p in starter['parts']) == 1
 assert sum(p['kind'] == 'motor' for p in starter['parts']) == 1
 ET.parse(root / 'art/icon.svg')
 refs = 0
-for path in list(root.rglob('*.gd')) + [root / 'project.godot', root / 'main.tscn', root / 'export_presets.cfg']:
-    for resource in re.findall(r'res://([^"\n]+)', path.read_text()):
+for path in list(root.rglob('*.gd')) + [root / 'project.godot', root / 'main.tscn', root / 'offroad_main.tscn', root / 'export_presets.cfg']:
+    # Only complete static loads are file references in scripts. Output paths
+    # and concatenated texture names are resolved by the engine runtime gate.
+    pattern = r'\b(?:load|preload)\(\s*[\"\']res://([^\"\']+)[\"\']\s*\)' if path.suffix == '.gd' else r'res://([^"\n]+)'
+    for resource in re.findall(pattern, path.read_text()):
         assert (root / resource).is_file(), f'Missing resource {resource} in {path.name}'
+        refs += 1
+for path in (root / 'shaders').glob('*.gdshader*'):
+    for resource in re.findall(r'#include\s+"([^"]+)"', path.read_text()):
+        assert (path.parent / resource).is_file(), f'Missing shader include {resource}'
         refs += 1
 assert 'architectures/arm64-v8a=true' in (root / 'export_presets.cfg').read_text()
 assert 'window/handheld/orientation=6' in (root / 'project.godot').read_text()
 assert (root / 'tools/debug.keystore').stat().st_size > 1000
 print(f'PASS: starter structure, icon XML, {refs} resource references, Android preset, development key')
 print('Godot parser, runtime, physics, rendering, and APK installation require the engine/build workflow.')
-

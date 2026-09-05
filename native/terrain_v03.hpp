@@ -53,24 +53,40 @@ inline RoadSample nearest_road(float x, float z) {
     return result;
 }
 inline float lake_distance(float x,float z) {
-    float dx=(x-96.0f)/49.0f,dz=(z-81.0f)/42.0f; return std::sqrt(dx*dx+dz*dz);
+    float dx=(x-96.0f)/49.0f,dz=(z-81.0f)/42.0f;
+    float angle=std::atan2(dz,dx);
+    float shore=1.0f+.115f*std::sin(angle*3.0f+.7f)+.065f*std::cos(angle*5.0f-.2f)+.025f*std::sin(angle*9.0f);
+    return std::sqrt(dx*dx+dz*dz)/shore;
 }
 inline float authored_height(float x,float z) {
-    float h=4.0f + noise(x*.009f,z*.009f)*9.0f + noise(x*.032f,z*.032f)*2.4f;
+    // Broad drainage valleys and angular ridge spurs, with coherent erosion
+    // detail at three scales. Every visible elevation remains in this cache.
+    float h=4.0f + noise(x*.009f,z*.009f)*9.0f + noise(x*.032f,z*.032f)*3.2f;
     h+=mound(x,z,-95,180,95,90,44)+mound(x,z,155,-175,100,85,37);
     h+=mound(x,z,-286,-158,95,130,70)+mound(x,z,285,220,100,110,85);
     h+=mound(x,z,10,-310,130,75,90)+mound(x,z,-250,282,135,90,76);
     float boundary=std::max(std::abs(x),std::abs(z));
     h+=smooth(285,410,boundary)*48.0f;
+    float relief=smooth(16.0f,65.0f,h);
+    float ridges=1.0f-std::abs(noise(x*.024f+noise(x*.006f,z*.006f)*.6f,z*.024f));
+    h+=relief*(ridges*ridges*15.0f + noise(x*.073f,z*.073f)*3.8f + noise(x*.17f,z*.17f)*.75f);
+    // Long exposed rock strata on the high slopes, softened only at the
+    // transition; these are geological shelves rather than isolated mounds.
+    float strata=std::floor((h+noise(x*.029f,z*.029f)*3.0f)/7.0f)*7.0f;
+    h=h*(1-relief*.30f)+strata*relief*.30f;
     // A terraced quarry, with a smooth entrance preserved by the road below.
     float qx=(x+178)/48.0f,qz=(z-12)/56.0f,q=std::sqrt(qx*qx+qz*qz);
-    float quarry=8.0f+smooth(.58f,.68f,q)*4.5f+smooth(.91f,1.01f,q)*6.0f;
+    float qdetail=noise(x*.10f,z*.10f)*.7f;
+    float quarry=8.0f+smooth(.57f,.64f,q)*5.5f+smooth(.89f,.95f,q)*7.5f+qdetail*smooth(.50f,.70f,q);
     h=h*(smooth(1.03f,1.23f,q))+quarry*(1-smooth(1.03f,1.23f,q));
     // The lake is a shallow basin. Water is an appearance layer; this is the solid bed.
     float lake=lake_distance(x,z);
-    h=h*smooth(.80f,1.45f,lake)+(-1.2f+smooth(0,.90f,lake)*2.7f)*(1-smooth(.80f,1.45f,lake));
+    float lake_blend=smooth(.98f,1.48f,lake);
+    float lake_bed=-2.0f+smooth(.12f,1.03f,lake)*4.1f+noise(x*.12f,z*.12f)*.16f;
+    float bank=h+(std::max(h,5.4f)-h)*(1-smooth(1.45f,1.70f,lake));
+    h=bank*lake_blend+lake_bed*(1-lake_blend);
     RoadSample r=nearest_road(x,z);
-    float shoulder=smooth(4.4f,11.0f,r.distance);
+    float shoulder=smooth(4.6f,12.0f,r.distance);
     float track_noise=noise(x*.23f,z*.23f)*.065f;
     float road_h=r.height+track_noise;
     h=road_h*(1-shoulder)+h*shoulder;
@@ -135,21 +151,57 @@ inline float exploration_surface(float x,float z) {
 inline const std::vector<ExplorationObstacle> &exploration_obstacles() {
     static const std::vector<ExplorationObstacle> objects=[] {
         std::vector<ExplorationObstacle> result;
-        // Three visible groves, with trunks kept clear of both road lanes.
-        constexpr float clusters[6][2]={{-67,-103},{-114,-91},{-131,69},{-29,170},{160,-119},{177,115}};
-        for(int c=0;c<6;++c) for(int j=0;j<10;++j) {
-            float angle=j*2.399963f+c*.72f, r=8+std::sqrt(static_cast<float>(j))*8;
+        // Irregular stands frame the track, with open sightlines at its turns.
+        constexpr float clusters[10][2]={{-67,-103},{-114,-91},{-131,69},{-29,170},{160,-119},{177,115},
+            {42,47},{30,-75},{-203,-65},{99,135}};
+        for(int c=0;c<10;++c) for(int j=0;j<14;++j) {
+            float angle=j*2.399963f+c*.72f, r=5+std::sqrt(static_cast<float>(j))*6;
             float x=clusters[c][0]+std::cos(angle)*r,z=clusters[c][1]+std::sin(angle)*r;
             if(exploration_detail::nearest_road(x,z).distance<7.5f || exploration_detail::lake_distance(x,z)<1.13f) continue;
             float variation=exploration_detail::hash(c*17,j*23);
-            result.push_back({x,z,.33f+variation*.23f,8.0f+variation*7.0f,0});
+            if(x*x+(z-8)*(z-8)<30*30) continue;
+            result.push_back({x,z,.27f+variation*.24f,6.5f+variation*7.0f,0});
         }
         constexpr float rocks[14][2]={{-165,30},{-190,-8},{-203,24},{-171,-17},{-148,29},{-199,47},{-111,180},
             {-80,187},{149,-149},{172,-175},{129,114},{153,75},{-71,-89},{-103,-119}};
-        for(int i=0;i<14;++i) result.push_back({rocks[i][0],rocks[i][1],1.3f+(i%3)*.4f,1.6f+(i%4)*.35f,1});
+        for(int i=0;i<14;++i) {
+            float radius=1.3f+(i%3)*.4f;
+            if(exploration_detail::nearest_road(rocks[i][0],rocks[i][1]).distance<radius+4.6f) continue;
+            result.push_back({rocks[i][0],rocks[i][1],radius,1.6f+(i%4)*.35f,1});
+        }
+        // Weathered outcrops and talus follow quarry walls and ridge shoulders.
+        constexpr float outcrops[5][2]={{-217,18},{-182,61},{-127,191},{146,-187},{208,56}};
+        for(int c=0;c<5;++c) for(int j=0;j<8;++j) {
+            float angle=j*2.399963f+c, r=std::sqrt(static_cast<float>(j))*4.2f;
+            float x=outcrops[c][0]+std::cos(angle)*r,z=outcrops[c][1]+std::sin(angle)*r;
+            if(exploration_detail::nearest_road(x,z).distance<8.0f) continue;
+            float v=exploration_detail::hash(c+54,j+81);
+            result.push_back({x,z,1.4f+v*2.1f,1.8f+v*3.1f,1});
+        }
+        for(int i=0;i<32;++i) {
+            float a=i*2.399963f, r=1.04f+exploration_detail::hash(i,57)*.11f;
+            float shore=1.0f+.115f*std::sin(a*3.0f+.7f)+.065f*std::cos(a*5.0f-.2f)+.025f*std::sin(a*9.0f);
+            float x=96+std::cos(a)*49*r*shore,z=81+std::sin(a)*42*r*shore;
+            if(exploration_detail::nearest_road(x,z).distance<7.0f) continue;
+            float v=exploration_detail::hash(i,91);
+            result.push_back({x,z,.45f+v*.85f,.42f+v*.75f,1});
+        }
         // Six wayfinding posts: visible cylinders and native contact proxies match.
         constexpr float posts[6][2]={{-7,8},{-87,-112},{-183,12},{-96,180},{161,95},{160,-165}};
         for(const auto &p:posts) result.push_back({p[0],p[1],.14f,2.3f,2});
+        // A boulder must sit on a continuous shoulder, never balance across a
+        // quarry cut. Remove the shared obstacle as well as its visual where
+        // the nearby elevation changes too much for a convincing solid foot.
+        result.erase(std::remove_if(result.begin(),result.end(),[](const ExplorationObstacle &o) {
+            if(o.type!=1) return false;
+            float lo=exploration_height(o.x,o.z),hi=lo;
+            for(int i=0;i<8;++i) {
+                float a=static_cast<float>(i)*6.28318530718f/8.0f;
+                float h=exploration_height(o.x+std::cos(a)*(o.radius+4.0f),o.z+std::sin(a)*(o.radius+4.0f));
+                lo=std::min(lo,h); hi=std::max(hi,h);
+            }
+            return hi-lo>3.0f;
+        }),result.end());
         return result;
     }();
     return objects;

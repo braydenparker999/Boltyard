@@ -13,6 +13,10 @@ fi
 test "$(git -C "$native_cache/godot-cpp" rev-parse HEAD)" = e4b7c25e721ce3435a029087e3917a30aa73f06b
 g++ -std=c++17 -O2 -Wall -Wextra -pedantic native/test_soft_rig.cpp -o build/test-soft-rig
 timeout 120 build/test-soft-rig | tee build/native-tests.log
+g++ -std=c++17 -O2 -Wall -Wextra -pedantic native/test_road_drive.cpp -o build/test-road-drive
+timeout 120 build/test-road-drive | tee build/road-drive-tests.log
+g++ -std=c++17 -O2 -Wall -Wextra -pedantic native/benchmark_handling.cpp -o build/benchmark-handling
+timeout 60 build/benchmark-handling | tee build/handling-benchmark.log
 export BOLT_GODOT_CPP="$native_cache/godot-cpp"
 profile_path="$PWD/native/build_profile.json"
 (
@@ -22,4 +26,3 @@ profile_path="$PWD/native/build_profile.json"
 ) 2>&1 | tee build/native-build.log
 test -s bin/libboltyard.linux.x86_64.so
 test -s bin/libboltyard.android.arm64.so
-

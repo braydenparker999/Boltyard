@@ -1,17 +1,22 @@
 shader_type spatial;
 render_mode diffuse_burley, specular_schlick_ggx;
+uniform vec4 deep_color : source_color = vec4(0.055, 0.15, 0.175, 1.0);
+uniform vec4 shallow_color : source_color = vec4(0.26, 0.31, 0.22, 1.0);
+uniform sampler2D ripple_normal : hint_normal, repeat_enable, filter_linear_mipmap;
 varying vec3 lake_position;
 void vertex() { lake_position = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz; }
 void fragment() {
-    // Low-amplitude waves change the reflection normal, not the water's color.
-    // An explicit world normal avoids requiring mesh tangent attributes.
     vec2 p = lake_position.xz;
-    float dx = sin(dot(p, vec2(0.40, 0.24)) + TIME * 0.60) * 0.035
-        + sin(dot(p, vec2(0.70, -0.40)) - TIME * 0.40) * 0.018;
-    float dz = cos(dot(p, vec2(0.13, 0.31)) - TIME * 0.45) * 0.024;
-    NORMAL = normalize((VIEW_MATRIX * vec4(normalize(vec3(-dx, 1.0, -dz)), 0.0)).xyz);
-    ALBEDO = vec3(0.035, 0.105, 0.12);
-    METALLIC = 0.28;
-    ROUGHNESS = 0.28;
-    SPECULAR = 0.7;
+    // Two advecting, irregular ripple fields avoid repeating sine bands at
+    // shallow viewing angles. They perturb the reflected sky, not geometry.
+    vec2 a = texture(ripple_normal, p * 0.018 + TIME * vec2(0.003, -0.002)).xy * 2.0 - 1.0;
+    vec2 q = vec2(p.x * 0.73 - p.y * 0.68, p.x * 0.68 + p.y * 0.73);
+    vec2 b = texture(ripple_normal, q * 0.037 + TIME * vec2(-0.002, 0.003)).xy * 2.0 - 1.0;
+    vec2 wave = a * 0.15 + b * 0.075;
+    NORMAL = normalize((VIEW_MATRIX * vec4(normalize(vec3(-wave.x, 1.0, -wave.y)), 0.0)).xyz);
+    float depth = smoothstep(0.0, 0.65, COLOR.r);
+    ALBEDO = mix(shallow_color.rgb, deep_color.rgb, depth);
+    METALLIC = mix(0.01, 0.06, depth);
+    ROUGHNESS = mix(0.36, 0.28, depth);
+    SPECULAR = 0.76;
 }
