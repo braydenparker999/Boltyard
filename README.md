@@ -4,7 +4,7 @@ An original offline Android offroading prototype. A native C++ node-and-beam sol
 
 ## What you can drive and tune
 
-- One pickup with 100 mass nodes and 392 constraints, permanent structural yielding and breakable chassis/cab beams.
+- One pickup with 100 mass nodes and 392 beam records, permanent structural yielding and breakable chassis/cab beams.
 - Four deformable tires with individual ground contacts, suspension springs, dampers, steering, drive torque and brakes.
 - A test course with bumps, ruts, ledges and uneven terrain. Leaving its visible boundary returns and repairs the truck at the start.
 - Ten physical tuning controls: tire radius, relative tire pressure, ride height, spring rate, damping, engine torque, mass, track width, wheelbase and body stiffness.
@@ -17,6 +17,8 @@ The pressure control changes carcass stiffness and a bounded grip multiplier; it
 The earlier construction sandbox remains in `main.tscn`; the app now opens `offroad_main.tscn`. Its original blueprint save is separate from the new tuning save.
 
 ## Install
+
+[Verified 0.2 Android build](https://github.com/braydenparker999/Boltyard/actions/runs/33984129744): 47 native and 48 engine checks passed; APK signature and downloaded checksum verified. Real-phone testing remains outstanding.
 
 Open this repository's [Actions](https://github.com/braydenparker999/Boltyard/actions), choose a successful **Build Android APK** run and download **bolt-yard-android**. Extract `bolt-yard-0.2.0-softbody.apk` and open it on an ARM64 Android phone. Allow installation from your file/download app if Android asks. The APK uses package `games.boltyard.prototype`, version code 2, and the same development signing key as 0.1 so it can update that prototype.
 
@@ -70,3 +72,4 @@ Run tests against disposable user data: integration tests may write setup/bluepr
 | `scripts/offroad_main.gd` | Tuning, persistence, controls and camera |
 | `tests/offroad.gd` | Native extension and scene integration checks |
 | `tools/ci_build.sh` | Native build, engine tests, rendering and APK verification |
+
