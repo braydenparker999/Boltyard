@@ -52,8 +52,10 @@ func _make_lighting() -> void:
 	sun.shadow_enabled = true
 	sun.directional_shadow_max_distance = 65.0
 	sun.directional_shadow_mode = DirectionalLight3D.SHADOW_PARALLEL_2_SPLITS
-	sun.shadow_bias = 0.035
-	sun.shadow_normal_bias = 1.4
+	# Compatibility shadow maps need enough receiver offset for broad, shallow
+	# terrain; the previous tiny bias produced repeating self-shadow stripes.
+	sun.shadow_bias = 0.2
+	sun.shadow_normal_bias = 2.0
 	add_child(sun)
 
 func _axis(segments: Array) -> PackedFloat32Array:
@@ -222,3 +224,4 @@ func _build_markers() -> void:
 		for iz in range(2):
 			var color := Color("b9c1b2") if (ix + iz) % 2 == 0 else Color("566361")
 			_box(Vector3(0.6, 0.008, 0.45), Vector3(-2.7 + float(ix) * 0.6, 0.005, 0.7 + float(iz) * 0.45), color)
+

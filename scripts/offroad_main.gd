@@ -172,9 +172,12 @@ func build_ui() -> void:
 	theme.set_stylebox("pressed", "Button", box(Color("6e7c70"), 10))
 	theme.set_color("font_color", "Button", PAPER)
 	theme.set_color("font_color", "CheckButton", PAPER)
-	theme.set_stylebox("slider", "HSlider", box(Color("33454c"), 4, 0))
-	theme.set_stylebox("grabber_area", "HSlider", box(ACCENT, 4, 0))
-	theme.set_stylebox("grabber_area_highlight", "HSlider", box(Color("ffdbac"), 4, 0))
+	var rail_colors = {"slider": Color("33454c"), "grabber_area": ACCENT, "grabber_area_highlight": Color("ffdbac")}
+	for part in rail_colors:
+		var rail = box(rail_colors[part], 4, 0)
+		rail.content_margin_top = 3
+		rail.content_margin_bottom = 3
+		theme.set_stylebox(part, "HSlider", rail)
 	ui.theme = theme
 	header = PanelContainer.new()
 	header.add_theme_stylebox_override("panel", box(PANEL, 14, 12))
@@ -256,6 +259,12 @@ func build_garage() -> void:
 	garage_overlay = Control.new()
 	garage_overlay.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	ui.add_child(garage_overlay)
+	var title_backdrop = Panel.new()
+	title_backdrop.position = Vector2(-12, -8)
+	title_backdrop.size = Vector2(400, 108)
+	title_backdrop.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	title_backdrop.add_theme_stylebox_override("panel", box(PANEL, 14))
+	garage_overlay.add_child(title_backdrop)
 	label(garage_overlay, "THE PROVING GROUND", 12, ACCENT).position = Vector2(0, 0)
 	title_label = label(garage_overlay, "Find your next line.", 34, PAPER)
 	title_label.position = Vector2(0, 22)
@@ -718,12 +727,12 @@ func update_telemetry() -> void:
 	var speed = absf(float(current_telemetry.get("speed", 0.0))) * 3.6
 	var damage = clampf(float(current_telemetry.get("damage", 0.0)), 0.0, 1.0)
 	var broken = int(current_telemetry.get("broken_beams", 0))
-	var contacts = int(current_telemetry.get("contacts", 0))
+	var grounded_wheels = clampi(int(current_telemetry.get("wheels_grounded", 0)), 0, 4)
 	var nodes = int(current_telemetry.get("nodes", 0))
 	var beams = int(current_telemetry.get("beams", 0))
 	var sim_ms = float(current_telemetry.get("sim_ms", 0.0))
 	speed_label.text = "%02d  km/h" % roundi(speed)
-	drive_status.text = "%d wheels in contact  ·  %s" % [contacts, "LOW" if settings.low_range else "HIGH"]
+	drive_status.text = "%d wheels in contact  ·  %s" % [grounded_wheels, "LOW" if settings.low_range else "HIGH"]
 	drive_damage.text = "CHASSIS  %d%%  ·  %d broken beams" % [roundi((1.0 - damage) * 100.0), broken]
 	drive_damage.add_theme_color_override("font_color", Color("f09375") if damage > 0.25 or broken > 0 else ACCENT)
 	garage_status.text = "LIVE STRUCTURE   %d nodes  /  %d beams\n%d%% chassis health  ·  %d broken  ·  %.1f ms physics  ·  %d fps" % [nodes, beams, roundi((1.0 - damage) * 100.0), broken, sim_ms, Engine.get_frames_per_second()]

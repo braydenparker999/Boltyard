@@ -24,7 +24,7 @@ func capture() -> void:
 		push_error("Could not capture driving view")
 		quit(1)
 		return
-	scene.truck.wireframe = true
+	scene.toggle_xray()
 	for index in range(10):
 		await process_frame
 	await RenderingServer.frame_post_draw
@@ -38,6 +38,14 @@ func capture() -> void:
 		await process_frame
 	await RenderingServer.frame_post_draw
 	error = root.get_texture().get_image().save_png(output_dir.path_join("impact.png"))
+	if error != OK:
+		quit(1)
+		return
+	scene.toggle_xray()
+	for index in range(10):
+		await process_frame
+	await RenderingServer.frame_post_draw
+	error = root.get_texture().get_image().save_png(output_dir.path_join("impact-body.png"))
 	if error != OK:
 		quit(1)
 		return

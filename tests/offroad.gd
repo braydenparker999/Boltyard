@@ -30,6 +30,7 @@ func run() -> void:
 		core.step(1.0 / 120.0, 0, 0, true)
 	var rest: Dictionary = core.get_stats()
 	check(rest.contacts > 0, "deformable tires contact the terrain")
+	check(rest.wheels_grounded == 4, "contact telemetry distinguishes four tires from many contact nodes")
 	check(rest.position.y > 0.2 and rest.position.y < 2.0, "native vehicle settles above ground")
 	check(rest.up.dot(Vector3.UP) > 0.7, "native vehicle settles upright")
 	var origin: Vector3 = rest.position

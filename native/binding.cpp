@@ -122,6 +122,9 @@ public:
         Dictionary d;
         d["speed"]=rig.speed(); d["damage"]=rig.damage();
         d["broken_beams"]=rig.broken_count(); d["contacts"]=rig.contact_count();
+        int wheels_grounded=0;
+        for (int w=0;w<4;++w) if (rig.wheel_contact_count(w)>0) ++wheels_grounded;
+        d["wheels_grounded"]=wheels_grounded;
         d["nodes"]=rig.node_count(); d["beams"]=rig.beam_count();
         d["position"]=gv(rig.center()); d["forward"]=gv(rig.forward()); d["up"]=gv(rig.up());
         d["sim_ms"]=sim_ms;
