@@ -1,88 +1,72 @@
-# Bolt Yard — Android prototype 0.1
+# Bolt Yard — Soft-body Offroad 0.2
 
-An original, small mechanical vehicle sandbox inspired by the build / drive / improve loop. Native Godot 4.4.1 project targeting ARM64 Android. No web view, server, account, external art, or runtime network service.
+An original offline Android offroading prototype. A native C++ node-and-beam solver simulates a deformable pickup chassis, cab and four tire carcasses. Godot 4.4.1 renders the body directly from the simulated nodes. This is a small experimental vehicle simulation, not BeamNG physics fidelity or a finished commercial game.
 
-**Build status:** [the Android build passed](https://github.com/braydenparker999/Boltyard/actions/runs/33981137360). All 31 engine checks passed, the ARM64 APK signature was verified, and the workshop / driving screens were visually inspected. Download the `bolt-yard-android` artifact from that run for version 0.1.0. Real-device installation, multitouch, and sustained performance still require testing. See `VALIDATION.md`.
+## What you can drive and tune
 
-## Included implementation
+- One pickup with 100 mass nodes and 392 constraints, permanent structural yielding and breakable chassis/cab beams.
+- Four deformable tires with individual ground contacts, suspension springs, dampers, steering, drive torque and brakes.
+- A test course with bumps, ruts, ledges and uneven terrain. Leaving its visible boundary returns and repairs the truck at the start.
+- Ten physical tuning controls: tire radius, relative tire pressure, ride height, spring rate, damping, engine torque, mass, track width, wheelbase and body stiffness.
+- Trail, Crawler and Desert setups, six paints, low range and differential coupling. Garage changes rebuild the truck; drivetrain toggles work while driving.
+- Live body deformation, strain-colored node/beam view, an impulse impact test and repair/recovery.
+- Landscape touch controls, keyboard controls, pause and a locally saved tuning setup.
 
-- Landscape workshop with a top-down 7 × 9 build grid, three height layers, and a live procedural 3D preview.
-- Frame, wheel, motor, driver seat, and heavy ballast parts. Up to 96 parts.
-- Tap-to-place, replace, erase, rotate new solid parts, orbit, zoom, and 40-step undo.
-- A complete 21-part starter car.
-- Structural validation: connected chassis, side-mounted wheels, exactly one seat, and at least one motor.
-- One compound rigid chassis with individual raycast tire suspension, grip, propulsion, steering, and braking. Mass and center of mass come from the blueprint.
-- Simultaneous touch steering and throttle; reverse, brake, and vehicle recovery.
-- Flat launch pad, small and large jump ramps, a bump lane, and a slalom route.
-- Local autosave plus one manual Save / Load slot. Failed file validation preserves the current blueprint. Load and Starter can be undone.
-- Speed, distance, tire contact count, airtime, and FPS displays. Optional shadows-off quality mode.
-- Background pause and input release when the app loses focus.
+The pressure control changes carcass stiffness and a bounded grip multiplier; it is not calibrated in bar. Differential locking is a simplified finite coupling between wheel angular velocities. Suspension uses prismatic guides, not complete control-arm geometry. There is no vehicle self-collision, deformable soil, fluid mud, calibrated rubber model, drivetrain damage, detachable panels, multiplayer or part-swap catalog. See [SIMULATION.md](SIMULATION.md) for the implemented mathematics and limitations.
 
-There are **no independent powered bearings, pistons, arbitrary articulated machines, detachable parts, survival systems, multiplayer, or import/export UI yet**. All wheels are powered automatically; wheels forward of the center line steer. Wheel shapes use suspension rays, so sidewall collision is not modeled. Rotating a seat does not change the vehicle's forward direction. This is a vehicle-building foundation, not Scrap Mechanic's full construction system.
+The earlier construction sandbox remains in `main.tscn`; the app now opens `offroad_main.tscn`. Its original blueprint save is separate from the new tuning save.
 
-## Get an APK through GitHub
+## Install
 
-The repository root must contain `project.godot`, `scripts/`, `tools/`, and `.github/` directly, rather than containing an extra outer `bolt-yard` folder.
+Open this repository's [Actions](https://github.com/braydenparker999/Boltyard/actions), choose a successful **Build Android APK** run and download **bolt-yard-android**. Extract `bolt-yard-0.2.0-softbody.apk` and open it on an ARM64 Android phone. Allow installation from your file/download app if Android asks. The APK uses package `games.boltyard.prototype`, version code 2, and the same development signing key as 0.1 so it can update that prototype.
 
-1. Put this project's contents into a new GitHub repository, including `.github/workflows/android.yml` and `tools/debug.keystore`.
-2. A push to `main` or `master` starts **Build Android APK**. Alternatively select **Actions → Build Android APK → Run workflow**.
-3. The workflow downloads the pinned official Godot 4.4.1 engine and Android templates, configures the Android SDK, imports the project, runs the engine tests, exports the APK, and checks its signature. It stops on failed tests.
-4. After a successful run, download the **bolt-yard-android** artifact from the run. Extract `bolt-yard-0.1.0.apk` and open it on an ARM64 Android device. Permit installation from that download/file app if Android requests it.
-5. If the workflow fails, use the **bolt-yard-build-logs** artifact to diagnose it. An artifact is not promised until the workflow actually succeeds.
+The key included in this repository is for development builds only. No Play Store account or runtime network connection is required. Build and real-device verification status is recorded in [VALIDATION.md](VALIDATION.md).
 
-No Play Store account is required for this development APK. The supplied public **development-only** signing key keeps prototype builds consistently signed; it must not be used for a production release. Keep the key unchanged between prototype builds to allow updating without uninstalling. Uninstalling removes local builds and saves.
+## Controls
 
-The workflow uses GitHub-hosted Ubuntu runners. Runner availability and usage charges depend on the repository and GitHub plan. The project is hosted at [braydenparker999/Boltyard](https://github.com/braydenparker999/Boltyard), with builds under its Actions tab.
+Tap **DRIVE** to leave the garage. Hold **GO** together with **LEFT** or **RIGHT**; use **REV** and **BRAKE** as needed. **REPAIR** resets the simulation at the start. The garage has **X-RAY** and **IMPACT TEST** controls.
 
-## Run or export locally
+Keyboard: WASD or arrows drive and steer, Space brakes, R repairs, Tab switches garage/drive. Garage tuning saves locally. Test installation, simultaneous touches, background/resume and sustained frame rate on the actual target phone before judging the mobile experience.
 
-Use the standard Godot **4.4.1** editor, not the .NET build. Import `project.godot`, then press **F6/F5** as appropriate to run the main scene. The test yard is generated by code, so a mostly empty editor scene is expected before running.
+## Build and test
 
-Keyboard: **WASD / arrows** drive and steer, **Space** brakes, **R** recovers, **Tab** switches Build / Drive. Mouse clicks operate the blueprint editor. The large driving pads are multitouch controls; use the keyboard when testing on a desktop without a touchscreen.
+GitHub Actions installs Godot 4.4.1, its Android template, JDK 17, Android SDK 34 and NDK 23.2.8568313. It pins godot-cpp to commit `e4b7c25e721ce3435a029087e3917a30aa73f06b`, builds Linux and ARM64 GDExtensions with SCons 4.8.1, runs native and engine tests, renders screenshots, exports the APK and verifies its signature and native library contents.
 
-To check the source with the engine:
+For a complete Ubuntu build with JDK 17 and an Android SDK configured:
+
+```bash
+bash tools/ci_build.sh
+```
+
+For the standalone physics tests (no Godot dependency):
+
+```bash
+mkdir -p build
+g++ -std=c++17 -O2 -Wall -Wextra -pedantic native/test_soft_rig.cpp -o build/test-soft-rig
+build/test-soft-rig
+```
+
+Build the native libraries with `bash tools/build_native.sh` before importing in Godot. The checked-in extension maps Linux x86_64 and Android ARM64 debug builds; other hosts and release exports need corresponding builds and mappings. Use matching Godot 4.4.1 export templates and **Export With Debug**. Do not open the new scene without its native library.
+
+Engine integration tests:
 
 ```bash
 godot --headless --path . --editor --import
 godot --headless --path . --script tests/run.gd
+godot --headless --path . --script tests/offroad.gd
 ```
 
-The test suite is intended for a disposable test user-data directory: its UI integration checks write the test instance's autosave. Do not run it against a real player's save directory.
+Run tests against disposable user data: integration tests may write setup/blueprint saves. Screenshots use Mesa software rendering and are not phone performance measurements.
 
-For Android export, install matching Godot export templates, JDK 17, and Android command-line tools / platform tools / Build Tools 34.0.0 / Platform 34. Configure the JDK and Android SDK paths in Godot's Editor Settings. The preset uses the precompiled APK template rather than a Gradle build. Select the **Android** preset and export with **Export With Debug** enabled.
-
-```bash
-mkdir -p build
-godot --headless --path . --export-debug Android build/bolt-yard-0.1.0.apk
-```
-
-Official references: [Godot Android export](https://docs.godotengine.org/en/4.4/tutorials/export/exporting_for_android.html), [RigidBody3D](https://docs.godotengine.org/en/4.4/classes/class_rigidbody3d.html).
-
-## First device test
-
-1. Launch in landscape and tap **DRIVE** to try the starter.
-2. Hold **GO** with a steering direction. Check that both touches work simultaneously.
-3. Brake to a stop, reverse, then take the small ramp directly ahead.
-4. Tap **Recover vehicle**, then **BUILD**.
-5. Select **Upper**, select **W**, and add a weight directly above a chassis block. Drive again and compare the handling.
-6. Save, close and reopen the app, and verify the build persists.
-
-Record the phone model, FPS, a screenshot of the workshop, and any problem. Stability, controls, and sustained performance need actual device testing before expanding the game.
-
-## Project map
+## Source map
 
 | File | Purpose |
 | --- | --- |
-| `scripts/blueprint.gd` | Parts, structural rules, mass, JSON validation, atomic local saves |
-| `scripts/vehicle.gd` | Rigid chassis, suspension rays, tire forces, steering, recovery |
-| `scripts/main.gd` | Workshop UI, touch actions, state switching, persistence, camera |
-| `scripts/build_grid.gd` | Top-down touch construction grid |
-| `scripts/shapes.gd` | Original procedural part visuals |
-| `scripts/yard.gd` | Ground, ramps, bumps, lighting, perimeter |
-| `tests/run.gd` | Engine blueprint, driving, braking, steering, and UI tests |
-| `tools/check_project.py` | Engine-independent file and package checks |
-| `tools/ci_build.sh` | Pinned engine setup, tests, APK export, signature verification |
-| `.github/workflows/android.yml` | GitHub-hosted Android build |
-
-Suggested next engineering milestone: get the starter stable on the target phone, then implement one true motorized hinge connecting two rigid assemblies. General articulated construction should follow that proof.
-
+| `native/soft_rig.hpp` | Standalone physical model and XPBD solver |
+| `native/binding.cpp` | Godot interface, fixed cadence, diagnostics |
+| `native/test_soft_rig.cpp` | Physics behavior and stability tests |
+| `scripts/offroad_truck.gd` | Body and tire mesh deformation |
+| `scripts/offroad_world.gd` | Matching sampled terrain and course visuals |
+| `scripts/offroad_main.gd` | Tuning, persistence, controls and camera |
+| `tests/offroad.gd` | Native extension and scene integration checks |
+| `tools/ci_build.sh` | Native build, engine tests, rendering and APK verification |

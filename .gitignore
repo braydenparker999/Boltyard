@@ -3,3 +3,9 @@ build/
 *.tmp
 __pycache__/
 
+
+bin/*.so
+native/godot-cpp/
+native/.sconsign*
+native/*.o
+native/*.os
