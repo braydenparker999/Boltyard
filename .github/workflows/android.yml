@@ -20,6 +20,10 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
+      - name: Install rendered-review dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends ffmpeg xvfb
       - uses: actions/cache@v4
         with:
           path: |
@@ -51,4 +55,3 @@ jobs:
             build/*.json
             build/*.mp4
           if-no-files-found: ignore
-
