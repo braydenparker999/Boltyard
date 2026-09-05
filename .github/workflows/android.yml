@@ -28,7 +28,7 @@ jobs:
       - uses: actions/cache@v4
         with:
           path: ~/.cache/bolt-yard/native-4.4.1
-          key: bolt-native-cpp-4.4.1-profile-refcounted-v1
+          key: bolt-native-cpp-4.4.1-profile-refcounted-os-v2
       - name: Validate and build native Android APK
         run: bash tools/ci_build.sh
       - name: Save installable APK
