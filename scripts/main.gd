@@ -162,10 +162,12 @@ func build_ui() -> void:
 	button(saves, "Load", load_build, 87)
 	button(saves, "Starter", starter, 80)
 	info = label(ui, "", 18)
+	info.add_theme_stylebox_override("normal", style(Color("152832")))
 	info.position = Vector2(350, 106)
 	info.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	info.size = Vector2(580, 110)
 	message = label(ui, "", 17, Color("fff0ca"))
+	message.add_theme_stylebox_override("normal", style(Color("152832")))
 	message.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	message.position = Vector2(350, 575)
 	message.size = Vector2(680, 80)
@@ -181,6 +183,7 @@ func build_ui() -> void:
 	ui.add_child(drive_panel)
 	drive_panel.hide()
 	speed_label = label(drive_panel, "0 km/h", 30, Color("ffbd5b"))
+	speed_label.add_theme_stylebox_override("normal", style(Color("152832")))
 	speed_label.position = Vector2(30, 105)
 	var recovery = button(drive_panel, "Recover vehicle", recover, 165)
 	recovery.name = "Recover"
@@ -402,6 +405,7 @@ func show_help() -> void:
 
 func toast(text: String) -> void:
 	message.text = text
+	message.show()
 	toast_time = 8.0
 
 func _physics_process(_delta: float) -> void:
@@ -416,6 +420,7 @@ func _process(delta: float) -> void:
 	toast_time -= delta
 	if toast_time <= 0:
 		message.text = ""
+		message.hide()
 	var desired: Vector3
 	if driving and is_instance_valid(car):
 		var target = car.global_position + Vector3.UP * 0.8
@@ -473,4 +478,3 @@ func _notification(what: int) -> void:
 	elif what == NOTIFICATION_WM_CLOSE_REQUEST:
 		autosave()
 		get_tree().quit()
-

@@ -8,14 +8,14 @@ func _ready() -> void:
 	settings.background_color = Color("9ab7c2")
 	settings.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
 	settings.ambient_light_color = Color("dae7e6")
-	settings.ambient_light_energy = 0.65
-	settings.tonemap_mode = Environment.TONE_MAPPER_FILMIC
+	settings.ambient_light_energy = 0.3
+	settings.tonemap_mode = Environment.TONE_MAPPER_LINEAR
 	environment.environment = settings
 	add_child(environment)
 	var sun = DirectionalLight3D.new()
 	sun.rotation_degrees = Vector3(-55, -32, 0)
 	sun.light_color = Color("fff1d3")
-	sun.light_energy = 1.3
+	sun.light_energy = 0.85
 	sun.shadow_enabled = true
 	sun.directional_shadow_max_distance = 55
 	add_child(sun)
@@ -89,4 +89,3 @@ func ramp(at: Vector3, width: float, length: float, height: float) -> void:
 	mat.cull_mode = BaseMaterial3D.CULL_DISABLED
 	instance.material_override = mat
 	body.add_child(instance)
-

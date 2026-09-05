@@ -54,7 +54,7 @@ if grep -Eq 'SCRIPT ERROR|Parse Error|FAIL:' build/tests.log; then
   exit 1
 fi
 grep -Eq 'BOLT YARD: [0-9]+ checks, 0 failures' build/tests.log
-timeout 120 xvfb-run -a "$godot_bin" --path . --rendering-method gl_compatibility --script tests/capture.gd 2>&1 | tee build/capture.log
+timeout 120 xvfb-run -a "$godot_bin" --path . --audio-driver Dummy --rendering-method gl_compatibility --script tests/capture.gd 2>&1 | tee build/capture.log
 grep -q 'CAPTURE: workshop and driving views saved' build/capture.log
 "$godot_bin" --headless --path . --export-debug Android build/bolt-yard-0.1.0.apk 2>&1 | tee build/export.log
 test -s build/bolt-yard-0.1.0.apk
