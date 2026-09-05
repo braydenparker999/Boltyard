@@ -20,7 +20,20 @@ World checks cover source-color conversion, mipmapped materials, ground/physics 
 
 ## Android build
 
-The workflow builds and tests the native Linux and Android ARM64 libraries, renders 13 static views plus four driving frames and a controlled 21-second movie, exports the APK, and verifies signatures, package information and checksum. The downloaded artifact identity will be recorded here after that build completes.
+The workflow builds and tests the native Linux and Android ARM64 libraries, renders 13 static views plus four driving frames and a controlled 21-second movie, exports the APK, and verifies signatures, package information and checksum. The final [Android workflow](https://github.com/braydenparker999/Boltyard/actions/runs/33992149892) passed against source commit `b45819237a2c816715bec2be3a8152de5acb95e6`. All 80 source/asset updates were compared with that exact Git tree before reviewing its artifacts.
+
+- Artifact: `bolt-yard-0.4.0-trailworks.apk`, 35,940,368 bytes.
+- SHA-256: `99e5249891e55a5c6c0adeefce7ab9db3850f42ff6c02d0e7695eecd6847b5f3`.
+- Signing certificate SHA-256: `a882ee66b05eff32ad4629269a96d79bfc3514bcbf0e16e99f42f6046836ea73`; matches the previous installed-development build certificate.
+- Package: `games.boltyard.prototype`, version 0.4.0 / code 4, ARM64.
+- Android orientation: `fullUser` (13); no requested permissions.
+
+The downloaded APK passed ZIP integrity, checksum and native-extension/runtime packaging checks. The three new photographic assets and dust shader are included. Android apksigner verified v1, v2 and v3 signatures. The matching package/key and unchanged save paths support updating in place; actual installation on the user's phone remains untested here.
+
+The final workflow passed all 467 assertions and both full-road scenarios. Static captures contain no script/shader errors. Its final driving trace reports peak 38.9 km/h, minimum up.y 0.972, damage 0.0000, zero safety clamps/rejected states and a clean stop. Review footage and 17 screenshots come from the built source; they are not on-device performance captures.
+
+The build artifacts are `bolt-yard-android` (APK/checksum) and `bolt-yard-build-logs` (logs, images, trace and movie). A later documentation-only commit records these results without changing the app.
+
 
 ## Device scope
 
