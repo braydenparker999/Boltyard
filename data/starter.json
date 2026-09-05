@@ -1,0 +1,152 @@
+{
+  "version": 1,
+  "parts": [
+    {
+      "x": -1,
+      "y": 0,
+      "z": -2,
+      "kind": "frame",
+      "turn": 0
+    },
+    {
+      "x": -1,
+      "y": 0,
+      "z": -1,
+      "kind": "frame",
+      "turn": 0
+    },
+    {
+      "x": -1,
+      "y": 0,
+      "z": 0,
+      "kind": "frame",
+      "turn": 0
+    },
+    {
+      "x": -1,
+      "y": 0,
+      "z": 1,
+      "kind": "frame",
+      "turn": 0
+    },
+    {
+      "x": -1,
+      "y": 0,
+      "z": 2,
+      "kind": "frame",
+      "turn": 0
+    },
+    {
+      "x": 0,
+      "y": 0,
+      "z": -2,
+      "kind": "frame",
+      "turn": 0
+    },
+    {
+      "x": 0,
+      "y": 0,
+      "z": -1,
+      "kind": "frame",
+      "turn": 0
+    },
+    {
+      "x": 0,
+      "y": 0,
+      "z": 0,
+      "kind": "frame",
+      "turn": 0
+    },
+    {
+      "x": 0,
+      "y": 0,
+      "z": 1,
+      "kind": "frame",
+      "turn": 0
+    },
+    {
+      "x": 0,
+      "y": 0,
+      "z": 2,
+      "kind": "frame",
+      "turn": 0
+    },
+    {
+      "x": 1,
+      "y": 0,
+      "z": -2,
+      "kind": "frame",
+      "turn": 0
+    },
+    {
+      "x": 1,
+      "y": 0,
+      "z": -1,
+      "kind": "frame",
+      "turn": 0
+    },
+    {
+      "x": 1,
+      "y": 0,
+      "z": 0,
+      "kind": "frame",
+      "turn": 0
+    },
+    {
+      "x": 1,
+      "y": 0,
+      "z": 1,
+      "kind": "frame",
+      "turn": 0
+    },
+    {
+      "x": 1,
+      "y": 0,
+      "z": 2,
+      "kind": "frame",
+      "turn": 0
+    },
+    {
+      "x": -2,
+      "y": 0,
+      "z": -2,
+      "kind": "wheel",
+      "turn": 0
+    },
+    {
+      "x": -2,
+      "y": 0,
+      "z": 2,
+      "kind": "wheel",
+      "turn": 0
+    },
+    {
+      "x": 2,
+      "y": 0,
+      "z": -2,
+      "kind": "wheel",
+      "turn": 0
+    },
+    {
+      "x": 2,
+      "y": 0,
+      "z": 2,
+      "kind": "wheel",
+      "turn": 0
+    },
+    {
+      "x": 0,
+      "y": 1,
+      "z": 0,
+      "kind": "seat",
+      "turn": 0
+    },
+    {
+      "x": 0,
+      "y": 1,
+      "z": 1,
+      "kind": "motor",
+      "turn": 0
+    }
+  ]
+}

@@ -1,0 +1,39 @@
+name: Build Android APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, master]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  android:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Validate and build native Android APK
+        run: bash tools/ci_build.sh
+      - name: Save installable APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: bolt-yard-android
+          path: |
+            build/*.apk
+            build/SHA256SUMS.txt
+          if-no-files-found: error
+      - name: Save validation logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bolt-yard-build-logs
+          path: build/*.log
+          if-no-files-found: ignore
+
