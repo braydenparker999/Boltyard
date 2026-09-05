@@ -1,48 +1,47 @@
-# Validation record — Bolt Yard 0.2, 2026-09-05
+# Validation record — Bolt Yard 0.3, 2026-09-05
 
-## Verified build
+The integrated Android build passes **204 automated checks**. Actual rendered screenshots were inspected in both orientations, with all three vehicles and the exploration map. Artifact identity and packaging verification are recorded below.
 
-[Successful Android build](https://github.com/braydenparker999/Boltyard/actions/runs/33984129744)
+## Verified APK
 
-Code commit: `6be0cf2e07ff237f70440db6994aa245771450cc`
+[Successful Android build](https://github.com/braydenparker999/Boltyard/actions/runs/33987686884)
 
-Artifact: `bolt-yard-0.2.0-softbody.apk`, 27,228,129 bytes.
+Code commit: `985be43678fe103ca1a13b297efa70ef9d9a68da`
 
-SHA-256: `51b461870effdc474072271eeb95339b6898b70e849daaab65c1a101e9431ad1`
+Artifact: `bolt-yard-0.3.0-explorer.apk`, 27,290,312 bytes.
 
-The downloaded APK matched the build checksum. It contains `lib/arm64-v8a/libboltyard.android.arm64.so`, `libc++_shared.so`, and the GDExtension registration. Android's apksigner verified v1, v2 and v3 signatures. It uses package `games.boltyard.prototype`, version 0.2.0 / code 2, the original development key, ARM64, minimum API 21 and target API 34.
+SHA-256: `9648c48a951997a77b879cddaf6bebd9c3eed5fbec6b3fd610b5179590b25f02`
 
-## Automated results
+The downloaded APK matched the workflow checksum and passed ZIP integrity checks. Its ARM64 solver, C++ runtime, extension registration and vehicle shader include are present. Test files and the development keystore are excluded from APK assets.
 
-**95 checks passed:**
+Android apksigner verified v1, v2 and v3 signatures. The signing certificate fingerprint matches the downloaded v0.2 APK, supporting an in-place update. The binary manifest confirms `games.boltyard.prototype`, version 0.3.0 / code 3, orientation `fullUser` (13), and no requested permissions. The package supports minimum API 21 and targets API 34. Both screen orientations are permitted subject to Android's auto-rotation setting.
 
-- 47 standalone native physics tests: topology and mass, settling and symmetry, elastic recovery, permanent rest-length changes, beam failure, a real crash impulse, acceleration, reverse, steering, braking, airborne momentum, pressure response, spring loading, damping response, low-range and differential coupling, fixed cadence, terrain traversal and recovery.
-- The native suite also covers every individual numeric garage slider endpoint (20 cases), four combined extremes, a full trail traversal and one minute parked. Ordinary scenarios require zero velocity-cap activations, zero nonfinite-state repairs and no discarded simulation time.
-- 17 Godot native-extension and offroad scene checks: registration, node/beam data, four-wheel contact telemetry, load support, propulsion, live drivetrain changes, reset, render-cadence partitions, scene startup, garage/drive switching and simultaneous right/throttle input signs.
-- 31 retained engine checks for the earlier construction prototype and its saved blueprints, suspension vehicle, driving and UI.
+All 204 checks passed in the final workflow. Final capture logs contain no script, shader or runtime errors, and visual review confirmed the layout corrections, intact vehicles, clearer shadows and revised lake/boulder appearance. Some distant terrain remains coarse and the graphics are procedural and stylized.
 
-The native suite passed locally with `-Wall -Wextra -Werror -pedantic`. A separate focused AddressSanitizer/UndefinedBehaviorSanitizer run passed deformation, impacts, pressure settings, steering and terrain scenarios; leak detection was unavailable because that runtime restricted process metadata. The GitHub build reran the complete native suite with its checked-in compile flags.
+The APK/checksum and all validation logs/screenshots are available as `bolt-yard-android` and `bolt-yard-build-logs` in the linked workflow. No further code changes were made after this verified build; the subsequent commit only updates these documents.
 
-The parked-brake check allows up to 10 cm of compliant settling after stopping, while requiring final speed below 0.01 m/s. Permanent-yield tests require actual physical beam rest-length changes, rather than only a damage counter. These are prototype behavior tolerances, not real-vehicle calibration.
+## Automated coverage
 
-## Rendering and packaging
+- 73 native C++ checks: all 47 retained physics cases plus distinct vehicle structures, equipment effects, exact mass accounting, centre-of-mass shifts, native terrain, narrow-post contacts and part endpoints.
+- 17 native-extension/offroad scene checks: registration, contact telemetry, load support, propulsion, live drivetrain changes, recovery, fixed cadence and combined control inputs.
+- 31 retained engine checks for the earlier construction prototype.
+- 47 catalog checks: three vehicle setups, compatible parts, physical composition, invalid values, tuning precedence and JSON round trips.
+- 36 explorer checks: migration that preserves the legacy file, separately saved builds, equipment application, destination/discovery rules, map pause, settings persistence, both orientations, input clearing, camp reset, settled sidebar bounds, footer visibility and navigation size.
 
-Godot 4.4.1 imported the final project without script errors. Garage, driving, intact beam structure, impacted beam structure and impacted body surfaces were rendered under Xvfb/Mesa and inspected. No script/runtime errors appeared in the final test/capture logs. The runner emitted a software-driver V-Sync warning.
+The native suite also passed locally with strict warnings; headless Godot checks passed locally. A separate renderer sweep instantiated all 54 compatible vehicle/part selections and verified that normal frame updates reuse the existing source mesh. This is one part selection at a time, not an exhaustive test of all combined equipment builds.
 
-Visual review corrected the grounded-wheel display (previously contact nodes were labelled as wheels), restored visible slider tracks, and added a readable backdrop to the garage heading. Increased directional-shadow bias reduced self-shadow artifacts; some fine shadow banding remains in the software-rendered terrain and needs comparison on a phone. Mesh deformation and the diagnostic beam view are present in the captured scenes.
+## Rendering review
 
-Initial build attempts exposed a missing OS class in the reduced native binding profile, missing shared-library filename suffixes, and an incorrect Godot sky enum. Those were fixed before the successful build. The workflow rejects native test failures, GDScript parse errors, failed engine checks, missing native APK contents and failed signature verification.
+The first capture pass rendered all three vehicles, portrait garage/driving, map, exploration, beam diagnostics and impact views with Godot 4.4.1 under Xvfb/Mesa. The vehicle skin, tires, windows, cage and equipment were visible without shader errors.
 
-The build logs and screenshots are available as the `bolt-yard-build-logs` artifact of the linked run. The APK and its checksum are in `bolt-yard-android`.
+Review found oversized containers caused by wrapped text retaining a previous minimum size. Layout now settles over subsequent frames, and the automated suite checks the resulting bounds. The next screenshot pass confirmed the sidebar/footer and portrait navigation fixes, and removed the diagonal shadow striping. Additional fixes closed two hood side gaps, corrected lake/canopy triangle winding, adjusted daylight/shadow bias, applied the saved quality level after lighting creation, and restricted the static camp reflection to scenery. The final scenery pass replaced visibly repetitive water-color waves with gentle reflection-normal ripples, varied the shoreline and rounded boulder geometry.
 
-## Still needs a physical Android phone
+The capture script renders 13 views, including a static camp reflection enabled with Balanced quality and a separate across-lake camera view to inspect the shoreline. No script, shader or runtime errors were present in successful capture logs. The runner emits a driver V-Sync warning.
 
-No Android emulator or physical Android device was accessed. The following remain unverified on target hardware:
+The screenshot runner uses software rendering; its displayed FPS is not a Galaxy A15 measurement. Directional shadows and clearcoat/reflections use the GL Compatibility renderer. They are modest mobile-oriented effects, not ray tracing or real-time mirror surfaces.
 
-1. Installation, launch and updating the older prototype.
-2. Simultaneous touch steering/throttle, comfortable controls and screen cutouts.
-3. Handling over the trail with stock and customized setups, impacts and recovery.
-4. Tuning persistence after closing, plus background/resume behavior.
-5. Sustained frame rate, temperature, battery use and shadows on the phone GPU.
+## Device status
 
-The screenshot runner uses Mesa software rendering. Its FPS is not a phone benchmark; the native `sim_ms` number excludes mesh construction and rendering. Passing the numerical suite does not establish BeamNG fidelity or a calibrated tire/material model. Physical approximations and missing systems are described in [SIMULATION.md](SIMULATION.md).
+The user reported smooth operation and working customization for v0.2 on a Samsung A15. No physical Android device or Android emulator was accessed for v0.3. Installation/update, actual multitouch comfort, system auto-rotation, background/resume, sustained FPS, temperature and battery use still need a run on that phone.
+
+Start with the default Performance setting. Balanced and High increase scenery/shadow reach and enable a static reflection at camp. Numerical tests establish regression behavior, not real-vehicle calibration or BeamNG-level fidelity. See [SIMULATION.md](SIMULATION.md) for the implemented mechanics and limitations.

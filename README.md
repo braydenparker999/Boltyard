@@ -18,7 +18,7 @@ The simulation is experimental and is not calibrated to real vehicle or tire dat
 
 ## Install
 
-Open this repository's [Actions](https://github.com/braydenparker999/Boltyard/actions), select the latest successful **Build Android APK** run for version 0.3, and download **bolt-yard-android**. Extract `bolt-yard-0.3.0-explorer.apk` and open it on an ARM64 Android phone. Allow installation from your download/file app if Android asks.
+Open the [verified 0.3 build](https://github.com/braydenparker999/Boltyard/actions/runs/33987686884) and download **bolt-yard-android**. Future builds are in this repository's [Actions](https://github.com/braydenparker999/Boltyard/actions). Extract `bolt-yard-0.3.0-explorer.apk` and open it on an ARM64 Android phone. Allow installation from your download/file app if Android asks.
 
 The APK uses package `games.boltyard.prototype`, version 0.3.0 / code 3 and the same development signing key as earlier prototypes, so install it over the existing app to retain saves. The included key is only for development builds. The game needs no Play Store account, runtime network access or storage permission.
 
