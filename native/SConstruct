@@ -5,6 +5,6 @@ cpp_dir = os.environ.get("BOLT_GODOT_CPP", "godot-cpp")
 env = SConscript(os.path.join(cpp_dir, "SConstruct"))
 env.Append(CPPPATH=["."])
 env.Append(CXXFLAGS=["-std=c++17"])
-output = "../bin/libboltyard." + env["platform"] + "." + env["arch"]
+output = "../bin/libboltyard." + env["platform"] + "." + env["arch"] + ".so"
 library = env.SharedLibrary(output, source=["binding.cpp"])
 Default(library)
