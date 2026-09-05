@@ -4,6 +4,7 @@ on:
   workflow_dispatch:
   push:
     branches: [main, master]
+    paths-ignore: [".github/workflows/preview-runtime.yml", ".github/workflows/preview-display.yml"]
   pull_request:
 
 permissions:
@@ -48,4 +49,5 @@ jobs:
             build/*.log
             build/*.png
           if-no-files-found: ignore
+
 

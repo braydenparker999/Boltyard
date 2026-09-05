@@ -1,0 +1,37 @@
+name: Prepare preview display
+on:
+  workflow_dispatch:
+  push:
+    paths: ['.github/workflows/preview-display.yml']
+permissions:
+  contents: read
+jobs:
+  display:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Package virtual display dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PYTHON'
+          import pathlib, shutil, subprocess, re, tarfile
+          root=pathlib.Path('display-runtime')
+          (root/'bin').mkdir(parents=True)
+          (root/'lib').mkdir()
+          for executable in ['Xvfb','xkbcomp']:
+              src=shutil.which(executable)
+              assert src, executable
+              shutil.copy2(src,root/'bin'/executable)
+              for lib in re.findall(r'=> (/[^ ]+)',subprocess.check_output(['ldd',src],text=True)):
+                  name=pathlib.Path(lib).name
+                  if name.startswith(('libc.so','libm.so','libpthread.so','libdl.so','librt.so')): continue
+                  shutil.copy2(lib,root/'lib'/name)
+          shutil.copytree('/usr/share/X11/xkb',root/'xkb')
+          with tarfile.open('preview-display.tar.gz','w:gz') as archive: archive.add(root,arcname='display-runtime')
+          PYTHON
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bolt-yard-preview-display
+          path: preview-display.tar.gz
+          retention-days: 7
