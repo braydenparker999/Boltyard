@@ -2,7 +2,7 @@
 
 An original, small mechanical vehicle sandbox inspired by the build / drive / improve loop. Native Godot 4.4.1 project targeting ARM64 Android. No web view, server, account, external art, or runtime network service.
 
-**Delivery status: source implementation, not a verified playable release. No APK is included in this archive.** Godot and the Android SDK were unavailable in the authoring workspace, and downloading dependencies was blocked. Resource checks and build-script syntax checks passed. The engine tests, graphics, touch input, and APK build remain unexecuted. See `VALIDATION.md`.
+**Build status:** [the Android build passed](https://github.com/braydenparker999/Boltyard/actions/runs/33981137360). All 31 engine checks passed, the ARM64 APK signature was verified, and the workshop / driving screens were visually inspected. Download the `bolt-yard-android` artifact from that run for version 0.1.0. Real-device installation, multitouch, and sustained performance still require testing. See `VALIDATION.md`.
 
 ## Included implementation
 
@@ -32,7 +32,7 @@ The repository root must contain `project.godot`, `scripts/`, `tools/`, and `.gi
 
 No Play Store account is required for this development APK. The supplied public **development-only** signing key keeps prototype builds consistently signed; it must not be used for a production release. Keep the key unchanged between prototype builds to allow updating without uninstalling. Uninstalling removes local builds and saves.
 
-The workflow uses GitHub-hosted Ubuntu runners. Runner availability and usage charges depend on the repository and GitHub plan. Nothing has been uploaded to a repository or run on GitHub as part of this source delivery.
+The workflow uses GitHub-hosted Ubuntu runners. Runner availability and usage charges depend on the repository and GitHub plan. The project is hosted at [braydenparker999/Boltyard](https://github.com/braydenparker999/Boltyard), with builds under its Actions tab.
 
 ## Run or export locally
 
