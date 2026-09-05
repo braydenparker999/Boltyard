@@ -7,19 +7,25 @@ cd "$(dirname "$0")/.."
 : "${JAVA_HOME:?Set JAVA_HOME to a JDK 17 installation}"
 : "${ANDROID_HOME:?Set ANDROID_HOME to the Android SDK}"
 godot_version=4.4.1
-build_root="${RUNNER_TEMP:-/tmp}/bolt-yard-build"
+build_root="${XDG_CACHE_HOME:-$HOME/.cache}/bolt-yard/4.4.1"
 mkdir -p "$build_root" build
 engine_zip="Godot_v${godot_version}-stable_linux.x86_64.zip"
 templates_zip="Godot_v${godot_version}-stable_export_templates.tpz"
 release_base="https://github.com/godotengine/godot-builds/releases/download/${godot_version}-stable"
-curl --fail --location --retry 3 "$release_base/$engine_zip" -o "$build_root/$engine_zip"
-curl --fail --location --retry 3 "$release_base/$templates_zip" -o "$build_root/$templates_zip"
-unzip -oq "$build_root/$engine_zip" -d "$build_root/engine"
 godot_bin="$build_root/engine/Godot_v${godot_version}-stable_linux.x86_64"
-chmod +x "$godot_bin"
+if [[ ! -x "$godot_bin" ]]; then
+  curl --fail --location --retry 3 "$release_base/$engine_zip" -o "$build_root/$engine_zip"
+  unzip -oq "$build_root/$engine_zip" -d "$build_root/engine"
+  chmod +x "$godot_bin"
+  rm "$build_root/$engine_zip"
+fi
 templates_dir="${XDG_DATA_HOME:-$HOME/.local/share}/godot/export_templates/${godot_version}.stable"
 mkdir -p "$templates_dir"
-unzip -oj "$build_root/$templates_zip" 'templates/android_debug.apk' 'templates/android_release.apk' -d "$templates_dir"
+if [[ ! -s "$templates_dir/android_debug.apk" || ! -s "$templates_dir/android_release.apk" ]]; then
+  curl --fail --location --retry 3 "$release_base/$templates_zip" -o "$build_root/$templates_zip"
+  unzip -oj "$build_root/$templates_zip" 'templates/android_debug.apk' 'templates/android_release.apk' -d "$templates_dir"
+  rm "$build_root/$templates_zip"
+fi
 
 sdkmanager_bin="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
 if [[ ! -x "$sdkmanager_bin" ]]; then
@@ -48,6 +54,8 @@ if grep -Eq 'SCRIPT ERROR|Parse Error|FAIL:' build/tests.log; then
   exit 1
 fi
 grep -Eq 'BOLT YARD: [0-9]+ checks, 0 failures' build/tests.log
+timeout 120 xvfb-run -a "$godot_bin" --path . --rendering-method gl_compatibility --script tests/capture.gd 2>&1 | tee build/capture.log
+grep -q 'CAPTURE: workshop and driving views saved' build/capture.log
 "$godot_bin" --headless --path . --export-debug Android build/bolt-yard-0.1.0.apk 2>&1 | tee build/export.log
 test -s build/bolt-yard-0.1.0.apk
 "$ANDROID_HOME/build-tools/34.0.0/apksigner" verify --verbose build/bolt-yard-0.1.0.apk | tee build/signature.log
