@@ -20,7 +20,7 @@ for path in list(root.rglob('*.gd')) + [root / 'project.godot', root / 'main.tsc
         assert (root / resource).is_file(), f'Missing resource {resource} in {path.name}'
         refs += 1
 assert 'architectures/arm64-v8a=true' in (root / 'export_presets.cfg').read_text()
-assert 'window/handheld/orientation=0' in (root / 'project.godot').read_text()
+assert 'window/handheld/orientation=6' in (root / 'project.godot').read_text()
 assert (root / 'tools/debug.keystore').stat().st_size > 1000
 print(f'PASS: starter structure, icon XML, {refs} resource references, Android preset, development key')
 print('Godot parser, runtime, physics, rendering, and APK installation require the engine/build workflow.')

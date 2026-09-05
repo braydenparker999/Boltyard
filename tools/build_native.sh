@@ -22,3 +22,4 @@ profile_path="$PWD/native/build_profile.json"
 ) 2>&1 | tee build/native-build.log
 test -s bin/libboltyard.linux.x86_64.so
 test -s bin/libboltyard.android.arm64.so
+

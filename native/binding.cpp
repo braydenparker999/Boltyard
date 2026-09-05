@@ -3,6 +3,7 @@
 #include <godot_cpp/core/class_db.hpp>
 #include <godot_cpp/godot.hpp>
 #include <godot_cpp/variant/dictionary.hpp>
+#include <godot_cpp/variant/array.hpp>
 #include <godot_cpp/variant/packed_vector3_array.hpp>
 #include <godot_cpp/variant/packed_int32_array.hpp>
 #include <godot_cpp/variant/packed_byte_array.hpp>
@@ -39,6 +40,9 @@ protected:
         ClassDB::bind_method(D_METHOD("set_drivetrain", "low_range", "locked_diffs"), &SoftBodyRig::set_drivetrain);
         ClassDB::bind_method(D_METHOD("terrain_height", "x", "z"), &SoftBodyRig::terrain_height);
         ClassDB::bind_method(D_METHOD("terrain_normal", "x", "z"), &SoftBodyRig::terrain_normal);
+        ClassDB::bind_method(D_METHOD("terrain_surface", "x", "z"), &SoftBodyRig::terrain_surface);
+        ClassDB::bind_method(D_METHOD("get_obstacles"), &SoftBodyRig::get_obstacles);
+        ClassDB::bind_method(D_METHOD("get_rest_nodes"), &SoftBodyRig::get_rest_nodes);
         ClassDB::bind_method(D_METHOD("get_nodes"), &SoftBodyRig::get_nodes);
         ClassDB::bind_method(D_METHOD("get_beams"), &SoftBodyRig::get_beams);
         ClassDB::bind_method(D_METHOD("get_beam_kinds"), &SoftBodyRig::get_beam_kinds);
@@ -63,6 +67,13 @@ public:
         c.track_width = number(d,"track_width",1.9f,1.6f,2.3f);
         c.wheelbase = number(d,"wheelbase",2.7f,2.3f,3.3f);
         c.body_stiffness = number(d,"body_stiffness",1.0f,0.5f,2.0f);
+        c.vehicle_type = (int)number(d,"vehicle_type",0,0,2);
+        c.tire_grip = number(d,"tire_grip",1,0.7f,1.4f);
+        c.tire_width_scale = number(d,"tire_width_scale",1,0.75f,1.4f);
+        c.suspension_travel = number(d,"suspension_travel",0.22f,0.12f,0.4f);
+        c.final_drive = number(d,"final_drive",1,0.8f,1.5f);
+        c.front_accessory_mass = number(d,"front_accessory_mass",0,0,100);
+        c.roof_accessory_mass = number(d,"roof_accessory_mass",0,0,100);
         c.low_range = d.get("low_range",true);
         c.locked_diffs = d.get("locked_diffs",true);
         rig.configure(c);
@@ -83,10 +94,26 @@ public:
         auto end = std::chrono::steady_clock::now();
         sim_ms = std::chrono::duration<double,std::milli>(end-start).count();
     }
-    void set_terrain(int mode) { rig.set_terrain(mode == 0 ? 0 : 1); }
+    void set_terrain(int mode) { rig.set_terrain(std::clamp(mode,0,2)); }
     void set_drivetrain(bool low, bool locked) { rig.set_drivetrain(low,locked); }
     double terrain_height(double x, double z) const { return rig.terrain_height((float)x,(float)z); }
     Vector3 terrain_normal(double x, double z) const { return gv(rig.terrain_normal((float)x,(float)z)); }
+    double terrain_surface(double x, double z) const { return rig.terrain_surface((float)x,(float)z); }
+    Array get_obstacles() const {
+        Array out;
+        for (const auto &o : boltyard::exploration_obstacles()) {
+            Dictionary item;
+            item["x"]=o.x; item["z"]=o.z; item["radius"]=o.radius;
+            item["height"]=o.height; item["type"]=o.type;
+            out.push_back(item);
+        }
+        return out;
+    }
+    PackedVector3Array get_rest_nodes() const {
+        PackedVector3Array a; a.resize(rig.rest_positions.size());
+        for (int i=0;i<(int)rig.rest_positions.size();++i) a.set(i,gv(rig.rest_positions[i]));
+        return a;
+    }
     PackedVector3Array get_nodes() const {
         PackedVector3Array a; a.resize(rig.particles.size());
         for (int i=0;i<(int)rig.particles.size();++i) a.set(i,gv(rig.particles[i].pos));
