@@ -107,7 +107,7 @@ func _make_lighting() -> void:
 	_sun.name = "ValleySun"
 	_sun.rotation_degrees = Vector3(-38, -36, 0)
 	_sun.light_color = Color("fff3dd")
-	_sun.light_energy = 0.72
+	_sun.light_energy = 0.5
 	_sun.shadow_enabled = true
 	_sun.directional_shadow_max_distance = 58.0
 	_sun.directional_shadow_mode = DirectionalLight3D.SHADOW_PARALLEL_2_SPLITS
@@ -345,7 +345,12 @@ func _build_obstacles() -> void:
 			post_transforms.append(Transform3D(Basis.IDENTITY.scaled(Vector3(radius, h, radius)), at + Vector3.UP * h * 0.5))
 	_multimesh(_cylinder(1.0, 1.0, 8), _materials.wood, trunk_transforms, "SolidJuniperTrunks")
 	_multimesh(_pine_mesh(), _materials.pine, crown_transforms, "JuniperCanopies")
-	_multimesh(_cylinder(1.0, 1.0, 9), _materials.rock, rock_transforms, "SolidQuarryBoulders")
+	var boulder := SphereMesh.new()
+	boulder.radius = 1.0
+	boulder.height = 1.0
+	boulder.radial_segments = 9
+	boulder.rings = 4
+	_multimesh(boulder, _materials.rock, rock_transforms, "SolidQuarryBoulders")
 	_multimesh(_cylinder(1.0, 1.0, 8), _materials.sign, post_transforms, "LandmarkPosts")
 
 func _build_outskirts() -> void:
@@ -388,7 +393,8 @@ func _build_lake() -> void:
 	var indices := PackedInt32Array()
 	for i in range(65):
 		var angle := float(i) / 64.0 * TAU
-		vertices.append(Vector3(LAKE_CENTER.x + cos(angle) * 40.0, LAKE_LEVEL, LAKE_CENTER.y + sin(angle) * 34.0))
+		var shoreline := 1.0 + 0.06 * sin(angle * 3.0) + 0.045 * cos(angle * 5.0)
+		vertices.append(Vector3(LAKE_CENTER.x + cos(angle) * 40.0 * shoreline, LAKE_LEVEL, LAKE_CENTER.y + sin(angle) * 34.0 * shoreline))
 		normals.append(Vector3.UP)
 	for i in range(64):
 		indices.append_array(PackedInt32Array([0, i + 1, i + 2]))
