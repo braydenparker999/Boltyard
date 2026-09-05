@@ -967,9 +967,12 @@ func update_camera(delta: float) -> void:
 	desired.y = maxf(desired.y, float(truck.core.terrain_height(desired.x, desired.z)) + 1.2)
 	# Keep the whole sightline above hill crests, including between its endpoints.
 	var lift = 0.0
+	# Garage framing deliberately aims below the car in portrait. Test the
+	# actual vehicle sightline so that framing cannot trigger a false hill lift.
+	var sight_anchor: Vector3 = target if driving else position + Vector3.UP * 0.6
 	for sample in range(1, 9):
 		var fraction = float(sample) / 8.0
-		var point = target.lerp(desired, fraction)
+		var point = sight_anchor.lerp(desired, fraction)
 		var clearance = float(truck.core.terrain_height(point.x, point.z)) + 0.35 - point.y
 		lift = maxf(lift, clearance / fraction)
 	desired.y += lift
