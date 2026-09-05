@@ -1,0 +1,40 @@
+name: Prepare local preview runtime
+on:
+  workflow_dispatch:
+  push:
+    paths: ['.github/workflows/preview-runtime.yml']
+permissions:
+  contents: read
+jobs:
+  runtime:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/cache/restore@v4
+        with:
+          path: |
+            ~/.cache/bolt-yard/4.4.1
+            ~/.local/share/godot/export_templates/4.4.1.stable
+          key: godot-4.4.1-native-android-v1
+          fail-on-cache-miss: true
+      - uses: actions/cache/restore@v4
+        with:
+          path: ~/.cache/bolt-yard/native-4.4.1
+          key: bolt-native-cpp-4.4.1-profile-refcounted-os-v2
+          fail-on-cache-miss: true
+      - name: Package engine and native development headers
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p runtime
+          cp "$HOME/.cache/bolt-yard/4.4.1/engine/Godot_v4.4.1-stable_linux.x86_64" runtime/godot
+          cpp_dir="$HOME/.cache/bolt-yard/native-4.4.1/godot-cpp"
+          mkdir -p runtime/godot-cpp/bin
+          cp -r "$cpp_dir/include" "$cpp_dir/gen" "$cpp_dir/gdextension" runtime/godot-cpp/
+          cp "$cpp_dir/bin/libgodot-cpp.linux.template_debug.x86_64.a" runtime/godot-cpp/bin/
+          tar -czf bolt-yard-preview-runtime.tar.gz runtime
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bolt-yard-preview-runtime
+          path: bolt-yard-preview-runtime.tar.gz
+          retention-days: 7
