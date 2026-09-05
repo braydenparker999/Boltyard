@@ -41,7 +41,7 @@ func _make_lighting() -> void:
 	settings.ambient_light_color = Color("d1dfe0")
 	settings.ambient_light_energy = 0.3
 	settings.tonemap_mode = Environment.TONE_MAPPER_LINEAR
-	settings.reflected_light_source = Environment.REFLECTED_SOURCE_SKY
+	settings.reflected_light_source = Environment.REFLECTION_SOURCE_SKY
 	environment.environment = settings
 	add_child(environment)
 	var sun := DirectionalLight3D.new()
