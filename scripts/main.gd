@@ -222,8 +222,8 @@ func layout_ui() -> void:
 	var viewport_size = get_viewport().get_visible_rect().size
 	ui.get_node("Header").size.x = viewport_size.x - 48
 	ui.get_node("CameraTools").position = Vector2(viewport_size.x - 315, viewport_size.y - 67)
-	message.size.x = maxf(200, viewport_size.x - 390)
-	message.position.y = viewport_size.y - 146
+	message.size.x = maxf(200, viewport_size.x - (700 if driving else 390))
+	message.position.y = 264 if driving else viewport_size.y - 146
 	info.size.x = maxf(200, viewport_size.x - 390)
 	drive_panel.get_node("Recover").position = Vector2(viewport_size.x - 194, 104)
 	for node_name in ["Left", "Right", "Reverse", "Go"]:
@@ -358,8 +358,9 @@ func toggle_mode() -> void:
 	drive_panel.visible = driving
 	ui.get_node("CameraTools").visible = not driving
 	mode_button.text = "<  BUILD" if driving else "DRIVE  >"
+	layout_ui()
 	clear_controls()
-	toast("Hold GO and steer with < >. BRAKE stops; REV reverses. Recover resets a flipped car." if driving else "Back in the workshop. Your blueprint is unchanged.")
+	toast("Hold GO + < > to drive. REV reverses. BRAKE stops." if driving else "Back in the workshop. Your blueprint is unchanged.")
 
 func clear_controls() -> void:
 	for action in ["yard_left", "yard_right", "yard_go", "yard_reverse", "yard_brake"]:
