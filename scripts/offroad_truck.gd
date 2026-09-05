@@ -273,6 +273,12 @@ func _build_closed_body(suv: bool) -> void:
 	_beveled_box(PAINT, 0, Vector3(-0.085, 0.63, -0.13), Vector3(1.085, 1.58, hood_back), 0.065)
 	_quad(PAINT, 0, Vector3(-0.035, 1.59, -0.09), Vector3(0.03, 1.85, hood_back - 0.01),
 		Vector3(0.97, 1.85, hood_back - 0.01), Vector3(1.035, 1.59, -0.09))
+	# Close the shallow wedges beneath the sloped hood; an open edge would
+	# otherwise expose the engine bay when viewed from a low front quarter.
+	_quad(PAINT, 0, Vector3(-0.085, 1.58, -0.09), Vector3(-0.085, 1.58, hood_back - 0.01),
+		Vector3(0.03, 1.85, hood_back - 0.01), Vector3(-0.035, 1.59, -0.09))
+	_quad(PAINT, 0, Vector3(1.085, 1.58, hood_back - 0.01), Vector3(1.085, 1.58, -0.09),
+		Vector3(1.035, 1.59, -0.09), Vector3(0.97, 1.85, hood_back - 0.01))
 	for x in [0.20, 0.78]:
 		_tube(DARK, 0, Vector3(x, 1.686, -0.04), Vector3(x, 1.82, hood_back - 0.03), 0.006, 5)
 	_build_front_face(suv)

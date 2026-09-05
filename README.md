@@ -1,46 +1,46 @@
-# Bolt Yard — Soft-body Offroad 0.2
+# Bolt Yard — Valley Expedition 0.3
 
-An original offline Android offroading prototype. A native C++ node-and-beam solver simulates a deformable pickup chassis, cab and four tire carcasses. Godot 4.4.1 renders the body directly from the simulated nodes. This is a small experimental vehicle simulation, not BeamNG physics fidelity or a finished commercial game.
+An original offline Android offroading prototype with a native C++ deformable vehicle simulation and Godot 4.4.1 graphics. Version 0.3 expands the working soft-body prototype into an exploration game with three vehicles, interchangeable equipment and portrait support.
 
-## What you can drive and tune
+## Explore and build
 
-- One pickup with 100 mass nodes and 392 beam records, permanent structural yielding and breakable chassis/cab beams.
-- Four deformable tires with individual ground contacts, suspension springs, dampers, steering, drive torque and brakes.
-- A test course with bumps, ruts, ledges and uneven terrain. Leaving its visible boundary returns and repairs the truck at the start.
-- Ten physical tuning controls: tire radius, relative tire pressure, ride height, spring rate, damping, engine torque, mass, track width, wheelbase and body stiffness.
-- Trail, Crawler and Desert setups, six paints, low range and differential coupling. Garage changes rebuild the truck; drivetrain toggles work while driving.
-- Live body deformation, strain-colored node/beam view, an impulse impact test and repair/recovery.
-- Landscape touch controls, keyboard controls, pause and a locally saved tuning setup.
+- **Juniper Valley:** a 768 × 768 metre landscape with a forest trail, terraced quarry, overlook, lake shore and ridge. Six named destinations appear on the terrain map. Choose a destination, follow its compass bearing and drive into its discovery radius; discoveries persist.
+- **Three distinct vehicles:** Bison Pickup, Scout SUV and Nomad Buggy have different body shapes, native structural bracing, dimensions and weight distributions. Each has 100 simulated mass nodes; their structures have 392, 400 and 404 beams respectively.
+- **Six equipment slots:** tires, wheels, suspension, final drive, front bumper and roof equipment. Each vehicle has three compatible options per slot. The Nomad has its own nose brace and spare carrier; expedition armor and cargo racks fit the pickup/SUV. Equipment affects tire geometry and grip, suspension, gearing or mass distribution as appropriate.
+- **Saved garage:** separate builds and six paint choices for every vehicle, with ten optional fine-tuning controls. Existing 0.2 pickup tuning migrates into the pickup bay; the old save remains intact. Equipping a part clears only the manual overrides affected by that part.
+- **Portrait and landscape:** rotate while playing. The garage changes between a sidebar and bottom sheet, and driving controls rearrange for the screen. Input is cleared during rotation, pause and app backgrounding.
+- **New vehicle graphics:** persistent GPU-skinned bodywork, tinted glass, metallic clearcoat paint, detailed rims and tires, visible suspension and matching equipment. Bodywork follows the actual simulated particles. Terrain uses near/far meshes, textured ground, instanced vegetation, fog and a sky environment.
+- **Three graphics settings:** Performance is the default. Balanced and High increase terrain detail distance and shadow reach, and enable a static reflection capture at base camp. Sky reflections remain available throughout the map. These are environment reflections, not real-time mirror reflections.
 
-The pressure control changes carcass stiffness and a bounded grip multiplier; it is not calibrated in bar. Differential locking is a simplified finite coupling between wheel angular velocities. Suspension uses prismatic guides, not complete control-arm geometry. There is no vehicle self-collision, deformable soil, fluid mud, calibrated rubber model, drivetrain damage, detachable panels, multiplayer or part-swap catalog. See [SIMULATION.md](SIMULATION.md) for the implemented mathematics and limitations.
+Low range, differential coupling, live deformation, X-ray beam diagnostics, impact testing and repair/recovery remain available. The earlier construction sandbox is retained in `main.tscn`; the app opens `offroad_main.tscn`.
 
-The earlier construction sandbox remains in `main.tscn`; the app now opens `offroad_main.tscn`. Its original blueprint save is separate from the new tuning save.
+The simulation is experimental and is not calibrated to real vehicle or tire data. Obstacles use cylinder contacts, suspension uses simplified guides, and the lake is scenery without buoyancy. There is no vehicle self-collision, deformable soil, functioning winch, fluid mud, detachable panels or multiplayer. See [SIMULATION.md](SIMULATION.md) for the model and its limits.
 
 ## Install
 
-[Verified 0.2 Android build](https://github.com/braydenparker999/Boltyard/actions/runs/33984129744): 47 native and 48 engine checks passed; APK signature and downloaded checksum verified. Real-phone testing remains outstanding.
+Open this repository's [Actions](https://github.com/braydenparker999/Boltyard/actions), select the latest successful **Build Android APK** run for version 0.3, and download **bolt-yard-android**. Extract `bolt-yard-0.3.0-explorer.apk` and open it on an ARM64 Android phone. Allow installation from your download/file app if Android asks.
 
-Open this repository's [Actions](https://github.com/braydenparker999/Boltyard/actions), choose a successful **Build Android APK** run and download **bolt-yard-android**. Extract `bolt-yard-0.2.0-softbody.apk` and open it on an ARM64 Android phone. Allow installation from your file/download app if Android asks. The APK uses package `games.boltyard.prototype`, version code 2, and the same development signing key as 0.1 so it can update that prototype.
+The APK uses package `games.boltyard.prototype`, version 0.3.0 / code 3 and the same development signing key as earlier prototypes, so install it over the existing app to retain saves. The included key is only for development builds. The game needs no Play Store account, runtime network access or storage permission.
 
-The key included in this repository is for development builds only. No Play Store account or runtime network connection is required. Build and real-device verification status is recorded in [VALIDATION.md](VALIDATION.md).
+The user reported that 0.2 ran smoothly and customization worked on a Samsung A15. Version 0.3's sustained frame rate, temperature, touch comfort and graphics still need comparison on that phone. Start with Performance selected. Build verification and downloadable artifact details are recorded in [VALIDATION.md](VALIDATION.md).
 
 ## Controls
 
-Tap **DRIVE** to leave the garage. Hold **GO** together with **LEFT** or **RIGHT**; use **REV** and **BRAKE** as needed. **REPAIR** resets the simulation at the start. The garage has **X-RAY** and **IMPACT TEST** controls.
+Choose a vehicle and equipment, then tap **DRIVE**. Hold **GO** together with **LEFT** or **RIGHT**; **REV** reverses and **BRAKE** stops. **Map** selects a destination. **Repair & camp** rebuilds the vehicle at base camp while keeping builds and discoveries. Returning to the garage also resets the vehicle at camp. The garage includes orbit/zoom controls, **X-ray** and **Impact test**.
 
-Keyboard: WASD or arrows drive and steer, Space brakes, R repairs, Tab switches garage/drive. Garage tuning saves locally. Test installation, simultaneous touches, background/resume and sustained frame rate on the actual target phone before judging the mobile experience.
+Keyboard: WASD or arrows drive and steer, Space brakes, R repairs, Tab changes garage/drive and M opens the map. Escape pauses or closes the map. Saves are local to the installed app.
 
 ## Build and test
 
-GitHub Actions installs Godot 4.4.1, its Android template, JDK 17, Android SDK 34 and NDK 23.2.8568313. It pins godot-cpp to commit `e4b7c25e721ce3435a029087e3917a30aa73f06b`, builds Linux and ARM64 GDExtensions with SCons 4.8.1, runs native and engine tests, renders screenshots, exports the APK and verifies its signature and native library contents.
+GitHub Actions installs Godot 4.4.1, its Android template, JDK 17, Android SDK 34 and NDK 23.2.8568313. It pins godot-cpp to `e4b7c25e721ce3435a029087e3917a30aa73f06b` and SCons to 4.8.1, builds Linux and ARM64 GDExtensions, runs native and engine tests, renders screenshots, exports the APK and verifies its signature and native library contents.
 
-For a complete Ubuntu build with JDK 17 and an Android SDK configured:
+Complete Ubuntu build with JDK 17 and Android SDK configured:
 
 ```bash
 bash tools/ci_build.sh
 ```
 
-For the standalone physics tests (no Godot dependency):
+Standalone physics tests, without Godot:
 
 ```bash
 mkdir -p build
@@ -48,28 +48,31 @@ g++ -std=c++17 -O2 -Wall -Wextra -pedantic native/test_soft_rig.cpp -o build/tes
 build/test-soft-rig
 ```
 
-Build the native libraries with `bash tools/build_native.sh` before importing in Godot. The checked-in extension maps Linux x86_64 and Android ARM64 debug builds; other hosts and release exports need corresponding builds and mappings. Use matching Godot 4.4.1 export templates and **Export With Debug**. Do not open the new scene without its native library.
-
-Engine integration tests:
+Build native libraries with `bash tools/build_native.sh` before importing. The checked-in extension maps Linux x86_64 and Android ARM64 debug builds; other hosts and release exports need corresponding builds and mappings. Use Godot 4.4.1 export templates and **Export With Debug**.
 
 ```bash
 godot --headless --path . --editor --import
 godot --headless --path . --script tests/run.gd
 godot --headless --path . --script tests/offroad.gd
+godot --headless --path . --script tests/catalog.gd
+godot --headless --path . --script tests/explorer.gd
 ```
 
-Run tests against disposable user data: integration tests may write setup/blueprint saves. Screenshots use Mesa software rendering and are not phone performance measurements.
+Run tests and screenshots against disposable user data. The explorer suite backs up/restores its save fixtures, but the retained prototype tests and capture script may write setup/blueprint saves. Mesa software-rendered screenshots are not phone performance measurements.
 
 ## Source map
 
 | File | Purpose |
 | --- | --- |
-| `native/soft_rig.hpp` | Standalone physical model and XPBD solver |
-| `native/binding.cpp` | Godot interface, fixed cadence, diagnostics |
-| `native/test_soft_rig.cpp` | Physics behavior and stability tests |
-| `scripts/offroad_truck.gd` | Body and tire mesh deformation |
-| `scripts/offroad_world.gd` | Matching sampled terrain and course visuals |
-| `scripts/offroad_main.gd` | Tuning, persistence, controls and camera |
-| `tests/offroad.gd` | Native extension and scene integration checks |
-| `tools/ci_build.sh` | Native build, engine tests, rendering and APK verification |
-
+| `native/soft_rig.hpp` | Native node/beam model and XPBD solver |
+| `native/terrain_v03.hpp` | Shared exploration heightfield, surfaces and obstacles |
+| `native/binding.cpp` | Godot interface, fixed cadence and diagnostics |
+| `native/test_soft_rig.cpp` | Physics behavior and stability checks |
+| `scripts/vehicle_catalog.gd` | Vehicle definitions, compatible equipment and composed tuning |
+| `scripts/offroad_truck.gd` | Persistent particle-bound vehicle geometry |
+| `shaders/vehicle_skin.gdshaderinc` | GPU binding to chassis, cab, tire and suspension particles |
+| `scripts/offroad_world.gd` | Terrain, vegetation, lighting and quality levels |
+| `scripts/offroad_main.gd` | Garage, saves, responsive controls and camera |
+| `scripts/exploration_map.gd` | Terrain map and selectable destinations |
+| `tests/catalog.gd`, `tests/explorer.gd` | Equipment, save migration, discovery and orientation checks |
+| `tools/ci_build.sh` | Test gates, screenshot capture, Android export and verification |

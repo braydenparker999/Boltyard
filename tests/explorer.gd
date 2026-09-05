@@ -53,9 +53,15 @@ func run() -> void:
 	old_settings.paint = "537781"
 	write_json(LEGACY, {"version": 1, "settings": old_settings})
 	var legacy_bytes = FileAccess.get_file_as_bytes(LEGACY)
+	root.size = Vector2i(1280, 720)
+	await frame_settle(2)
 	var scene = load("res://offroad_main.tscn").instantiate()
 	root.add_child(scene)
-	await frame_settle()
+	await frame_settle(12)
+	var initial_extent = scene.get_viewport().get_visible_rect().size
+	check(inside_view(scene.garage_panel, initial_extent) and inside_view(scene.garage_footer, initial_extent), "initial garage and persistent save/repair footer fit after container layout settles")
+	if initial_extent.x > initial_extent.y:
+		check(scene.garage_panel.size.x <= 350.0 and scene.garage_panel.get_global_rect().end.x < scene.title_label.global_position.x, "initial landscape garage keeps its requested sidebar width without covering the vehicle title")
 	check(scene.has_migrated, "v0.2 setup is migrated into the new garage")
 	check(scene.settings.engine_torque == 625.0 and is_equal_approx(scene.settings.tire_radius, 0.51) and scene.settings.paint == "537781", "migration retains the previous physical tune and paint")
 	check(FileAccess.get_file_as_bytes(LEGACY) == legacy_bytes, "migration leaves the original setup file intact")
@@ -113,12 +119,14 @@ func run() -> void:
 		root.size = dimensions
 		await frame_settle()
 		scene.layout_ui()
-		await frame_settle()
+		await frame_settle(12)
 		var extent = scene.get_viewport().get_visible_rect().size
 		check(scene.portrait == (dimensions.y > dimensions.x), "rotation selects the %s layout" % ("portrait" if dimensions.y > dimensions.x else "landscape"))
-		check(inside_view(scene.header, extent) and inside_view(scene.garage_panel, extent), "header and garage fit the %s viewport" % str(dimensions))
+		check(inside_view(scene.header, extent) and inside_view(scene.garage_panel, extent) and inside_view(scene.garage_footer, extent), "header and garage fit the %s viewport" % str(dimensions))
 		scene.toggle_mode()
-		await frame_settle()
+		await frame_settle(12)
+		var navigation: Control = scene.drive_panel.get_node("Navigation")
+		check(inside_view(navigation, extent) and navigation.size.y <= 82.0, "navigation stays compact after rotating to the %s viewport" % str(dimensions))
 		var controls_inside = true
 		for action in scene.touch_buttons:
 			controls_inside = controls_inside and inside_view(scene.touch_buttons[action].panel, extent)

@@ -41,6 +41,7 @@ func _ready() -> void:
 	_make_lighting()
 	if _core != null:
 		_build_course()
+	set_quality(_quality)
 
 func set_quality(level: int) -> void:
 	_quality = clampi(level, 0, 2)
@@ -91,7 +92,7 @@ func _make_lighting() -> void:
 	sky.sky_material = sky_material
 	settings.sky = sky
 	settings.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
-	settings.ambient_light_energy = 0.5
+	settings.ambient_light_energy = 0.35
 	settings.reflected_light_source = Environment.REFLECTION_SOURCE_SKY
 	settings.tonemap_mode = Environment.TONE_MAPPER_FILMIC
 	settings.tonemap_exposure = 0.95
@@ -105,13 +106,13 @@ func _make_lighting() -> void:
 	_sun = DirectionalLight3D.new()
 	_sun.name = "ValleySun"
 	_sun.rotation_degrees = Vector3(-38, -36, 0)
-	_sun.light_color = Color("ffe3b6")
-	_sun.light_energy = 1.05
+	_sun.light_color = Color("fff3dd")
+	_sun.light_energy = 0.72
 	_sun.shadow_enabled = true
 	_sun.directional_shadow_max_distance = 58.0
 	_sun.directional_shadow_mode = DirectionalLight3D.SHADOW_PARALLEL_2_SPLITS
-	_sun.shadow_bias = 0.12
-	_sun.shadow_normal_bias = 1.6
+	_sun.shadow_bias = 0.7
+	_sun.shadow_normal_bias = 2.4
 	add_child(_sun)
 
 func _make_materials() -> void:
@@ -170,6 +171,7 @@ func _build_course() -> void:
 	_reflection.max_distance = 100.0
 	_reflection.intensity = 0.7
 	_reflection.update_mode = ReflectionProbe.UPDATE_ONCE
+	_reflection.cull_mask = 1
 	_reflection.enable_shadows = false
 	_reflection.box_projection = false
 	_reflection.visible = _quality > 0
@@ -316,8 +318,8 @@ func _pine_mesh() -> ArrayMesh:
 			var b := Vector3(cos(next) * radius, bottom, sin(next) * radius)
 			var peak := Vector3(0, top, 0)
 			surface.add_vertex(a)
-			surface.add_vertex(peak)
 			surface.add_vertex(b)
+			surface.add_vertex(peak)
 	surface.generate_normals()
 	return surface.commit()
 
@@ -389,7 +391,7 @@ func _build_lake() -> void:
 		vertices.append(Vector3(LAKE_CENTER.x + cos(angle) * 40.0, LAKE_LEVEL, LAKE_CENTER.y + sin(angle) * 34.0))
 		normals.append(Vector3.UP)
 	for i in range(64):
-		indices.append_array(PackedInt32Array([0, i + 2, i + 1]))
+		indices.append_array(PackedInt32Array([0, i + 1, i + 2]))
 	var arrays := []
 	arrays.resize(Mesh.ARRAY_MAX)
 	arrays[Mesh.ARRAY_VERTEX] = vertices

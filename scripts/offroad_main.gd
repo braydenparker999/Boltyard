@@ -23,6 +23,7 @@ var camera: Camera3D
 var ui: Control
 var garage_panel: PanelContainer
 var garage_overlay: Control
+var garage_footer: HBoxContainer
 var drive_panel: Control
 var header: PanelContainer
 var mode_button: Button
@@ -74,6 +75,7 @@ var follow_direction = Vector3.BACK
 var did_position_camera = false
 var save_problem = ""
 var has_migrated = false
+var layout_frames_pending = 0
 
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
@@ -297,9 +299,9 @@ func build_garage() -> void:
 	options.add_child(quality_picker)
 	var quality_note = label(options, "Performance keeps a lighter view for longer exploration. Rotate your phone at any time.", 12, MUTED)
 	quality_note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	var tools = row(content, 7)
-	button(tools, "Save build", save_with_toast, 90).size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	button(tools, "Repair & camp", recover, 110).size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	garage_footer = row(content, 7)
+	button(garage_footer, "Save build", save_with_toast, 90).size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	button(garage_footer, "Repair & camp", recover, 110).size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	garage_overlay = Control.new()
 	garage_overlay.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	ui.add_child(garage_overlay)
@@ -454,6 +456,14 @@ func layout_ui() -> void:
 	if not is_instance_valid(ui):
 		return
 	clear_controls()
+	# Wrapped labels need their new width before their minimum height is valid.
+	# Reapply the requested bounds after container/text layout settles, rather
+	# than retaining a panel size clamped against the previous orientation.
+	layout_frames_pending = 4
+	place_ui()
+	did_position_camera = false
+
+func place_ui() -> void:
 	var extent = get_viewport().get_visible_rect().size
 	portrait = extent.y > extent.x
 	var margin = 16.0 if portrait else 20.0
@@ -503,7 +513,6 @@ func layout_ui() -> void:
 	pause_overlay.position = (extent - pause_overlay.size) / 2
 	map_overlay.size = Vector2(minf(720, extent.x - 36), minf(820, extent.y - 40))
 	map_overlay.position = (extent - map_overlay.size) / 2
-	did_position_camera = false
 
 func format_value(key: String) -> String:
 	var value = float(settings.get(key, 0.0))
@@ -883,6 +892,9 @@ func _physics_process(_delta: float) -> void:
 func _process(delta: float) -> void:
 	if not is_instance_valid(truck) or not is_instance_valid(ui):
 		return
+	if layout_frames_pending > 0:
+		place_ui()
+		layout_frames_pending -= 1
 	toast_remaining -= delta
 	if toast_remaining <= 0:
 		message.hide()
@@ -926,10 +938,11 @@ func update_camera(delta: float) -> void:
 		# A little look-ahead keeps the trail visible in the narrower portrait view.
 		target -= follow_direction * (2.0 if portrait else 0.7)
 	else:
-		var offset = Vector3(sin(orbit) * orbit_distance, orbit_distance * 0.53, cos(orbit) * orbit_distance)
+		var preview_distance = orbit_distance * (1.14 if portrait else 1.0)
+		var offset = Vector3(sin(orbit) * preview_distance, preview_distance * 0.53, cos(orbit) * preview_distance)
 		desired = position + offset
 		if portrait:
-			target -= Vector3.UP * 2.7
+			target -= Vector3.UP * 3.0
 		else:
 			var camera_right = Vector3(cos(orbit), 0.0, -sin(orbit))
 			target -= camera_right * 1.9
