@@ -218,20 +218,26 @@ struct RockDistance {float distance;Vec3 normal,point;};
 // is valid for a concave cliff or an arch opening.
 inline bool rock_mesh_inside(const CrawlRock&r,Vec3 p) {
     if(r.query_nodes.empty() || r.query_nodes[0].bounds.distance_squared(p)>0)return false;
-    std::vector<float> hits;
+    std::vector<double> hits;
     auto visit=[&](auto&&self,int id)->void {
         const auto &node=r.query_nodes[id];const auto &b=node.bounds;
         if(b.high.x<p.x||p.y<b.low.y||p.y>b.high.y||p.z<b.low.z||p.z>b.high.z)return;
         if(node.left>=0){self(self,node.left);self(self,node.right);return;}
-        for(int k=node.begin;k<node.end;++k){int i=r.query_faces[k];auto t=r.triangles[i];auto n=r.triangle_normals[i];
-            if(std::abs(n.x)<1e-7f)continue;
-            float distance=(r.vertices[t[0]]-p).dot(n)/n.x;if(distance<0)continue;
-            Vec3 q=p+Vec3(distance,0,0);
-            if((closest_triangle(q,r.vertices[t[0]],r.vertices[t[1]],r.vertices[t[2]])-q).length_squared()<1e-8f)hits.push_back(distance);
+        for(int k=node.begin;k<node.end;++k){int i=r.query_faces[k];auto t=r.triangles[i];
+            const auto a=r.vertices[t[0]],b=r.vertices[t[1]],c=r.vertices[t[2]];
+            // Double-precision barycentrics avoid missed intersections on
+            // near-parallel arch faces at large world coordinates.
+            const double by=double(b.y)-a.y,bz=double(b.z)-a.z,cy=double(c.y)-a.y,cz=double(c.z)-a.z;
+            const double py=double(p.y)-a.y,pz=double(p.z)-a.z,denom=by*cz-bz*cy;
+            if(std::abs(denom)<1e-14)continue;
+            const double u=(py*cz-pz*cy)/denom,v=(by*pz-bz*py)/denom;
+            if(u< -1e-10||v< -1e-10||u+v>1+1e-10)continue;
+            const double distance=double(a.x)-p.x+u*(double(b.x)-a.x)+v*(double(c.x)-a.x);
+            if(distance>=0)hits.push_back(distance);
         }
     };
-    visit(visit,0);std::sort(hits.begin(),hits.end());int crossings=0;float last=-1e20f;
-    for(float h:hits)if(h-last>1e-4f){++crossings;last=h;}
+    visit(visit,0);std::sort(hits.begin(),hits.end());int crossings=0;double last=-1e20;
+    for(double h:hits)if(h-last>1e-7){++crossings;last=h;}
     return crossings%2==1;
 }
 inline RockDistance rock_distance_reference(const CrawlRock&r,Vec3 p){

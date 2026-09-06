@@ -37,6 +37,24 @@ int main(){
         }
         for(auto e:edges)require(e.second==2,"closed manifold hull");
     }
+    // Independent solid-angle winding reference checks concave BVH signs.
+    // Near-parallel ray intersections must never turn an open arch into solid rock.
+    for(const auto&r:rocks)if(r.surface_mesh){
+        const auto& box=r.query_nodes[0].bounds;
+        for(int k=0;k<80;++k){
+            auto fraction=[](int v){return float((v*1664525u+1013904223u)%65521)/65521.f;};
+            Vec3 p{box.low.x+(box.high.x-box.low.x)*fraction(k*59+13),box.low.y+(box.high.y-box.low.y)*fraction(k*131+71),box.low.z+(box.high.z-box.low.z)*fraction(k*283+41)};
+            auto distance=rock_distance(r,p);if(std::abs(distance.distance)<.005f)continue;
+            double total=0;
+            for(auto t:r.triangles){Vec3 a=r.vertices[t[0]]-p,b=r.vertices[t[1]]-p,c=r.vertices[t[2]]-p;
+                auto dotd=[](Vec3 u,Vec3 v){return double(u.x)*v.x+double(u.y)*v.y+double(u.z)*v.z;};
+                double la=std::sqrt(dotd(a,a)),lb=std::sqrt(dotd(b,b)),lc=std::sqrt(dotd(c,c));
+                double det=double(a.x)*(double(b.y)*c.z-double(b.z)*c.y)-double(a.y)*(double(b.x)*c.z-double(b.z)*c.x)+double(a.z)*(double(b.x)*c.y-double(b.y)*c.x);
+                total+=2*std::atan2(det,la*lb*lc+dotd(a,b)*lc+dotd(b,c)*la+dotd(c,a)*lb);
+            }
+            require((std::abs(total)>6.2831853)==(distance.distance<0),"concave signed distance agrees with winding reference");
+        }
+    }
     float archbase=expedition_height(6,-211,-249)-3;
     Vec3 opening{-211,archbase+9,-249};float clearance=1e6;
     for(const auto&r:rocks)clearance=std::min(clearance,rock_distance(r,opening).distance);

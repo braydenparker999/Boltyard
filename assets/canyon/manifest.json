@@ -4,7 +4,9 @@
   "width_m": 64,
   "floor_spacing_m": 0.5,
   "floor_triangles": 65536,
-  "collision_hulls": 109,
+  "collision_shapes": 109,
+  "convex_hulls": 92,
+  "concave_meshes": 17,
   "rock_triangles": 17964,
   "floor_sha256": "2577a695afd225ea64014034e33d7414824ba7b965f7bc7cdef608d5f106e273",
   "entry": [
@@ -16,5 +18,5 @@
     -93
   ],
   "coordinates": "Godot X,Y up,Z; Blender X,-Z,Y up",
-  "textures": "Existing Poly Haven CC0 rock surface; no new third-party meshes"
+  "textures": "Existing generated terrain_rock_photo albedo; Poly Haven CC0 detail normal; see assets/world provenance files"
 }
