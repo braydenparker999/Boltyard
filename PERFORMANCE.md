@@ -22,7 +22,7 @@ The standalone `-pg` baseline profile attributes 46.77% of sampled self time to 
 
 All final measured frames are below 33.3 ms of native CPU time, with zero discarded simulation time and zero chassis damage. This does not imply total phone frame time below 33.3 ms. Four-wheel contact median is reduced by about 90%; closest-triangle work falls about 93%. Ground-only cost stays near 0.34 ms. Final suspension geometry changes some trajectories and settled heights slightly; an earlier acceleration-only comparison retained the baseline fixture outputs, and 80,402 direct reference comparisons have zero measured distance error.
 
-`native/benchmark_contacts.cpp` contains the full fixtures. No-contact, one-wheel, two same-hull, two separate-hull, diagonal and four-wheel fixtures use generated 320-triangle expedition granite on level ground. A separate original low ledge and the Silverpine (11,-50) / Karelia (-89,-119) trail starts cover rolling transitions and braking with full map collision. Means refer to distinct rock-supported wheels, not patch count. The raw CSV also records total patches, queries, worst frame and >33.3 ms counts.
+`native/benchmark_contacts.cpp` contains the full fixtures. No-contact, one-wheel, two same-hull, two separate-hull, diagonal and four-wheel fixtures use generated 320-triangle expedition granite on level ground. A separate original low ledge and the Silverpine (11,-50) / Karelia (-89,-119) trail starts cover rolling transitions and braking with full map collision. Means refer to distinct rock-supported wheels, not patch count. Raw [baseline](tests/evidence/2.2-contact-baseline.csv) and [final](tests/evidence/2.2-contact-final.csv) CSVs also record total patches, queries, worst frame and >33.3 ms counts.
 
 ## Physical and visual evidence
 
@@ -30,7 +30,7 @@ Native gates retain mass, reaction impulse, pressure, grip, secondary corner sup
 
 The tire-width fixture now measures corresponding sidewall separation, cancelling common traction shear. Its previous absolute hub-offset measure conflated lateral squirm with widening. The pressure/width threshold and independent shear regression remain in place.
 
-Headless engine checks include all 257 vehicle geometry assertions, 288 actual camera-input assertions, 40 new suspension checks and 2,315 loaded-rubber checks. The suspension fixture covers loaded, airborne droop, steering and cross-axle states; fixed lengths and eye attachment errors remain below one micrometre. A fitted buggy has 11,414 triangles, sharing the existing material surfaces. Actual shader/render review and signed Android export are recorded in VALIDATION.md after completion.
+Headless engine checks include all 257 vehicle geometry assertions, 288 actual camera-input assertions, 40 new suspension checks and 2,315 loaded-rubber checks. The suspension fixture covers loaded, airborne droop, steering and cross-axle states; fixed lengths and eye attachment errors remain below one micrometre. A fitted buggy has 11,558 triangles, sharing the existing material surfaces. Actual shader/render review and signed Android export are recorded in VALIDATION.md after completion.
 
 ## Device test and limits
 

@@ -1,3 +1,41 @@
+# Crawlworks 2.2 Articulation — verified Android update
+
+[Android run 34051952587](https://github.com/braydenparker999/Boltyard/actions/runs/34051952587) passed on 2026-09-06, building release source [`075e5e8e69998ae284c220c65ca26e9a2ecb3177`](https://github.com/braydenparker999/Boltyard/commit/075e5e8e69998ae284c220c65ca26e9a2ecb3177). Its complete Git tree `bdbc77488a87480aca3c00dd65f7f77786b12701` matches the local tested tree. This documentation-only follow-up records the downloaded evidence.
+
+## Installable package
+
+- `bolt-yard-2.2.0-articulation.apk`: 43,283,045 bytes.
+- SHA256: `572d867a93788a0ad2f608ba6847e87d8dc3af9e75e7e1de9c3c1db6f264e746`.
+- Package `games.boltyard.prototype`, version 2.2.0, code 9, ARM64.
+- The official Android apksigner independently verifies v1, v2 and v3 signatures on the downloaded APK. Its certificate SHA256 remains `a882ee66b05eff32ad4629269a96d79bfc3514bcbf0e16e99f42f6046836ea73`.
+- ZIP CRC, workflow checksum, binary AndroidManifest package/version, ARM64 solver, C++ runtime and new suspension interface checked independently. Packaged suspension/tire shader matches the reviewed source byte-for-byte.
+- Install over the existing app to retain builds and map progress. Package, signing key and save paths are unchanged; actual phone installation remains untested here.
+
+## Performance and physical behavior
+
+[PERFORMANCE.md](PERFORMANCE.md) and its raw CSVs record the same-host baseline/final scenario ladder. Four-wheel median native CPU cost per 30 Hz presentation frame drops from 27.45 to 2.82 ms, with p95 from 32.28 to 4.17 ms. Silverpine rolling median drops from 44.90 to 4.67 ms. These exclude GPU/render cost and do not establish A15 FPS. No solver frequency, iteration count, tire support count, grip or terrain fidelity was reduced.
+
+Native gates pass 78 baseline cases, both retained road drives, ten crawling scenarios, eight Crawlworks scenarios, the movable-object suite, seven linked-suspension/route scenarios, 190,800 expedition checks, six causal tire-contact scenarios, 80,402 exact reference distance comparisons and the added spring-sag/stroke-packaging test. Soft/firm mean sag is 122.50/60.72 mm; the low/high rebound fixture peaks at 1.403/1.066 m/s with the retained settling thresholds. The pressure-width fixture measures paired sidewall separation to remove common shear, retaining its widening threshold and separate shear test.
+
+The release passes 837 retained/new headless engine assertions, including 288 actual camera-input checks, 257 vehicle geometry checks and 40 suspension-pose checks. Rendered gates additionally pass 27 world checks and 2,315 loaded-rubber checks. The retained legacy driving fixtures also pass. Follow/Trail locking, Free gestures, pinch ownership and save restoration are retained.
+
+## Actual rendered review and clip
+
+[Final focused render run 34051843409](https://github.com/braydenparker999/Boltyard/actions/runs/34051843409) passed, followed by complete rendering on the Android release run. Review covers loaded compression, airborne droop, steering and cross-axle suspension, plus portrait/landscape camera and Rig panels. The first still review caught weak visual tower support and a short diagnostics backdrop; the final build adds visible triangulated braces and encloses the complete report panel.
+
+Fixed body/shaft/eye/wire errors in the four-pose fixture remain below 0.000001 m. The fitted fixture buggy uses 11,558 triangles in the existing material surfaces; no separate simulated decorative bodies were added. Lower/upper link eyes follow actual solved endpoints. New springs have eight turns with fixed 16 mm wire and changing pitch. Detailed knuckle/driveshaft simulation and self-collision remain outside this bounded model.
+
+The downloaded gameplay clip is H.264, 960×540, 24.0667 seconds, 722 encoded frames and 12,704,064 bytes. Its fixture records 720 gameplay frames with actual throttle/brake input and camera touches, with two explicitly labelled trail-start scene cuts. Both routes reach three simultaneously rock-supported wheels:
+
+| Map | Displacement | Peak rock-supported wheels | Peak rock support | Final braked speed | Damage |
+|---|---:|---:|---:|---:|---:|
+| Silverpine | 9.42 m | 3 | 5.48 kN | 0.00797 m/s | 0 |
+| Karelia | 9.03 m | 3 | 8.31 kN | 0.00330 m/s | 0 |
+
+Both routes remain upright without safety clamps or rejected states. Frames extracted from the final movie confirm actual rock contact; static rendered poses expose the working mechanisms. This is desktop software-rendered behavior/appearance evidence, not phone FPS. A15 frame pacing, thermals, installation and thumb feel remain pending. The Rig panel's rolling timing window and Copy performance report action support that next device check.
+
+---
+
 # Crawlworks 2.1 Trailcraft — verified Android release
 
 [Android run 34045707356](https://github.com/braydenparker999/Boltyard/actions/runs/34045707356) completed successfully on 2026-09-06 against [`4dccf62e8293d02109a07d11f011ac796282e7c1`](https://github.com/braydenparker999/Boltyard/commit/4dccf62e8293d02109a07d11f011ac796282e7c1). The 29 changed source/document blobs match the reviewed local files. A later documentation-only commit records this evidence.
