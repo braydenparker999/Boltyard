@@ -54,4 +54,5 @@ jobs:
             build/*.png
             build/*.json
             build/*.mp4
+            build/apksigner.jar
           if-no-files-found: ignore

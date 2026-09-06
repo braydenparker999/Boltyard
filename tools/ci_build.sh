@@ -116,4 +116,6 @@ print('APK includes the native ARM64 soft-body solver.')
 PY
 "$ANDROID_HOME/build-tools/34.0.0/apksigner" verify --verbose build/bolt-yard-2.2.0-articulation.apk | tee build/signature.log
 "$ANDROID_HOME/build-tools/34.0.0/aapt" dump badging build/bolt-yard-2.2.0-articulation.apk > build/package-info.log
+# Preserve the official verifier with evidence for independent downloaded-APK validation.
+cp "$ANDROID_HOME/build-tools/34.0.0/lib/apksigner.jar" build/apksigner.jar
 sha256sum build/bolt-yard-2.2.0-articulation.apk > build/SHA256SUMS.txt
