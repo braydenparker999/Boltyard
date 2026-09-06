@@ -116,9 +116,9 @@ public:
         auto end = std::chrono::steady_clock::now();
         sim_ms = std::chrono::duration<double,std::milli>(end-start).count();
     }
-    void set_terrain(int mode) { rig.set_terrain(std::clamp(mode,0,5)); }
+    void set_terrain(int mode) { rig.set_terrain(std::clamp(mode,0,6)); }
     int get_terrain_mode() const { return rig.get_terrain_mode(); }
-    int expedition_mode(int mode) const { return (mode < 0 ? get_terrain_mode() : mode) == 5 ? 5 : 4; }
+    int expedition_mode(int mode) const { return std::clamp(mode < 0 ? get_terrain_mode() : mode, 4, 6); }
     Dictionary get_expedition_heightfield(int mode) const {
         const auto &data=boltyard::expedition_detail::cache(expedition_mode(mode));
         PackedFloat32Array heights,surfaces,gravel;PackedColorArray materials;
@@ -135,7 +135,7 @@ public:
     }
     Array get_expedition_landmarks(int mode) const {
         const int m=expedition_mode(mode);Array out;int i=0;
-        for(const auto&l:boltyard::expedition_landmarks(m)){Dictionary d;d["id"]=String(m==5?"russia_":"rockies_")+String::num_int64(i++);d["name"]=l.name;d["description"]=l.detail;d["position"]=Vector3(l.x,boltyard::expedition_height(m,l.x,l.z),l.z);d["radius"]=18.0;out.push_back(d);}return out;
+        for(const auto&l:boltyard::expedition_landmarks(m)){Dictionary d;d["id"]=String(m==6?"canyon_":(m==5?"russia_":"rockies_"))+String::num_int64(i++);d["name"]=l.name;d["description"]=l.detail;d["position"]=Vector3(l.x,boltyard::expedition_height(m,l.x,l.z),l.z);d["radius"]=18.0;out.push_back(d);}return out;
     }
     Array get_expedition_trails(int mode) const {
         if(mode<0&&get_terrain_mode()<4)return Array();

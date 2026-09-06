@@ -34,7 +34,7 @@ func check_rock_shading(world: Node3D) -> void:
 
 func run() -> void:
 	root.size = Vector2i(1280, 720)
-	for mode in [4, 5]:
+	for mode in [4, 5, 6]:
 		var stage := Node3D.new()
 		root.add_child(stage)
 		var core: RefCounted = ClassDB.instantiate("SoftBodyRig")
@@ -48,7 +48,7 @@ func run() -> void:
 		var metrics: Dictionary = world.get_world_metrics()
 		check(metrics.terrain_chunks == 100, "Each map must cover the full native 640 m square")
 		check(metrics.tree_count == core.get_expedition_obstacles().size(), "Every visible tree trunk must come from native tree collision")
-		check(metrics.tree_count > 1000, "Each exploration forest needs substantial native tree coverage")
+		check(metrics.tree_count > (20 if mode == 6 else 1000), "Each exploration forest needs substantial native tree coverage")
 		var native_vertices := 0
 		var native_points: Dictionary = {}
 		for rock in core.get_expedition_rocks():
@@ -83,7 +83,7 @@ func run() -> void:
 		camera.fov = 63
 		stage.add_child(camera)
 		camera.current = true
-		var label := "rockies" if mode == 4 else "russia"
+		var label := "canyon" if mode == 6 else ("rockies" if mode == 4 else "russia")
 		camera.position = Vector3(8, 4.3, 20)
 		camera.look_at(Vector3(-15, 1.5, -28))
 		await settle(7)
@@ -99,7 +99,7 @@ func run() -> void:
 			await settle()
 			root.get_texture().get_image().save_png("res://build/expedition-shadow-off.png")
 			world._sun.shadow_enabled = true
-		var at := Vector3(15, 0, -75) if mode == 4 else Vector3(-63, 0, -29)
+		var at := Vector3(14, 0, -78) if mode == 6 else (Vector3(15, 0, -75) if mode == 4 else Vector3(-63, 0, -29))
 		at.y = core.terrain_height(at.x, at.z)
 		world.update_focus(at)
 		camera.position = at + Vector3(9, 5.5, 12)
@@ -132,13 +132,21 @@ func run() -> void:
 			camera.look_at(rock_center)
 			await settle()
 			root.get_texture().get_image().save_png("res://build/expedition-%s-contact-scale.png" % label)
-		var water: Dictionary = core.get_expedition_water(mode)
-		at = Vector3(water.x + water.rx * .80, water.height, water.z + water.rz * 1.15)
-		world.update_focus(at)
-		camera.position = at + Vector3(7, 8, 9)
-		camera.look_at(Vector3(water.x - water.rx * .4, water.height + 1.0, water.z - water.rz * .2))
-		await settle()
-		root.get_texture().get_image().save_png("res://build/expedition-%s-lake.png" % label)
+		if mode == 6:
+			at = Vector3(-211, core.terrain_height(-211,-232), -232)
+			world.update_focus(at)
+			camera.position = at + Vector3(24, 12, 29)
+			camera.look_at(Vector3(-211, core.terrain_height(-211,-249)+9, -249))
+			await settle()
+			root.get_texture().get_image().save_png("res://build/expedition-canyon-arch.png")
+		else:
+			var water: Dictionary = core.get_expedition_water(mode)
+			at = Vector3(water.x + water.rx * .80, water.height, water.z + water.rz * 1.15)
+			world.update_focus(at)
+			camera.position = at + Vector3(7, 8, 9)
+			camera.look_at(Vector3(water.x - water.rx * .4, water.height + 1.0, water.z - water.rz * .2))
+			await settle()
+			root.get_texture().get_image().save_png("res://build/expedition-%s-lake.png" % label)
 		print("EXPEDITION WORLD ", label, ": ", JSON.stringify(metrics), " native/drawn rock vertices=", native_vertices, ", draws=", Performance.get_monitor(Performance.RENDER_TOTAL_DRAW_CALLS_IN_FRAME), ", triangles=", Performance.get_monitor(Performance.RENDER_TOTAL_PRIMITIVES_IN_FRAME))
 		stage.queue_free()
 		await process_frame

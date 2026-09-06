@@ -62,7 +62,7 @@ void fragment() {
     ALBEDO = finish;
     ROUGHNESS = clamp(roughness, 0.06, 1.0);
     METALLIC = material_metallic;
-    SPECULAR = surface_kind == 6 || surface_kind == 7 ? 0.38 : 0.50;
+    SPECULAR = surface_kind == 0 ? 0.16 : (surface_kind == 6 || surface_kind == 7 ? 0.38 : 0.50);
     CLEARCOAT = coat;
     CLEARCOAT_ROUGHNESS = 0.20;
     EMISSION = surface_color.rgb * lamp_energy;
