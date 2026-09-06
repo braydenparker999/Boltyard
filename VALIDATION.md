@@ -1,6 +1,15 @@
 # Crawlworks 1.0 validation
 
-Release candidate: package `games.boltyard.prototype`, version 1.0.0 / code 6, unchanged development signing identity. Android artifact/signature results will be recorded here after the workflow completes.
+[Android run 34008254341](https://github.com/braydenparker999/Boltyard/actions/runs/34008254341) succeeded against source `98b6db7c6eca622971398c74e76d4960b7b1a78a`. The exact source passed 541 Godot engine checks, 78 general native checks, both full-road scenarios, ten crawl scenarios, eight new Crawlworks mechanics scenarios, and the movable-object suite. Rendered gameplay and camera gates passed, followed by signed ARM64 export.
+
+- APK: `bolt-yard-1.0.0-crawlworks.apk`, 36,326,272 bytes.
+- SHA-256: `267ed4c0487c5a802e99d56bc978ce29bb42107d7d790e549ee4e912c77d8fcb`.
+- Package/version: `games.boltyard.prototype`, 1.0.0 / code 6, ARM64.
+- APK signatures: v1, v2 and v3 verified; update certificate SHA-256 remains `a882ee66b05eff32ad4629269a96d79bfc3514bcbf0e16e99f42f6046836ea73`.
+- Downloaded ZIP integrity, artifact checksum, native interfaces, exact final ground shader and package metadata independently checked before delivery.
+- Final gameplay clip: H.264, 960×540, 30 fps, 27.0667 seconds, 3,867,601 bytes. It shows a controlled climb/hold, real loose-object drive/brake contact and raw two-finger camera motion.
+
+The final recorded climb ends at z=-9.01m, peak frame height 1.90 m, zero damage and final speed 0.000 m/s. A loose object moves 3.134 m under actual vehicle contact; the settled rig has up.y = 1.000 and zero damage. Raw touch input produces -0.720rad orbit, -3.024m camera distance and 0.396 m pan. The movie includes an explicit reset between the crawl and loose-line demonstrations; the contact poses themselves are solved, not manually posed.
 
 Local checks completed during implementation:
 
@@ -11,7 +20,7 @@ Local checks completed during implementation:
 - Native prop tests cover convex queries, angular response, dropping, stacks/rest/sleep/wake, reset determinism and coupled drive/brake momentum.
 - Rendered views check shared collision/visual rock triangles, landscape/portrait controls, contact skin and the loose-object line.
 
-Final native regressions, gameplay rendering and Android export run again on the exact committed release source. Desktop/software rendering does not establish Samsung A15 FPS, thermal behavior or actual touch feel. Real vehicle/tire calibration has not been performed.
+Final native regressions, gameplay rendering and Android export were repeated on the exact committed release source. Desktop/software rendering does not establish Samsung A15 FPS, thermal behavior or actual touch feel. Real vehicle/tire calibration has not been performed.
 
 ---
 
