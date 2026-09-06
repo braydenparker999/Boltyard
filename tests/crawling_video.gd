@@ -119,7 +119,7 @@ func run() -> void:
 	scene.camera_pan_mode = false
 	scene.update_camera_tools()
 	var viewport_size: Vector2 = scene.get_viewport().get_visible_rect().size
-	var center := Vector2(viewport_size.x * .58, viewport_size.y * .56)
+	var center := Vector2(viewport_size.x * .58, minf(viewport_size.y * .4, scene.mobile_controls.bar.position.y - 50))
 	var first := center - Vector2(80, 0)
 	var second := center + Vector2(80, 0)
 	var original_orbit: float = scene.drive_orbit

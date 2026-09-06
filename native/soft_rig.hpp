@@ -286,7 +286,7 @@ public:
             if(!std::isfinite(hi)||hi-lo>.65f)continue;
             at.y=-1e9f;
             for(size_t i=0;i<particles.size();++i){
-                float radius=particles[i].wheel>=0?cfg_.tire_radius:particles[i].radius;
+                float radius=particles[i].wheel>=0&&!particles[i].tire?cfg_.tire_radius:particles[i].radius;
                 at.y=std::max(at.y,terrain_height(at.x+offsets[i].x,at.z+offsets[i].z)+radius+.12f-offsets[i].y);
             }
             CrawlRock::Bounds box;

@@ -44,7 +44,7 @@ func restore_file(path: String, bytes) -> void:
 func scenery_pair(scene) -> Array[Vector2]:
 	var extent: Vector2 = scene.get_viewport().get_visible_rect().size
 	var span = minf(extent.x, extent.y) * 0.20
-	for y in range(int(extent.y * 0.40), int(extent.y * 0.70), 24):
+	for y in range(170, int(extent.y * 0.70), 24):
 		for x in range(int(extent.x * 0.45), int(extent.x - span - 24), 24):
 			var a = Vector2(x, y)
 			var b = a + Vector2(span, 0)
@@ -151,6 +151,9 @@ func run() -> void:
 		scene.toast_remaining = 0.0
 		await capture("camera-rig-%s.png" % orientation)
 		scene.toggle_rig_controls()
+		scene.toggle_recovery_panel()
+		await capture("recovery-%s.png" % orientation)
+		scene.toggle_recovery_panel()
 	scene.clear_controls()
 	scene.free()
 	restore_file(SAVE, backup)

@@ -11,11 +11,12 @@ var sensitivity := 1.0
 var owners: Dictionary = {}
 var rects: Dictionary = {}
 var buttons: Dictionary = {}
-var bar := HBoxContainer.new()
+var bar := GridContainer.new()
 
 func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
-	bar.add_theme_constant_override("separation", 8)
+	bar.add_theme_constant_override("h_separation", 8)
+	bar.add_theme_constant_override("v_separation", 8)
 	add_child(bar)
 	for id in ["low", "front", "rear", "recover"]:
 		var b := Button.new()
@@ -42,7 +43,9 @@ func arrange() -> void:
 		"brake": Rect2(w - 36 - 198 * k, base - 96 * k, 92 * k, 90 * k),
 		"direction": Rect2(w - 36 - 198 * k, base - 170 * k, 92 * k, 62 * k)}
 	bar.position = Vector2(22, base - 292 * k)
-	bar.size = Vector2(w - 44, 60 * k)
+	bar.columns = 4 if size.y > size.x else 2
+	bar.size = Vector2(w - 44 if bar.columns == 4 else left_width, (60 if bar.columns == 4 else 120) * k)
+	for b in buttons.values(): b.custom_minimum_size.y = 54 * k
 	queue_redraw()
 
 func blocked(point: Vector2) -> bool:
