@@ -66,7 +66,7 @@ func run() -> void:
 	scene.clear_controls()
 	scene.truck.reset(Vector3(9.1, 1.5, -8.0))
 	scene.throttle_limit = .18
-	scene.camera_follow = false
+	scene.set_camera_preset("free")
 	scene.drive_orbit = -2.06
 	scene.drive_pitch = .39
 	scene.drive_distance = 8.4
@@ -114,7 +114,8 @@ func run() -> void:
 	capture("crawl-loose-objects.png")
 	# Demonstrate the Android raw-touch route: two fingers only zoom, then one
 	# finger orbits/tilts and pans. No direct camera transform drives this segment.
-	scene.toast("CAMERA · One finger to look. Pinch to zoom.")
+	scene.set_camera_preset("free")
+	scene.toast("FREE CAMERA · One finger to look. Pinch to zoom.")
 	scene.camera_pan_mode = false
 	scene.update_camera_tools()
 	var viewport_size: Vector2 = scene.get_viewport().get_visible_rect().size
