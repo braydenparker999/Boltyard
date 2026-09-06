@@ -562,31 +562,40 @@ func _build_expedition_lake() -> void:
 	_build_water_patch(center, radius, water_height, "GlacialLake")
 
 func _build_forest_ford() -> void:
-	# Shallow runoff follows the native bed; its depth fades to zero at the
-	# banks. A polar mesh gives the small pool a continuous curved boundary.
+	# Clip each authoritative 2 m ground triangle against a rounded bank.
+	# Keeping its plane prevents a separately tessellated water mesh from
+	# intersecting the heightfield between its sampled vertices.
 	var surface := SurfaceTool.new()
 	surface.begin(Mesh.PRIMITIVE_TRIANGLES)
-	var rings := 8
-	var sectors := 40
-	var point := func(r: float, a: float) -> Vector3:
-		var x := 12.0 + cos(a)*5.0*r
-		var z := -61.0 + sin(a)*3.2*r
-		var depth := .045*(1.0-r*r)
-		return Vector3(x, _core.terrain_height(x,z)+.006+depth, z)
-	for ring in range(rings):
-		var r0 := float(ring)/rings
-		var r1 := float(ring+1)/rings
-		for j in range(sectors):
-			var a := float(j)*TAU/sectors
-			var b := float(j+1)*TAU/sectors
-			var p0: Vector3 = point.call(r0,a)
-			var p1: Vector3 = point.call(r0,b)
-			var p2: Vector3 = point.call(r1,a)
-			var p3: Vector3 = point.call(r1,b)
-			for vertex in ([p0,p2,p3] if ring == 0 else [p0,p2,p1,p1,p2,p3]):
-				surface.set_normal(Vector3.UP)
-				surface.set_color(Color(.1,0,0))
-				surface.add_vertex(vertex)
+	var center := Vector2(12,-61)
+	var radius := Vector2(5,3.2)
+	for z in range(-66,-56,2):
+		for x in range(6,18,2):
+			for triangle in [[Vector2(x,z),Vector2(x+2,z),Vector2(x,z+2)], [Vector2(x+2,z),Vector2(x+2,z+2),Vector2(x,z+2)]]:
+				var polygon: Array[Vector3] = []
+				for p in triangle:
+					polygon.append(Vector3(p.x,_core.terrain_height(p.x,p.y)+.04,p.y))
+				for edge in range(32):
+					var angle := (float(edge)+.5)*TAU/32.0
+					var normal := Vector2(cos(angle),sin(angle))
+					var clipped: Array[Vector3] = []
+					for i in range(polygon.size()):
+						var va := polygon[i]
+						var vb := polygon[(i+1)%polygon.size()]
+						var da := normal.dot((Vector2(va.x,va.z)-center)/radius)-cos(PI/32.0)
+						var db := normal.dot((Vector2(vb.x,vb.z)-center)/radius)-cos(PI/32.0)
+						if da <= 0:
+							clipped.append(va)
+						if (da <= 0) != (db <= 0):
+							clipped.append(va.lerp(vb,da/(da-db)))
+					polygon = clipped
+					if polygon.is_empty():
+						break
+				for i in range(1,polygon.size()-1):
+					for vertex in [polygon[0],polygon[i],polygon[i+1]]:
+						surface.set_normal(Vector3.UP)
+						surface.set_color(Color(.1,0,0))
+						surface.add_vertex(vertex)
 	var material := ShaderMaterial.new()
 	material.shader = load("res://shaders/world_water.gdshader")
 	material.set_shader_parameter("ripple_normal",load("res://assets/world/terrain_dirt_normal.png"))
