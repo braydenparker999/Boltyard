@@ -56,7 +56,7 @@ func run() -> void:
 	check(scene.selected_map == "rockies" and scene.world.map_mode == 4 and scene.truck.core.get_terrain_mode() == 4, "an existing garage starts the new mountain expedition")
 	check(scene.exploration_progress.legacy.discovered == ["camp", "ridge"] and scene.exploration_progress.legacy.destination == "ridge", "the old valley discoveries remain preserved separately")
 	check(scene.builds == builds and scene.selected_vehicle == "buggy", "expedition migration preserves all vehicle builds and the active rig")
-	check(scene.map_buttons.size() == 2 and scene.map_buttons.has("rockies") and scene.map_buttons.has("russia"), "the primary destination chooser exposes the two requested regions")
+	check(scene.map_buttons.size() == 3 and scene.map_buttons.has("canyon") and scene.map_buttons.has("rockies") and scene.map_buttons.has("russia"), "the primary destination chooser exposes the three expedition regions")
 	check(scene.garage_pages.trails.visible and not scene.garage_pages.rig.visible and not scene.garage_pages.tune.visible, "the garage opens on region selection without equipment or tuning clutter")
 	scene.show_garage_tab("rig")
 	check(scene.garage_pages.rig.visible and not scene.garage_pages.trails.visible and scene.part_selectors.size() == 6, "equipment remains reachable in its own garage tab")

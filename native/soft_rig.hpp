@@ -336,7 +336,7 @@ public:
 
     void set_terrain(int mode) {
         const bool was_solid = solid_axles_active();
-        terrain_mode_ = std::clamp(mode, 0, 5);
+        terrain_mode_ = std::clamp(mode, 0, 6);
         dynamic_objects_.set_terrain(terrain_mode_);
         for(auto &c:wheel_manifolds_)c.clear();
         wheel_shear_.fill({});

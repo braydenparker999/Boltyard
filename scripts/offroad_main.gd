@@ -2,7 +2,7 @@ extends Node3D
 
 const LEGACY_PATH = "user://offroad_setup.json"
 const GARAGE_PATH = "user://offroad_garage_v3.json"
-const PAINTS = ["c96c38", "c9b78e", "647263", "537781", "ede7d6", "383f47"]
+const PAINTS = ["e88724", "28554d", "c96c38", "c9b78e", "647263", "537781", "ede7d6", "383f47"]
 const INK = Color("111a1d")
 const PANEL = Color("111d22eb")
 const MUTED = Color("a1b4b3")
@@ -12,6 +12,7 @@ const ACTIONS = ["off_left", "off_right", "off_go", "off_reverse", "off_brake"]
 const CAMP = Vector3(0, 1.5, 8)
 
 const EXPEDITIONS = {
+    "canyon": {"name": "REDSTONE CANYON", "region": "SANDSTONE COUNTRY", "mode": 6, "color": "d99b6b", "description": "Layered red cliffs, slickrock ledges and an open arch. Choose the rim traverse or the broad return trail."},
 	"rockies": {"name": "SILVERPINE RANGE", "region": "ROCKY MOUNTAINS", "mode": 4, "color": "829b88", "description": "Granite shelves, pine forest and high mountain passes. Find your line through the landscape."},
 	"russia": {"name": "KARELIAN TAIGA", "region": "RUSSIA", "mode": 5, "color": "a2af82", "description": "Wet forest tracks, glacial stone and quiet lakes. Crawl through birch and spruce country."}
 }
@@ -1215,11 +1216,11 @@ func load_settings() -> void:
 		if active is String and VehicleCatalog.VEHICLES.has(active):
 			selected_vehicle = active
 		var map_id = parsed.get("selected_map", "rockies")
-		if map_id is String and map_id in ["rockies", "russia", "legacy"]:
+		if map_id is String and map_id in ["canyon", "rockies", "russia", "legacy"]:
 			selected_map = map_id
 		var per_map = parsed.get("map_progress", {})
 		if per_map is Dictionary:
-			for id in ["rockies", "russia", "legacy"]:
+			for id in ["canyon", "rockies", "russia", "legacy"]:
 				if per_map.get(id) is Dictionary:
 					exploration_progress[id] = per_map[id].duplicate(true)
 		var old_progress_map = selected_map if parsed.has("selected_map") else "legacy"
@@ -1622,7 +1623,7 @@ func refresh_map_destinations() -> void:
 	update_map()
 
 func select_map(id: String) -> void:
-	if driving or id == selected_map or not id in ["rockies", "russia", "copperline", "legacy"]:
+	if driving or id == selected_map or not id in ["canyon", "rockies", "russia", "copperline", "legacy"]:
 		return
 	clear_controls()
 	store_exploration_progress()

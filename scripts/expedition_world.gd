@@ -1,7 +1,7 @@
 class_name ExpeditionWorld
 extends OffroadWorld
 
-## Two connected exploration landscapes. Native data owns every supporting
+## Three connected exploration landscapes. Native data owns every supporting
 ## surface and tree trunk; the renderer adds non-supporting leaves and litter.
 const MAP_EXTENT := 320.0
 const MAP_SIDE := 321
@@ -70,6 +70,13 @@ func _make_lighting() -> void:
 	sky_material.panorama = load("res://assets/world/expedition_daylight_sky.png")
 	sky_material.energy_multiplier = .87 if not taiga else .78
 	settings.sky.sky_material = sky_material
+	if map_mode == 6:
+		_sun.rotation_degrees = Vector3(-38, -46, 0)
+		_sun.light_color = Color("ffe8cc")
+		settings.ambient_light_color = Color("c4d4e3")
+		settings.ambient_light_energy = .40
+		settings.fog_light_color = Color("c6aca0")
+		settings.fog_density = .0008
 	if _reflection != null:
 		_reflection.visible = false
 
@@ -101,6 +108,12 @@ func _make_materials() -> void:
 	_expedition_rock.set_shader_parameter("forest_floor", forest)
 	_expedition_rock.set_shader_parameter("detail_normal", load("res://assets/world/terrain_rock_normal.png"))
 	_expedition_rock.set_shader_parameter("taiga", 1.0 if map_mode == 5 else 0.0)
+	if map_mode == 6:
+		for material in [_ground_material, _expedition_rock]:
+			material.shader = load("res://shaders/canyon_surface.gdshader")
+			material.set_shader_parameter("rock_texture", load("res://assets/world/canyon_rock.jpg"))
+			material.set_shader_parameter("rock_normal", load("res://assets/world/canyon_rock_normal.jpg"))
+		_ground_material.set_shader_parameter("ground_surface", true)
 	for kind in ["pine", "birch"]:
 		var bark := ShaderMaterial.new()
 		bark.shader = load("res://shaders/expedition_bark.gdshader")
@@ -146,7 +159,7 @@ func _build_course() -> void:
 	_make_materials()
 	_cache_terrain()
 	_course = Node3D.new()
-	_course.name = "SilverpineRange" if map_mode == 4 else "KareliaTaiga"
+	_course.name = "RedstoneCanyon" if map_mode == 6 else ("SilverpineRange" if map_mode == 4 else "KareliaTaiga")
 	add_child(_course)
 	for iz in range(MAP_CHUNKS):
 		for ix in range(MAP_CHUNKS):
@@ -473,6 +486,12 @@ func _build_forest() -> void:
 				var size := rng.randf_range(.55, 1.08)
 				plants[cell].append(Transform3D(Basis(Vector3.UP, rng.randf()*TAU).scaled(Vector3(size, size, size)), p))
 	var trunk_mesh := _trunk_mesh()
+	if map_mode == 6:
+		for material in [_ground_material, _expedition_rock]:
+			material.shader = load("res://shaders/canyon_surface.gdshader")
+			material.set_shader_parameter("rock_texture", load("res://assets/world/canyon_rock.jpg"))
+			material.set_shader_parameter("rock_normal", load("res://assets/world/canyon_rock_normal.jpg"))
+		_ground_material.set_shader_parameter("ground_surface", true)
 	for kind in ["pine", "birch"]:
 		for variant in range(2):
 			var key: String = kind + str(variant)
@@ -533,9 +552,16 @@ func update_focus(at: Vector3) -> void:
 		cell.crowns.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON if distance < tree_near else GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 
 func _build_expedition_lake() -> void:
+	if map_mode == 6:
+		return
+	if map_mode == 4:
+		_build_water_patch(Vector2(12, -61), Vector2(10, 6), 5.3, "SplitGraniteFord")
 	var center := Vector2(108, -87) if map_mode == 4 else Vector2(26, -147)
 	var radius := Vector2(35, 28) if map_mode == 4 else Vector2(83, 66)
 	var water_height := 5.0 if map_mode == 4 else -1.6
+	_build_water_patch(center, radius, water_height, "GlacialLake")
+
+func _build_water_patch(center: Vector2, radius: Vector2, water_height: float, title: String) -> void:
 	var surface := SurfaceTool.new()
 	surface.begin(Mesh.PRIMITIVE_TRIANGLES)
 	var triangle_count := 0
@@ -567,14 +593,14 @@ func _build_expedition_lake() -> void:
 	material.set_shader_parameter("deep_color", Color("172d32") if map_mode == 5 else Color("233f49"))
 	material.set_shader_parameter("shallow_color", Color("475548"))
 	var water := _instance(surface.commit(), material, Vector3.ZERO)
-	water.name = "GlacialLake"
+	water.name = title
 	water.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 
 func _build_trailhead() -> void:
 	# Wayfinding belongs to the trailhead. The routes themselves remain natural
 	# connected rock and soil, without floating labels or obstacle-course gates.
-	var title := "SILVERPINE RANGE" if map_mode == 4 else "KARELIA / КАРЕЛИЯ"
-	var sub := "ROCKY MOUNTAINS" if map_mode == 4 else "NORTHWEST RUSSIA"
+	var title := "REDSTONE CANYON" if map_mode == 6 else ("SILVERPINE RANGE" if map_mode == 4 else "KARELIA / КАРЕЛИЯ")
+	var sub := "SANDSTONE COUNTRY" if map_mode == 6 else ("ROCKY MOUNTAINS" if map_mode == 4 else "NORTHWEST RUSSIA")
 	var at := Vector3(-6.5, _core.terrain_height(-6.5, 9.8), 9.8)
 	for offset in [-1.18, 1.18]:
 		_box(Vector3(.13, 2.25, .13), at + Vector3(offset, 1.125, 0), _materials.wood)

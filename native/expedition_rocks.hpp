@@ -96,7 +96,67 @@ inline CrawlRock expedition_granite(int mode,float x,float z,float width,float d
     rock.surface=1.10f-expedition_material(mode,x,z).wet*.54f;
     rock.rebuild_queries();return rock;
 }
+inline const std::vector<CrawlRock>& canyon_rocks() {
+    static const auto rocks=[] {
+        using namespace expedition_detail;std::vector<CrawlRock> out;unsigned seed=821;
+        auto block=[&](float x,float z,float w,float d,float height,float yaw,float base){
+            out.push_back(crawl_fractured_rock(x,z,w,d,height,0,0,yaw,base,seed++));
+        };
+        // Shared stratification: tall buried blocks form walls, while thin,
+        // overlapping slabs make traversable wheel-scale ledges on side lines.
+        const auto &points=trails(6);float along=0,next=12;int index=0;
+        for(size_t i=1;i<points.size();++i) {
+            auto a=points[i-1],b=points[i];
+            if(a.route!=b.route){along=0;next=12;index=0;continue;}
+            float dx=b.x-a.x,dz=b.z-a.z,len=std::hypot(dx,dz),nx=-dz/len,nz=dx/len;
+            while(next<=along+len) {
+                float t=clamp((next-along)/len,0,1),x=a.x+dx*t,z=a.z+dz*t;
+                float v=hash(index*23+a.route*117,86),sign=index%2?1.f:-1.f;
+                float yaw=std::atan2(dx,dz);
+                if(x*x+(z-8)*(z-8)>27*27) {
+                    if(a.route>=2) {
+                        float offset=sign*1.15f;
+                        float exposure=.19f+v*.25f;
+                        float cx=x+nx*offset,cz=z+nz*offset;
+                        // Deeply buried slabs expose only a small step. A
+                        // sloping cap makes the exit gradual instead of a box.
+                        out.push_back(crawl_fractured_rock(cx,cz,3.7f+v,4.8f+v,1.6f,
+                            .10f,sign*.025f,yaw,expedition_height(6,cx,cz)-1.6f+exposure,seed++));
+                    }
+                    if(index%2==0) {
+                        float off=(a.route==3?8.5f:13.f)+v*5;
+                        float cx=x+nx*sign*off,cz=z+nz*sign*off;
+                        float base=expedition_height(6,cx,cz)-3;
+                        float tall=6+v*10+(a.route==3?7:0);
+                        block(cx,cz,11+v*6,18+v*6,tall,yaw+.12f,base);
+                        block(cx+nx*sign*2,cz+nz*sign*2,10+v*4,15+v*4,tall*.40f,yaw+.16f,base+tall-.3f);
+                    }
+                }
+                next+=(a.route>=2?10.f:27.f)*(.83f+v*.34f);++index;
+            }
+            along+=len;
+        }
+        // Distant canyon rim / buttes: big readable silhouettes, modest mesh
+        // cost. Keep the complete drivable corridor clear of their footprint.
+        for(int i=0;i<40;++i) {
+            float angle=i*6.2831853f/40,v=hash(i+193,31),r=260+v*35;
+            float x=std::cos(angle)*r,z=std::sin(angle)*r;
+            if(nearest_trail(6,x,z).distance<26)continue;
+            float base=expedition_height(6,x,z)-6;
+            block(x,z,25+v*15,29+v*16,20+v*25,angle,base);
+            block(x,z,21+v*10,23+v*12,11+v*14,angle+.04f,base+19+v*25);
+        }
+        // A true open arch: two convex piers and one rock lintel. No hidden
+        // wall closes the hole. The nearby overlook stays on the main loop.
+        float ax=-211,az=-249,base=expedition_height(6,ax,az)-3;
+        block(ax-10,az,10,13,18,.06f,base);
+        block(ax+10,az,10,13,18,-.08f,base);
+        block(ax,az,29,12,5,.02f,base+15);
+        return out;
+    }();return rocks;
+}
 inline const std::vector<CrawlRock>& expedition_rocks(int mode) {
+    if(mode==6)return canyon_rocks();
     auto make=[](int m) {
         using namespace expedition_detail;std::vector<CrawlRock> out;unsigned seed=137;
         auto add=[&](float x,float z,float width,float depth,float exposure,float yaw){
@@ -124,7 +184,7 @@ inline const std::vector<CrawlRock>& expedition_rocks(int mode) {
                     float offset=a.width+4.1f+v*2.0f;
                     add(cx+nx*side*offset,cz+nz*side*offset,4.5f+v*4,6+v*5,.55f+v*1.7f,yaw);
                 }
-                next_rock+=(a.route>=2?11.5f:24.f)*(0.78f+v*.55f);++placement;
+                next_rock+=(a.route>=2?(m==4&&a.route==3?7.5f:11.5f):24.f)*(0.78f+v*.55f);++placement;
             }
             along+=length;
         }
