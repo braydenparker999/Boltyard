@@ -1,3 +1,25 @@
+# Bolt Yard — Crawlworks 0.5
+
+Version 0.5 adds **Copperline**, an 85 m technical crawl proving ground alongside Juniper Valley. In the garage choose **COPPERLINE**, **Fit crawl setup to this rig**, then **DRIVE**. Keep LOW selected; hold GO and adjust the throttle-limit slider for gentle torque. The current session remembers cleared sections for nearby repair/recovery. Garage builds continue to save on device.
+
+Five sections progress through a training slab, staggered ledges, a rock garden, an off-camber shelf and a final climb with a controlled descent. Outside lines are open. Tire loads in kN and decimal speed help explain wheel lift and weight transfer. Grounded signs mark each section.
+
+Copperline uses native convex rock triangles shared directly with rendering, spatial culling, three tread-width queries with radial/sidewall support, pressure-dependent compliance and contact-driven tire squash. Terrain, cylinder and convex-rock support all contribute to powered traction and braking in their own tangent frames. Nine weighted support points under the deforming frame give high-centering a physical consequence.
+
+On Copperline, wheel angular velocity responds to torque and contact impulses, with finite low-speed slip velocity and engine drag. Low range uses 22× reduction before final drive, with governed wheel speeds of 2.2 m/s forward and 1.5 m/s reverse before final drive. This is a simplified, uncalibrated drivetrain; the retained valley uses the previous driving model with corrected rock traction.
+
+Fictional equipment now includes Billygoat Granite LT tires, Deadbolt Ring Leader wheels, Almost Level Flex Kit suspension and Low Expectations 4-Low gears. Existing part IDs and saves remain compatible. Copper sandstone has original procedural strata/quartz seams layered over the existing mipmapped stone asset.
+
+This is the first crawling milestone. Suspension still uses independent prismatic guides, not solid axle/link kinematics. Separate front/rear locker controls, axle/differential housing geometry, a deformable tire carcass and a broader parts ecosystem remain future work. The vehicle's deformable frame/cab are retained. These new features have desktop regression coverage; sustained Samsung A15 performance and touch feel require device feedback.
+
+The Android package remains `games.boltyard.prototype`, version **0.5.0 / code 5**, with the same development signing identity. Install over the previous app to retain builds. CI produces `bolt-yard-0.5.0-crawlworks.apk`, a crawling movie, portrait/landscape/contact screenshots and numerical traces. See [the Android workflow](https://github.com/braydenparker999/Boltyard/actions/workflows/android.yml).
+
+Build: `bash tools/ci_build.sh`. Native-only crawling checks: `g++ -std=c++17 -O2 native/test_crawling.cpp -o /tmp/test-crawling && /tmp/test-crawling`.
+
+---
+
+The following describes the retained v0.4 valley baseline; the crawling changes above supersede its collision/drivetrain limits on Copperline.
+
 # Bolt Yard — Trailworks 0.4
 
 An original offline Android offroading prototype with a native C++ deformable vehicle simulation and Godot 4.4.1 graphics. Version 0.4 rebuilds the tire contact and driving model, closes vehicle body seams, and gives Juniper Valley a new outdoor lighting and material treatment. Three vehicles, interchangeable equipment, saved builds and portrait support remain available.

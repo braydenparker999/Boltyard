@@ -57,21 +57,21 @@ const PARTS = {
 	"tires": [
 		{"id": "all_terrain", "name": "All-terrain", "description": "Balanced tread, stock diameter and carcass stiffness.", "vehicles": ["pickup", "scout", "buggy"], "effects": {}, "visual": "all_terrain"},
 		{"id": "mud", "name": "Mud terrain", "description": "10% larger diameter, 15% wider tire and 18% more grip; softer carcass.", "vehicles": ["pickup", "scout", "buggy"], "effects": {"multiply": {"tire_radius": 1.1, "tire_width_scale": 1.15}, "set": {"tire_pressure": 0.85, "tire_grip": 1.18}}, "visual": "mud"},
-		{"id": "rock", "name": "Rock crawler", "description": "15% larger diameter, 10% wider tire and 30% more grip; soft crawling carcass.", "vehicles": ["pickup", "scout", "buggy"], "effects": {"multiply": {"tire_radius": 1.15, "tire_width_scale": 1.1}, "set": {"tire_pressure": 0.65, "tire_grip": 1.3}}, "visual": "rock"}
+		{"id": "rock", "name": "Billygoat · Granite LT", "description": "15% larger diameter, 10% wider tire and 30% more grip; soft crawling carcass.", "vehicles": ["pickup", "scout", "buggy"], "effects": {"multiply": {"tire_radius": 1.15, "tire_width_scale": 1.1}, "set": {"tire_pressure": 0.65, "tire_grip": 1.3}}, "visual": "rock"}
 	],
 	"wheels": [
 		{"id": "steel", "name": "Steel utility", "description": "Stock wheel width, track and vehicle mass.", "vehicles": ["pickup", "scout", "buggy"], "effects": {}, "visual": "steel"},
-		{"id": "beadlock", "name": "Beadlock", "description": "Wider stance (+8 cm), 12% wider tires and +18 kg wheel-set mass.", "vehicles": ["pickup", "scout", "buggy"], "effects": {"multiply": {"tire_width_scale": 1.12}, "add": {"track_width": 0.08, "mass": 18.0}}, "visual": "beadlock"},
+		{"id": "beadlock", "name": "Deadbolt · Ring Leader", "description": "Wider stance (+8 cm), 12% wider tires and +18 kg wheel-set mass.", "vehicles": ["pickup", "scout", "buggy"], "effects": {"multiply": {"tire_width_scale": 1.12}, "add": {"track_width": 0.08, "mass": 18.0}}, "visual": "beadlock"},
 		{"id": "alloy", "name": "Rally alloy", "description": "Lighter wheel set (-24 kg), +4 cm track and 2% wider tires.", "vehicles": ["pickup", "scout", "buggy"], "effects": {"multiply": {"tire_width_scale": 1.02}, "add": {"track_width": 0.04, "mass": -24.0}}, "visual": "alloy"}
 	],
 	"suspension": [
 		{"id": "stock", "name": "Factory trail", "description": "The vehicle's standard height, spring rate, damping and travel.", "vehicles": ["pickup", "scout", "buggy"], "effects": {}, "visual": "stock"},
-		{"id": "lift", "name": "Crawler lift", "description": "+10 cm ride height, +8 cm travel, 15% softer springs and 12% more damping.", "vehicles": ["pickup", "scout", "buggy"], "effects": {"multiply": {"spring_rate": 0.85, "damping": 1.12}, "add": {"ride_height": 0.1, "suspension_travel": 0.08}}, "visual": "lift"},
+		{"id": "lift", "name": "Almost Level · Flex Kit", "description": "+10 cm ride height, +8 cm travel, 15% softer springs and 12% more damping.", "vehicles": ["pickup", "scout", "buggy"], "effects": {"multiply": {"spring_rate": 0.85, "damping": 1.12}, "add": {"ride_height": 0.1, "suspension_travel": 0.08}}, "visual": "lift"},
 		{"id": "long_travel", "name": "Desert long travel", "description": "+6 cm ride height, +12 cm travel, 35% stiffer springs and 45% more damping.", "vehicles": ["pickup", "scout", "buggy"], "effects": {"multiply": {"spring_rate": 1.35, "damping": 1.45}, "add": {"ride_height": 0.06, "suspension_travel": 0.12}}, "visual": "long_travel"}
 	],
 	"gearing": [
 		{"id": "trail", "name": "Trail ratio", "description": "Stock final drive; keeps the vehicle's standard range and differential setup.", "vehicles": ["pickup", "scout", "buggy"], "effects": {}, "visual": "trail"},
-		{"id": "crawler", "name": "Crawler ratio", "description": "1.35x final reduction gives more wheel torque and a lower speed ceiling; low range and locks engaged.", "vehicles": ["pickup", "scout", "buggy"], "effects": {"set": {"final_drive": 1.35, "low_range": true, "locked_diffs": true}}, "visual": "crawler"},
+		{"id": "crawler", "name": "Low Expectations · 4-Low", "description": "1.35x final reduction gives more wheel torque and a lower speed ceiling; low range and locks engaged.", "vehicles": ["pickup", "scout", "buggy"], "effects": {"set": {"final_drive": 1.35, "low_range": true, "locked_diffs": true}}, "visual": "crawler"},
 		{"id": "rally", "name": "Rally ratio", "description": "0.82x final reduction favors speed over wheel torque; high range with differential coupling unlocked.", "vehicles": ["pickup", "scout", "buggy"], "effects": {"set": {"final_drive": 0.82, "low_range": false, "locked_diffs": false}}, "visual": "rally"}
 	],
 	"front_bumper": [

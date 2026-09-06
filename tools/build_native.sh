@@ -15,6 +15,8 @@ g++ -std=c++17 -O2 -Wall -Wextra -pedantic native/test_soft_rig.cpp -o build/tes
 timeout 120 build/test-soft-rig | tee build/native-tests.log
 g++ -std=c++17 -O2 -Wall -Wextra -pedantic native/test_road_drive.cpp -o build/test-road-drive
 timeout 120 build/test-road-drive | tee build/road-drive-tests.log
+g++ -std=c++17 -O2 -Wall -Wextra -pedantic native/test_crawling.cpp -o build/test-crawling
+timeout 120 build/test-crawling | tee build/crawling-tests.log
 g++ -std=c++17 -O2 -Wall -Wextra -pedantic native/benchmark_handling.cpp -o build/benchmark-handling
 timeout 60 build/benchmark-handling | tee build/handling-benchmark.log
 export BOLT_GODOT_CPP="$native_cache/godot-cpp"

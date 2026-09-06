@@ -11,6 +11,12 @@ const ACCENT = Color("efbd71")
 const ACTIONS = ["off_left", "off_right", "off_go", "off_reverse", "off_brake"]
 const CAMP = Vector3(0, 1.5, 8)
 
+var crawl_mode = false
+var crawl_section = 0
+var throttle_limit = 0.35
+var crawl_controls: VBoxContainer
+var crawl_loads: Label
+var course_button: Button
 var settings: Dictionary = {}
 var builds: Dictionary = {}
 var selected_vehicle = "pickup"
@@ -207,7 +213,7 @@ func build_ui() -> void:
 	var brand = column(header_row, 0)
 	brand.name = "Brand"
 	label(brand, "BOLT YARD", 22)
-	label(brand, "VALLEY EXPEDITION  /  0.4", 10, ACCENT)
+	label(brand, "CRAWLWORKS  /  0.5", 10, ACCENT)
 	var spacer = Control.new()
 	spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	header_row.add_child(spacer)
@@ -252,6 +258,10 @@ func build_garage() -> void:
 	content.add_child(scroll)
 	var options = column(scroll, 7)
 	options.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	section(options, "TRAIL")
+	course_button = button(options, "COPPERLINE  ·  Technical crawling", toggle_course, 0)
+	accent_button(course_button)
+	button(options, "Fit crawl setup to this rig", fit_crawl_setup, 0)
 	section(options, "FINISH")
 	var paints = row(options, 6)
 	for color in PAINTS:
@@ -382,6 +392,21 @@ func build_driving() -> void:
 	drive_low = button(equipment, "LOW", toggle_drive_low, 85)
 	drive_diff = button(equipment, "LOCKED", toggle_drive_diff, 99)
 	button(equipment, "Camp", recover, 76)
+	crawl_controls = column(drive_panel, 4)
+	crawl_controls.name = "CrawlControls"
+	crawl_controls.visible = false
+	var throttle_label = label(crawl_controls, "THROTTLE LIMIT  ·  35%", 12, ACCENT)
+	var pedal = HSlider.new()
+	pedal.min_value = 0.10
+	pedal.max_value = 1.0
+	pedal.step = 0.05
+	pedal.value = throttle_limit
+	pedal.custom_minimum_size = Vector2(230, 44)
+	pedal.value_changed.connect(func(value):
+		throttle_limit = value
+		throttle_label.text = "THROTTLE LIMIT  ·  %d%%" % roundi(value * 100))
+	crawl_controls.add_child(pedal)
+	crawl_loads = label(crawl_controls, "", 12)
 	make_touch_button("Left", "‹", "off_left", Vector2(112, 104))
 	make_touch_button("Right", "›", "off_right", Vector2(112, 104))
 	make_touch_button("Reverse", "REV", "off_reverse", Vector2(102, 94))
@@ -507,6 +532,7 @@ func place_ui() -> void:
 		drive_panel.get_node("Navigation").position = Vector2(280, 98)
 		drive_panel.get_node("Navigation").size = Vector2(maxf(240, extent.x - 590), 68)
 		drive_panel.get_node("Equipment").position = Vector2(extent.x - 290, 98)
+	crawl_controls.position = Vector2(20, maxf(356 if portrait else 230, drive_panel.get_node("Dashboard").position.y + drive_panel.get_node("Dashboard").size.y + 16))
 	var bottom = extent.y - (90 if portrait else 80)
 	touch_buttons.off_left.root.position = Vector2(margin + 56, bottom)
 	touch_buttons.off_right.root.position = Vector2(margin + 180, bottom)
@@ -656,6 +682,8 @@ func apply_tuning() -> void:
 	settings = VehicleCatalog.compose(active_build())
 	truck.configure(settings)
 	world.configure(truck.core)
+	if crawl_mode:
+		truck.reset(recovery_point())
 	truck.body_color = Color(settings.paint)
 	truck.wireframe = xray
 	did_position_camera = false
@@ -691,21 +719,21 @@ func toggle_mode() -> void:
 	pause_button.visible = driving
 	mode_button.text = "GARAGE" if driving else "DRIVE  ›"
 	if not driving:
-		truck.reset(CAMP)
+		truck.reset(recovery_point())
 		pause_overlay.hide()
 		get_tree().paused = false
 		pause_button.text = "Pause"
 	did_position_camera = false
 	layout_ui()
 	save_settings()
-	toast("Choose a destination on the map. Hold GO and a steering arrow together." if driving else "At base camp. Fit equipment or fine-tune your build.")
+	toast("Hold GO; use the throttle slider for precise torque. Camp returns to the last clear section." if crawl_mode and driving else ("Choose a destination on the map. Hold GO and a steering arrow together." if driving else "Fit equipment or fine-tune your build."))
 
 func recover() -> void:
 	clear_controls()
-	truck.reset(CAMP)
+	truck.reset(recovery_point())
 	recovery_cooldown = 1.0
 	did_position_camera = false
-	toast("Vehicle repaired at base camp. Your discoveries are saved.")
+	toast("Repaired at the last cleared section." if crawl_mode else "Vehicle repaired at base camp. Your discoveries are saved.")
 
 func impact_test() -> void:
 	if driving:
@@ -749,7 +777,7 @@ func pause_to_garage() -> void:
 		toggle_mode()
 
 func toggle_map() -> void:
-	if help_open or backgrounded:
+	if help_open or backgrounded or crawl_mode:
 		return
 	clear_controls()
 	map_overlay.visible = not map_overlay.visible
@@ -779,6 +807,8 @@ func validate_exploration() -> void:
 		destination = ids[0] if not ids.is_empty() else ""
 
 func update_map() -> void:
+	if crawl_mode:
+		return
 	map_status.text = "%d / %d places discovered" % [discovered.size(), landmarks.size()]
 	var position: Vector3 = current_telemetry.get("position", CAMP)
 	map_canvas.update_state(position, discovered, destination)
@@ -789,6 +819,8 @@ func update_map() -> void:
 		item.add_theme_stylebox_override("normal", box(Color("58634f") if id == destination else Color("2b3c43"), 10))
 
 func check_discoveries(position: Vector3) -> void:
+	if crawl_mode:
+		return
 	if not driving:
 		return
 	for landmark in landmarks:
@@ -896,7 +928,7 @@ func toast(text: String) -> void:
 func _physics_process(_delta: float) -> void:
 	if not is_instance_valid(truck) or get_tree().paused:
 		return
-	truck.throttle = Input.get_axis("off_reverse", "off_go") if driving else 0.0
+	truck.throttle = Input.get_axis("off_reverse", "off_go") * (throttle_limit if crawl_mode else 1.0) if driving else 0.0
 	truck.steering = Input.get_axis("off_left", "off_right") if driving else 0.0
 	truck.brake = Input.is_action_pressed("off_brake") if driving else true
 
@@ -925,7 +957,8 @@ func _process(delta: float) -> void:
 		telemetry_delay = 0.12
 		update_telemetry()
 		world.update_focus(position)
-		check_discoveries(position)
+		if not crawl_mode:
+			check_discoveries(position)
 	for action in touch_buttons:
 		var pressed = Input.is_action_pressed(action)
 		var item: Dictionary = touch_buttons[action]
@@ -992,10 +1025,22 @@ func update_telemetry() -> void:
 	var broken = int(current_telemetry.get("broken_beams", 0))
 	var grounded = clampi(int(current_telemetry.get("wheels_grounded", 0)), 0, 4)
 	speed_label.text = "%02d  km/h" % roundi(speed)
+	speed_label.text = "%.1f  km/h" % speed if crawl_mode else speed_label.text
 	drive_status.text = "%d wheels · %s · %d fps" % [grounded, "LOW" if settings.low_range else "HIGH", Engine.get_frames_per_second()]
 	drive_damage.text = "CHASSIS %d%% · %d broken" % [roundi((1.0 - damage) * 100.0), broken]
 	drive_damage.add_theme_color_override("font_color", Color("f09375") if damage > 0.25 or broken > 0 else ACCENT)
 	garage_status.text = "%d%% chassis · %d broken beams · %d fps\n%d / %d places discovered" % [roundi((1.0 - damage) * 100.0), broken, Engine.get_frames_per_second(), discovered.size(), landmarks.size()]
+	if crawl_mode:
+		var loads = current_telemetry.get("wheel_loads", PackedFloat32Array([0, 0, 0, 0]))
+		crawl_loads.text = "TIRE LOAD  kN\nFL %.1f   FR %.1f\nRL %.1f   RR %.1f" % [loads[0] / 1000.0, loads[1] / 1000.0, loads[2] / 1000.0, loads[3] / 1000.0]
+		var z: float = current_telemetry.get("position", CAMP).z
+		# Advance recovery only after clearing a section, never by proximity.
+		var exits = [-9.0, -22.0, -40.0, -52.0, -76.0]
+		if crawl_section < 5 and z < exits[crawl_section] and absf(current_telemetry.position.x) < 8:
+			crawl_section += 1
+			toast("Section cleared. Recovery point advanced." if crawl_section < 5 else "Copperline complete. Try a different tire pressure or line.")
+		navigation_label.text = "COPPERLINE  ·  %d / 5 clear\n%s" % [crawl_section, landmarks[mini(crawl_section, 4)].description]
+		return
 	var position: Vector3 = current_telemetry.get("position", CAMP)
 	var forward: Vector3 = current_telemetry.get("forward", Vector3.FORWARD)
 	var heading = fposmod(rad_to_deg(atan2(forward.x, -forward.z)), 360.0)
@@ -1060,3 +1105,50 @@ func _notification(what: int) -> void:
 	elif what == NOTIFICATION_WM_CLOSE_REQUEST:
 		save_settings()
 		get_tree().quit()
+
+func recovery_point() -> Vector3:
+	if not crawl_mode:
+		return CAMP
+	return Vector3(0, 1.5, [8.0, -11.0, -24.0, -41.5, -55.0, -80.0][crawl_section])
+
+func toggle_course() -> void:
+	if driving:
+		return
+	clear_controls()
+	crawl_mode = not crawl_mode
+	crawl_section = 0
+	var previous = world
+	world = preload("res://scripts/crawl_world.gd").new() if crawl_mode else OffroadWorld.new()
+	# Retain one sky and lighting set while replacing scenery; changing courses
+	# must not accumulate environment/reflection allocations on a phone.
+	world._environment = previous._environment
+	world._sun = previous._sun
+	world._reflection = previous._reflection
+	for light in [previous._environment, previous._sun, previous.get_node("OpenSkyFill"), previous._reflection]:
+		if is_instance_valid(light):
+			light.get_parent().remove_child(light)
+			world.add_child(light)
+	remove_child(previous)
+	previous.queue_free()
+	world.name = "Trail"
+	world.configure(truck.core)
+	world.set_quality(quality)
+	add_child(world)
+	landmarks = world.get_landmarks()
+	map_button.disabled = crawl_mode
+	crawl_controls.visible = crawl_mode
+	course_button.text = "JUNIPER VALLEY  ·  Exploration" if crawl_mode else "COPPERLINE  ·  Technical crawling"
+	truck.reset(CAMP)
+	did_position_camera = false
+	toast("Copperline ready. Fit the crawl setup, then DRIVE. Use LOW range." if crawl_mode else "Juniper Valley ready.")
+
+func fit_crawl_setup() -> void:
+	if driving:
+		return
+	var ids = {"tires": "rock", "wheels": "beadlock", "suspension": "lift", "gearing": "crawler"}
+	for slot in ids:
+		builds[selected_vehicle] = VehicleCatalog.equip_part(builds[selected_vehicle], slot, ids[slot])
+	settings = VehicleCatalog.compose(active_build())
+	sync_controls()
+	apply_tuning()
+	toast("Billygoat tires, Almost Level lift and Low Expectations gears fitted.")

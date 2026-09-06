@@ -109,7 +109,6 @@ func _ready() -> void:
 func reset(origin: Vector3 = Vector3(0.0, 1.5, 8.0)) -> void:
 	if core != null:
 		core.reset(origin)
-		core.set_terrain(2)
 		_rest = core.get_rest_nodes()
 	throttle = 0.0
 	steering = 0.0

@@ -1,3 +1,17 @@
+# Crawlworks 0.5 validation
+
+The crawling milestone adds ten native behavioral scenarios and eleven Godot integration checks. The native full-course test traverses to beyond z = -78 m with controlled throttle/steering, brakes to rest, and requires zero safety clamps, rejected states or structural damage above 1%. Its latest measured minimum up.y is 0.910. This is an actual-input numerical traversal, not an on-device play test.
+
+The elevated-platform scenario confirms rock-only support and powered acceleration without hidden terrain support. Other scenarios cover stable incline hold/restart, low-speed beveled ledges, wheel angular momentum in air, consistent frame cadence, convex shared geometry, open/locked split grip, skid high-centering and pressure-dependent clearance.
+
+Integration coverage checks matching native course selection, fitted equipment, retained lighting across course changes, landscape/portrait control bounds, recovery input clearing, tuning at a checkpoint and preservation of valley discoveries. Recovery now retains the current terrain mode; resetting a truck must not silently switch its collision back to the valley.
+
+`tests/crawling_video.gd` records live throttle input onto the training slab, brakes, and checks progress, vehicle height, upright attitude, damage and final speed. `tests/crawl_views.gd` captures landscape, portrait and a tire-contact close-up. Both are part of Android CI, alongside retained valley tests. Per-wheel loads, spin, slip, travel and native timing are saved in `crawling-trace.json`.
+
+The Android workflow must succeed before the 0.5 APK is delivered. Physical A15 installation, sustained frame rate, thermals and touch feel remain untested here. Version/code are 0.5.0/5; package and signing configuration are unchanged.
+
+---
+
 # Validation record — Bolt Yard 0.4, 2026-09-05
 
 The handling rebuild passes 78 native checks and two complete exploration-road driving scenarios. Local Godot tests pass 31 retained construction checks, 18 offroad integration checks, 47 catalog checks, 36 exploration/save/orientation checks, and 257 vehicle geometry checks: **467 assertions plus two road scenarios**.

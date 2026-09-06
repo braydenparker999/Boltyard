@@ -86,6 +86,8 @@ func update_focus(at: Vector3) -> void:
 		visual.visible = distance < 650.0
 
 func _make_lighting() -> void:
+	if is_instance_valid(_environment):
+		return
 	_environment = WorldEnvironment.new()
 	_environment.name = "JuniperDaylight"
 	var settings := Environment.new()
@@ -188,6 +190,8 @@ func _build_course() -> void:
 	_build_lake()
 	_build_camp()
 	_build_wayfinding()
+	if is_instance_valid(_reflection):
+		return
 	_reflection = ReflectionProbe.new()
 	_reflection.name = "CampReflectionCapture"
 	_reflection.position = Vector3(0, 5, 8)

@@ -38,6 +38,7 @@ protected:
         ClassDB::bind_method(D_METHOD("terrain_height", "x", "z"), &SoftBodyRig::terrain_height);
         ClassDB::bind_method(D_METHOD("terrain_normal", "x", "z"), &SoftBodyRig::terrain_normal);
         ClassDB::bind_method(D_METHOD("terrain_surface", "x", "z"), &SoftBodyRig::terrain_surface);
+        ClassDB::bind_method(D_METHOD("get_crawl_rocks"), &SoftBodyRig::get_crawl_rocks);
         ClassDB::bind_method(D_METHOD("get_obstacles"), &SoftBodyRig::get_obstacles);
         ClassDB::bind_method(D_METHOD("get_terrain_samples"), &SoftBodyRig::get_terrain_samples);
         ClassDB::bind_method(D_METHOD("get_rest_nodes"), &SoftBodyRig::get_rest_nodes);
@@ -86,7 +87,7 @@ public:
         auto end = std::chrono::steady_clock::now();
         sim_ms = std::chrono::duration<double,std::milli>(end-start).count();
     }
-    void set_terrain(int mode) { rig.set_terrain(std::clamp(mode,0,2)); }
+    void set_terrain(int mode) { rig.set_terrain(std::clamp(mode,0,3)); }
     void set_drivetrain(bool low, bool locked) { rig.set_drivetrain(low,locked); }
     double terrain_height(double x, double z) const { return rig.terrain_height((float)x,(float)z); }
     Vector3 terrain_normal(double x, double z) const { return gv(rig.terrain_normal((float)x,(float)z)); }
@@ -102,6 +103,9 @@ public:
         out["heights"] = heights; out["surfaces"] = surfaces;
         out["side"] = 385; out["spacing"] = 2.0; out["origin"] = -384.0;
         return out;
+    }
+    Array get_crawl_rocks() const {
+        Array out;for(const auto&r:boltyard::crawl_course()){PackedVector3Array verts;for(auto t:r.triangles)for(int i:t)verts.push_back(gv(r.vertices[i]));out.push_back(verts);}return out;
     }
     Array get_obstacles() const {
         Array out;
@@ -160,9 +164,9 @@ public:
         d["physical_nodes"]=rig.physical_node_count(); d["render_nodes"]=rig.render_node_count();
         d["physical_beams"]=rig.physical_beam_count();
         d["velocity"]=gv(rig.linear_velocity()); d["steering_angle"]=rig.steering_angle();
-        PackedFloat32Array wheel_spin, suspension;
-        for (int w=0; w<4; ++w) { wheel_spin.push_back(rig.wheel_angular_velocity(w)); suspension.push_back(rig.suspension_travel(w)); }
-        d["wheel_spin"]=wheel_spin; d["suspension"]=suspension;
+        PackedFloat32Array wheel_spin, suspension, loads, rock_loads, slip;
+        for (int w=0; w<4; ++w) { loads.push_back(rig.wheel_load(w));rock_loads.push_back(rig.wheel_rock_load(w));slip.push_back(rig.wheel_slip(w));wheel_spin.push_back(rig.wheel_angular_velocity(w)); suspension.push_back(rig.suspension_travel(w)); }
+        d["wheel_loads"]=loads;d["rock_loads"]=rock_loads;d["wheel_slip"]=slip;d["wheel_spin"]=wheel_spin; d["suspension"]=suspension;
         d["position"]=gv(rig.center()); d["forward"]=gv(rig.forward()); d["up"]=gv(rig.up());
         d["sim_ms"]=sim_ms;
         d["safety_clamps"]=rig.safety_clamp_count();
