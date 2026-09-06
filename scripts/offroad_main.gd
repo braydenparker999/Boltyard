@@ -348,7 +348,7 @@ func build_garage() -> void:
 		swatch.custom_minimum_size.y = 38
 		swatch.add_theme_stylebox_override("normal", box(Color(color), 8, 4))
 		swatch.add_theme_stylebox_override("hover", box(Color(color).lightened(0.2), 8, 4))
-		swatch.tooltip_text = ["Rust orange", "Sand", "Forest", "Blue slate", "Ivory", "Graphite"][PAINTS.find(color)]
+		swatch.tooltip_text = ["Canyon orange", "Deep green", "Rust orange", "Sand", "Forest", "Blue slate", "Ivory", "Graphite"][PAINTS.find(color)]
 		paint_buttons[color] = swatch
 	section(equipment_page, "INSTALLED EQUIPMENT")
 	for slot in VehicleCatalog.SLOTS:
