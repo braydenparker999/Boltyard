@@ -17,6 +17,10 @@ g++ -std=c++17 -O2 -Wall -Wextra -pedantic native/test_road_drive.cpp -o build/t
 timeout 120 build/test-road-drive | tee build/road-drive-tests.log
 g++ -std=c++17 -O2 -Wall -Wextra -pedantic native/test_crawling.cpp -o build/test-crawling
 timeout 120 build/test-crawling | tee build/crawling-tests.log
+for suite in crawlworks dynamic_objects; do
+  g++ -std=c++17 -O2 -Wall -Wextra -pedantic "native/test_${suite}.cpp" -o "build/test-${suite}"
+  timeout 120 "build/test-${suite}" | tee "build/${suite}-tests.log"
+done
 g++ -std=c++17 -O2 -Wall -Wextra -pedantic native/benchmark_handling.cpp -o build/benchmark-handling
 timeout 60 build/benchmark-handling | tee build/handling-benchmark.log
 export BOLT_GODOT_CPP="$native_cache/godot-cpp"

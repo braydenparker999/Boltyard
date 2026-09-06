@@ -52,6 +52,21 @@ func run() -> void:
 	check(close_to(fitted.mass, 1358.0) and close_to(fitted.front_accessory_mass, 75.0) and close_to(fitted.roof_accessory_mass, 65.0), "wheel and accessory weights are included exactly once in total mass")
 	check(close_to(fitted.ride_height, 0.45) and close_to(fitted.suspension_travel, 0.30) and close_to(fitted.spring_rate, 25500.0), "lift kit changes clearance, physical travel and spring stiffness")
 	check(close_to(fitted.final_drive, 1.35) and fitted.low_range and fitted.locked_diffs, "crawler gearing configures actual drivetrain inputs")
+	check(close_to(fitted.wheel_accessory_mass, 18.0), "beadlock mass is allocated to actual unsprung wheels")
+	check(close_to(Catalog.compose(Catalog.equip_part(garage.pickup, "wheels", "alloy")).wheel_accessory_mass, -24.0), "alloy mass reduction is applied to wheel assemblies")
+	var axle_build = Catalog.equip_part(garage.pickup, "gearing", "rally")
+	axle_build.tuning.front_locked = true
+	var axle_setup = Catalog.compose(axle_build)
+	check(axle_setup.front_locked and not axle_setup.rear_locked, "one axle can lock independently of the open gearing preset")
+	axle_build.tuning.locked_diffs = true
+	axle_build.tuning.front_locked = false
+	axle_setup = Catalog.compose(axle_build)
+	check(not axle_setup.front_locked and axle_setup.rear_locked, "legacy shared switch migrates without overwriting an explicit axle choice")
+	check(close_to(fitted.compression_damping, fitted.damping) and close_to(fitted.rebound_damping, fitted.damping), "existing saved damping supplies both damper directions")
+	axle_build.tuning.compression_damping = 1700.0
+	axle_build.tuning.rebound_damping = 5700.0
+	axle_setup = Catalog.compose(axle_build)
+	check(close_to(axle_setup.compression_damping, 1700.0) and close_to(axle_setup.rebound_damping, 5700.0), "compression and rebound tune independently")
 	custom.tuning.engine_torque = 610.0
 	custom.tuning.tire_radius = 0.6
 	custom.tuning.mass = 1700.0

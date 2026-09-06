@@ -47,6 +47,12 @@ var vehicle_description: Label
 var message: Label
 var drive_low: Button
 var drive_diff: Button
+var front_diff: Button
+var rear_diff: Button
+var camera_toolbar: PanelContainer
+var camera_drag_button: Button
+var camera_follow_button: Button
+var camera_hint: Label
 var pause_overlay: PanelContainer
 var map_overlay: PanelContainer
 var map_canvas: Control
@@ -77,6 +83,16 @@ var telemetry_delay = 0.0
 var recovery_cooldown = 0.0
 var orbit = 2.24
 var orbit_distance = 9.3
+var orbit_pitch = 0.49
+var drive_distance = 8.2
+var drive_pitch = 0.30
+var drive_orbit = 0.0
+var camera_follow = true
+var camera_pan_mode = false
+var garage_pan = Vector2.ZERO
+var drive_pan = Vector2.ZERO
+var camera_gestures = preload("res://scripts/two_finger_camera.gd").new()
+var camera_save_delay = -1.0
 var camera_target = Vector3.ZERO
 var follow_direction = Vector3.BACK
 var did_position_camera = false
@@ -213,7 +229,7 @@ func build_ui() -> void:
 	var brand = column(header_row, 0)
 	brand.name = "Brand"
 	label(brand, "BOLT YARD", 22)
-	label(brand, "CRAWLWORKS  /  0.5", 10, ACCENT)
+	label(brand, "CRAWLWORKS  /  1.0", 10, ACCENT)
 	var spacer = Control.new()
 	spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	header_row.add_child(spacer)
@@ -228,6 +244,7 @@ func build_ui() -> void:
 	build_driving()
 	build_pause()
 	build_map()
+	build_camera_tools()
 	message = label(ui, "", 14)
 	message.add_theme_stylebox_override("normal", box(Color("172126ef"), 10, 12))
 	message.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -294,7 +311,11 @@ func build_garage() -> void:
 	tuning_slider(tuning_content, "tire_pressure", "Relative tire pressure", "Carcass stiffness and grip multiplier, not a calibrated pressure.", 0.05)
 	tuning_slider(tuning_content, "ride_height", "Suspension height", "More clearance raises the center of gravity.", 0.01)
 	tuning_slider(tuning_content, "spring_rate", "Spring rate", "Softer springs flex; stiffer springs carry load.", 1000.0)
-	tuning_slider(tuning_content, "damping", "Damping", "Controls how quickly the suspension settles.", 250.0)
+	tuning_slider(tuning_content, "damping", "Base damping", "Sets both damper directions until you adjust them individually.", 250.0)
+	tuning_slider(tuning_content, "compression_damping", "Compression damping", "Resists wheel movement upward into the body. Lower values absorb ledges more freely.", 250.0)
+	tuning_slider(tuning_content, "rebound_damping", "Rebound damping", "Controls how quickly a wheel extends into a hole after compression.", 250.0)
+	tuning_slider(tuning_content, "compression_travel", "Compression travel", "Available upward wheel movement before the bump stop engages.", 0.01)
+	tuning_slider(tuning_content, "suspension_travel", "Droop travel", "Available downward wheel extension before the rebound stop engages.", 0.01)
 	tuning_slider(tuning_content, "engine_torque", "Engine torque", "Changes torque delivered through the tires.", 25.0)
 	tuning_slider(tuning_content, "mass", "Vehicle mass", "Total mass, including the selected equipment.", 25.0)
 	tuning_slider(tuning_content, "track_width", "Track width", "Wider stance improves stability on side slopes.", 0.05)
@@ -323,10 +344,6 @@ func build_garage() -> void:
 	title_label.add_theme_stylebox_override("normal", box(PANEL, 10, 10))
 	var camera_tools = row(garage_overlay, 6)
 	camera_tools.name = "CameraTools"
-	button(camera_tools, "‹", orbit_by.bind(-0.35), 45)
-	button(camera_tools, "›", orbit_by.bind(0.35), 45)
-	button(camera_tools, "+", zoom_by.bind(-0.8), 42)
-	button(camera_tools, "−", zoom_by.bind(0.8), 42)
 	button(camera_tools, "Impact test", impact_test, 112)
 	garage_status = label(garage_overlay, "", 12, MUTED)
 	garage_status.add_theme_stylebox_override("normal", box(PANEL, 10, 10))
@@ -406,6 +423,11 @@ func build_driving() -> void:
 		throttle_limit = value
 		throttle_label.text = "THROTTLE LIMIT  ·  %d%%" % roundi(value * 100))
 	crawl_controls.add_child(pedal)
+	var axles = row(crawl_controls, 6)
+	front_diff = button(axles, "FRONT: LOCK", toggle_axle_diff.bind("front_locked"), 114)
+	rear_diff = button(axles, "REAR: LOCK", toggle_axle_diff.bind("rear_locked"), 114)
+	front_diff.add_theme_font_size_override("font_size", 13)
+	rear_diff.add_theme_font_size_override("font_size", 13)
 	crawl_loads = label(crawl_controls, "", 12)
 	make_touch_button("Left", "‹", "off_left", Vector2(112, 104))
 	make_touch_button("Right", "›", "off_right", Vector2(112, 104))
@@ -435,6 +457,126 @@ func make_touch_button(node_name: String, text: String, action: String, dimensio
 	touch.visibility_mode = TouchScreenButton.VISIBILITY_ALWAYS
 	touch_root.add_child(touch)
 	touch_buttons[action] = {"root": touch_root, "panel": panel, "touch": touch, "down": false}
+
+func build_camera_tools() -> void:
+	camera_toolbar = PanelContainer.new()
+	camera_toolbar.name = "CameraToolbar"
+	camera_toolbar.add_theme_stylebox_override("panel", box(PANEL, 12, 8))
+	ui.add_child(camera_toolbar)
+	var content = column(camera_toolbar, 3)
+	var controls = row(content, 6)
+	camera_drag_button = button(controls, "Drag: Orbit", toggle_camera_drag, 112)
+	camera_follow_button = button(controls, "Follow: on", toggle_camera_follow, 112)
+	camera_follow_button.tooltip_text = "Follow turns behind the rig. Off keeps your viewing angle while traveling with it."
+	button(controls, "Reset view", reset_camera, 100)
+	camera_hint = label(content, "2 fingers · drag to orbit / tilt · pinch to zoom", 11, MUTED)
+	update_camera_tools()
+
+func update_camera_tools() -> void:
+	if not is_instance_valid(camera_toolbar):
+		return
+	camera_drag_button.text = "Drag: Pan" if camera_pan_mode else "Drag: Orbit"
+	camera_follow_button.visible = driving
+	camera_follow_button.text = "Follow: on" if camera_follow else "Follow: off"
+	camera_hint.text = "2 fingers · drag to %s · pinch zoom · twist orbit" % ("pan" if camera_pan_mode else "orbit / tilt")
+	camera_toolbar.reset_size()
+
+func toggle_camera_drag() -> void:
+	camera_gestures.cancel()
+	camera_pan_mode = not camera_pan_mode
+	update_camera_tools()
+	camera_save_delay = 0.6
+	toast("Two fingers on the scenery: drag to pan. Pinch zooms; twist orbits." if camera_pan_mode else "Two fingers on the scenery: drag sideways to orbit, up/down to tilt. Pinch zooms.")
+
+func toggle_camera_follow() -> void:
+	camera_gestures.cancel()
+	if not driving:
+		return
+	if camera_follow:
+		drive_orbit = atan2(follow_direction.x, follow_direction.z)
+	camera_follow = not camera_follow
+	if camera_follow:
+		drive_orbit = 0.0
+		drive_pan = Vector2.ZERO
+	update_camera_tools()
+	camera_save_delay = 0.6
+	toast("Camera follows the rig's heading." if camera_follow else "Viewing angle held. The camera still travels with your rig.")
+
+func reset_camera() -> void:
+	camera_gestures.cancel()
+	if driving:
+		drive_distance = 8.2
+		drive_pitch = 0.30
+		drive_orbit = 0.0
+		drive_pan = Vector2.ZERO
+		camera_follow = true
+	else:
+		orbit = 2.24
+		orbit_distance = 9.3
+		orbit_pitch = 0.49
+		garage_pan = Vector2.ZERO
+	update_camera_tools()
+	camera_save_delay = 0.6
+	toast("Camera centered. Follow is on." if driving else "Garage camera centered.")
+
+func camera_touch_blocked(point: Vector2) -> bool:
+	# _input runs before GUI dispatch. Test actual controls on finger-down and
+	# keep that ownership until lift so steering/pedal/slider drags stay theirs.
+	if not is_instance_valid(ui) or backgrounded or help_open or get_tree().paused:
+		return true
+	for panel in [header, garage_panel, camera_toolbar]:
+		if panel.is_visible_in_tree() and panel.get_global_rect().has_point(point):
+			return true
+	if not driving:
+		return garage_overlay.get_node("CameraTools").get_global_rect().has_point(point)
+	for name in ["Dashboard", "Navigation", "Equipment", "CrawlControls"]:
+		var control: Control = drive_panel.get_node(name)
+		if control.is_visible_in_tree() and control.get_global_rect().has_point(point):
+			return true
+	for action in touch_buttons:
+		if touch_buttons[action].panel.get_global_rect().has_point(point):
+			return true
+	return false
+
+func _input(event: InputEvent) -> void:
+	if event is InputEventScreenTouch:
+		if event.canceled or not event.pressed:
+			camera_gestures.touch_up(event.index)
+		else:
+			camera_gestures.touch_down(event.index, event.position, camera_touch_blocked(event.position))
+	elif event is InputEventScreenDrag:
+		camera_gestures.touch_move(event.index, event.position)
+
+func apply_camera_gesture(gesture: Dictionary) -> void:
+	if gesture.is_empty():
+		return
+	var drag: Vector2 = gesture.drag
+	var yaw_delta = -float(gesture.twist) - (drag.x * TAU if not camera_pan_mode else 0.0)
+	var distance = drive_distance if driving else orbit_distance
+	# Panning moves the scene with your fingers in the camera's horizontal / up
+	# plane. Bounds keep Reset discoverable even after an accidental long drag.
+	if camera_pan_mode:
+		var movement = Vector2(-drag.x, drag.y) * distance * 1.6
+		if driving:
+			drive_pan = (drive_pan + movement).limit_length(5.0)
+		else:
+			garage_pan = (garage_pan + movement).limit_length(4.0)
+	if driving:
+		drive_distance = clampf(drive_distance / float(gesture.zoom), 3.0, 20.0)
+		if not camera_pan_mode:
+			drive_pitch = clampf(drive_pitch + drag.y * PI, 0.10, 1.28)
+		if absf(yaw_delta) > 0.0001:
+			if camera_follow:
+				drive_orbit = atan2(follow_direction.x, follow_direction.z)
+				camera_follow = false
+			drive_orbit = wrapf(drive_orbit + yaw_delta, -PI, PI)
+	else:
+		orbit_distance = clampf(orbit_distance / float(gesture.zoom), 3.2, 20.0)
+		if not camera_pan_mode:
+			orbit_pitch = clampf(orbit_pitch + drag.y * PI, 0.10, 1.28)
+		orbit = wrapf(orbit + yaw_delta, -PI, PI)
+	update_camera_tools()
+	camera_save_delay = 0.8
 
 func build_pause() -> void:
 	pause_overlay = PanelContainer.new()
@@ -512,8 +654,8 @@ func place_ui() -> void:
 		garage_overlay.get_node("CameraTools").position = Vector2(0, sheet_y - 220)
 		garage_status.position = Vector2(0, sheet_y - 166)
 		garage_status.size = Vector2(extent.x - margin * 2, 48)
-		message.position = Vector2(margin, 286 if driving else 151)
-		message.size = Vector2(extent.x - margin * 2, 54)
+		message.position = Vector2(285, 390) if driving else Vector2(margin, 151)
+		message.size = Vector2(extent.x - margin - 285, 78) if driving else Vector2(extent.x - margin * 2, 54)
 		drive_panel.get_node("Dashboard").position = Vector2(margin, 96)
 		drive_panel.get_node("Navigation").position = Vector2(margin, 204)
 		drive_panel.get_node("Navigation").size = Vector2(extent.x - margin * 2, 65)
@@ -526,13 +668,16 @@ func place_ui() -> void:
 		garage_overlay.get_node("CameraTools").position = Vector2(0, extent.y - 268)
 		garage_status.position = Vector2(0, extent.y - 212)
 		garage_status.size = Vector2(maxf(300, extent.x - 412), 48)
-		message.position = Vector2(392, extent.y - 64) if not driving else Vector2(285, 188)
+		message.position = Vector2(392, extent.y - 64) if not driving else Vector2(285, 278)
 		message.size = Vector2(maxf(240, extent.x - 414), 44) if not driving else Vector2(maxf(280, extent.x - 590), 58)
 		drive_panel.get_node("Dashboard").position = Vector2(margin, 98)
 		drive_panel.get_node("Navigation").position = Vector2(280, 98)
 		drive_panel.get_node("Navigation").size = Vector2(maxf(240, extent.x - 590), 68)
 		drive_panel.get_node("Equipment").position = Vector2(extent.x - 290, 98)
-	crawl_controls.position = Vector2(20, maxf(356 if portrait else 230, drive_panel.get_node("Dashboard").position.y + drive_panel.get_node("Dashboard").size.y + 16))
+	crawl_controls.position = Vector2(20, maxf(390 if portrait else 230, drive_panel.get_node("Dashboard").position.y + drive_panel.get_node("Dashboard").size.y + 16))
+	camera_toolbar.position = Vector2(margin, 286) if driving and portrait else (Vector2(extent.x - camera_toolbar.size.x - margin, 185) if driving else Vector2(extent.x - camera_toolbar.size.x - margin, 151))
+	if not driving and portrait:
+		camera_toolbar.position = Vector2(margin, 216)
 	var bottom = extent.y - (90 if portrait else 80)
 	touch_buttons.off_left.root.position = Vector2(margin + 56, bottom)
 	touch_buttons.off_right.root.position = Vector2(margin + 180, bottom)
@@ -551,7 +696,8 @@ func format_value(key: String) -> String:
 		"tire_pressure": return "%.2f×" % value
 		"ride_height": return "%d cm" % roundi(value * 100)
 		"spring_rate": return "%.0f kN/m" % (value / 1000.0)
-		"damping": return "%.2f kNs/m" % (value / 1000.0)
+		"damping", "compression_damping", "rebound_damping": return "%.2f kNs/m" % (value / 1000.0)
+		"compression_travel", "suspension_travel": return "%d cm" % roundi(value * 100.0)
 		"engine_torque": return "%d Nm" % roundi(value)
 		"mass": return "%d kg" % roundi(value)
 		"track_width", "wheelbase": return "%.2f m" % value
@@ -572,9 +718,18 @@ func change_value(value: float, key: String) -> void:
 func change_toggle(value: bool, key: String) -> void:
 	if updating_ui:
 		return
+	if key in ["front_locked", "rear_locked"]:
+		# Materialize both current choices before removing a legacy combined
+		# override, otherwise changing one formerly-open axle could lock the other.
+		builds[selected_vehicle].tuning.front_locked = settings.front_locked
+		builds[selected_vehicle].tuning.rear_locked = settings.rear_locked
+		builds[selected_vehicle].tuning.erase("locked_diffs")
 	builds[selected_vehicle].tuning[key] = value
+	if key == "locked_diffs":
+		builds[selected_vehicle].tuning.front_locked = value
+		builds[selected_vehicle].tuning.rear_locked = value
 	settings = VehicleCatalog.compose(active_build())
-	truck.set_drivetrain(settings.low_range, settings.locked_diffs)
+	truck.set_axle_drivetrain(settings.low_range, settings.front_locked, settings.rear_locked)
 	update_drive_toggles()
 	save_settings()
 
@@ -644,9 +799,12 @@ func update_paint_buttons() -> void:
 
 func update_drive_toggles() -> void:
 	drive_low.text = "LOW" if settings.low_range else "HIGH"
-	drive_diff.text = "LOCKED" if settings.locked_diffs else "OPEN"
-	for item in [drive_low, drive_diff]:
-		var enabled = settings.low_range if item == drive_low else settings.locked_diffs
+	drive_diff.text = "MIXED" if settings.front_locked != settings.rear_locked else ("LOCKED" if settings.locked_diffs else "OPEN")
+	drive_diff.visible = not crawl_mode
+	front_diff.text = "FRONT: %s" % ("LOCK" if settings.front_locked else "OPEN")
+	rear_diff.text = "REAR: %s" % ("LOCK" if settings.rear_locked else "OPEN")
+	for item in [drive_low, drive_diff, front_diff, rear_diff]:
+		var enabled = settings.low_range if item == drive_low else (settings.front_locked if item == front_diff else (settings.rear_locked if item == rear_diff else settings.locked_diffs))
 		item.add_theme_stylebox_override("normal", box(Color("56634f") if enabled else Color("2b3c43"), 10))
 
 func sync_controls() -> void:
@@ -699,6 +857,11 @@ func toggle_drive_diff() -> void:
 	sync_controls()
 	toast("Differentials locked." if settings.locked_diffs else "Differentials open.")
 
+func toggle_axle_diff(key: String) -> void:
+	change_toggle(not bool(settings[key]), key)
+	sync_controls()
+	toast("%s differential %s." % ["Front" if key == "front_locked" else "Rear", "locked" if settings[key] else "open"])
+
 func toggle_xray() -> void:
 	xray = not xray
 	truck.wireframe = xray
@@ -718,6 +881,7 @@ func toggle_mode() -> void:
 	drive_panel.visible = driving
 	pause_button.visible = driving
 	mode_button.text = "GARAGE" if driving else "DRIVE  ›"
+	update_camera_tools()
 	if not driving:
 		truck.reset(recovery_point())
 		pause_overlay.hide()
@@ -746,12 +910,15 @@ func impact_test() -> void:
 	toast("Side-impact test. Use Repair & camp when finished.")
 
 func orbit_by(amount: float) -> void:
-	orbit += amount
+	orbit = wrapf(orbit + amount, -PI, PI)
+	camera_save_delay = 0.8
 
 func zoom_by(amount: float) -> void:
-	orbit_distance = clampf(orbit_distance + amount, 6.8, 13.0)
+	orbit_distance = clampf(orbit_distance + amount, 3.2, 20.0)
+	camera_save_delay = 0.8
 
 func clear_controls() -> void:
+	camera_gestures.cancel()
 	for action in ACTIONS:
 		Input.action_release(action)
 	if is_instance_valid(truck):
@@ -843,7 +1010,7 @@ func show_help() -> void:
 	var dialog = AcceptDialog.new()
 	dialog.title = "Bolt Yard · Field guide"
 	dialog.process_mode = Node.PROCESS_MODE_ALWAYS
-	dialog.dialog_text = "BUILD YOUR RIG\nPickup, Scout and Buggy each keep a separate build.\nEquipment changes compatible parts and their matching settings.\nFine tuning overrides those settings. Reset tuning restores installed parts.\n\nEXPLORE\nSelect a destination on the map, then follow the compass.\nPlaces are discovered when you actually drive close to them.\nCamp repairs the vehicle and returns you to the workshop.\nHold GO plus a steering arrow. REV reverses; BRAKE slows the wheels.\nLow range and locked differentials help with slow climbs.\nKeyboard: WASD / arrows, Space brake, R camp, M map, Tab garage.\n\nDISPLAY & SAVES\nBoth portrait and landscape layouts work; rotate at any time.\nPerformance, Balanced and High adjust scenery and shadows.\nAll builds and discoveries save on this device. The old setup is retained.\n\nPHYSICS\nThe frame and cabin deform; tires use round contacts and visual squash. Parts change the simulated build.\nRelative tire pressure is a stiffness/grip multiplier, not calibrated bar.\nTire, suspension and drivetrain models remain simplified."
+	dialog.dialog_text = "BUILD YOUR RIG\nPickup, Scout and Buggy each keep a separate build.\nEquipment changes compatible parts and their matching settings.\nFine tuning overrides those settings. Reset tuning restores installed parts.\n\nEXPLORE\nSelect a destination on the map, then follow the compass.\nPlaces are discovered when you actually drive close to them.\nCamp repairs the vehicle and returns you to the workshop.\nHold GO plus a steering arrow. REV reverses; BRAKE slows the wheels.\nLow range and locked differentials help with slow climbs.\nOn Copperline, FRONT / REAR toggle each axle lock independently.\nKeyboard: WASD / arrows, Space brake, R camp, M map, Tab garage.\n\nCAMERA · TWO FINGERS ON THE SCENERY\nPinch to zoom. Twist to orbit. Drag: Orbit turns sideways and tilts up/down.\nTap Drag: Pan to move the view sideways or up/down with two fingers.\nOrbit turns Follow off; Follow: on returns behind the rig. Reset view centers it.\nButtons and pedals keep their touches. Lift fingers before changing modes.\n\nDISPLAY & SAVES\nBoth portrait and landscape layouts work; rotate at any time.\nPerformance, Balanced and High adjust scenery and shadows.\nAll builds and discoveries save on this device. The old setup is retained.\n\nPHYSICS\nThe frame and cabin deform; tires use round contacts and visual squash. Parts change the simulated build.\nRelative tire pressure is a stiffness/grip multiplier, not calibrated bar.\nTire, suspension and drivetrain models remain simplified."
 	ui.add_child(dialog)
 	dialog.confirmed.connect(dialog.queue_free)
 	dialog.canceled.connect(dialog.queue_free)
@@ -883,6 +1050,7 @@ func load_settings() -> void:
 		var raw_quality = parsed.get("quality", 0)
 		if raw_quality is float or raw_quality is int:
 			quality = clampi(int(raw_quality), 0, 2)
+		load_camera_preferences(parsed.get("camera", {}))
 		return
 	if not FileAccess.file_exists(LEGACY_PATH):
 		return
@@ -900,6 +1068,31 @@ func load_settings() -> void:
 		builds.pickup = VehicleCatalog.validate_build(migrated, "pickup")
 		has_migrated = true
 
+func camera_number(raw: Dictionary, key: String, fallback: float, minimum: float, maximum: float) -> float:
+	var value = raw.get(key, fallback)
+	if (value is int or value is float) and is_finite(float(value)):
+		return clampf(float(value), minimum, maximum)
+	return fallback
+
+func load_camera_preferences(raw) -> void:
+	if not raw is Dictionary:
+		return
+	orbit = camera_number(raw, "orbit", 2.24, -PI, PI)
+	orbit_distance = camera_number(raw, "garage_distance", 9.3, 3.2, 20.0)
+	orbit_pitch = camera_number(raw, "garage_pitch", 0.49, 0.10, 1.28)
+	drive_distance = camera_number(raw, "drive_distance", 8.2, 3.0, 20.0)
+	drive_pitch = camera_number(raw, "drive_pitch", 0.30, 0.10, 1.28)
+	drive_orbit = camera_number(raw, "drive_orbit", 0.0, -PI, PI)
+	if raw.get("pan_mode") is bool:
+		camera_pan_mode = raw.pan_mode
+	if raw.get("follow") is bool:
+		camera_follow = raw.follow
+	garage_pan = Vector2(camera_number(raw, "garage_pan_x", 0.0, -4.0, 4.0), camera_number(raw, "garage_pan_y", 0.0, -4.0, 4.0)).limit_length(4.0)
+	drive_pan = Vector2(camera_number(raw, "drive_pan_x", 0.0, -5.0, 5.0), camera_number(raw, "drive_pan_y", 0.0, -5.0, 5.0)).limit_length(5.0)
+
+func camera_preferences() -> Dictionary:
+	return {"orbit": orbit, "garage_distance": orbit_distance, "garage_pitch": orbit_pitch, "drive_distance": drive_distance, "drive_pitch": drive_pitch, "drive_orbit": drive_orbit, "pan_mode": camera_pan_mode, "follow": camera_follow, "garage_pan_x": garage_pan.x, "garage_pan_y": garage_pan.y, "drive_pan_x": drive_pan.x, "drive_pan_y": drive_pan.y}
+
 func save_settings() -> bool:
 	if builds.is_empty():
 		return false
@@ -907,7 +1100,7 @@ func save_settings() -> bool:
 	var file = FileAccess.open(temporary, FileAccess.WRITE)
 	if file == null:
 		return false
-	file.store_string(JSON.stringify({"version": 3, "selected_vehicle": selected_vehicle, "builds": builds, "discovered": discovered, "destination": destination, "quality": quality}, "\t"))
+	file.store_string(JSON.stringify({"version": 3, "selected_vehicle": selected_vehicle, "builds": builds, "discovered": discovered, "destination": destination, "quality": quality, "camera": camera_preferences()}, "\t"))
 	file.flush()
 	var error = file.get_error()
 	file.close()
@@ -943,6 +1136,11 @@ func _process(delta: float) -> void:
 		message.hide()
 	if get_tree().paused:
 		return
+	apply_camera_gesture(camera_gestures.sample(get_viewport().get_visible_rect().size))
+	if camera_save_delay >= 0.0:
+		camera_save_delay -= delta
+		if camera_save_delay < 0.0:
+			save_settings()
 	recovery_cooldown = maxf(0.0, recovery_cooldown - delta)
 	if tuning_delay >= 0:
 		tuning_delay -= delta
@@ -979,43 +1177,58 @@ func update_camera(delta: float) -> void:
 		var forward: Vector3 = current_telemetry.get("forward", Vector3.FORWARD)
 		forward.y = 0.0
 		if forward.length_squared() > 0.01:
-			follow_direction = follow_direction.lerp(-forward.normalized(), 1.0 - exp(-3.2 * delta)).normalized()
-		desired = target + follow_direction * ((8.6 if portrait else 7.7) + minf(speed * 0.055, 1.2)) + Vector3.UP * (3.5 if portrait else 2.4)
-		# Look along the trail from closer to driver height; preserve the horizon.
-		target -= follow_direction * (3.0 + minf(speed * 0.07, 1.6))
-		target.y = maxf(target.y, float(truck.core.terrain_height(target.x, target.z)) + 0.7)
-		camera.fov = lerpf(camera.fov, 60.0 + minf(speed * 0.3, 8.0), 1.0 - exp(-2.0 * delta))
+			# Angular interpolation stays defined during a 180-degree reversal.
+			var heading = lerp_angle(atan2(follow_direction.x, follow_direction.z), atan2(-forward.x, -forward.z), 1.0 - exp(-3.2 * delta))
+			follow_direction = Vector3(sin(heading), 0.0, cos(heading))
+		var yaw = atan2(follow_direction.x, follow_direction.z) if camera_follow else drive_orbit
+		var direction = Vector3(sin(yaw), 0.0, cos(yaw))
+		var distance = drive_distance * (1.10 if portrait else 1.0)
+		var pitch = drive_pitch + (0.07 if portrait else 0.0)
+		var pan = Vector3(cos(yaw), 0.0, -sin(yaw)) * drive_pan.x + Vector3.UP * drive_pan.y
+		target += pan
+		desired = target + direction * distance * cos(pitch) + Vector3.UP * distance * sin(pitch)
+		if camera_follow:
+			# Preserve the useful trail look-ahead without changing manual zoom.
+			target -= follow_direction * minf(3.0 + speed * 0.07, distance * 0.48)
+		target.y = maxf(target.y, float(truck.core.terrain_height(target.x, target.z)) + 0.35)
+		camera.fov = lerpf(camera.fov, 60.0, 1.0 - exp(-2.0 * delta))
 	else:
 		camera.fov = lerpf(camera.fov, 52.0, 1.0 - exp(-4.0 * delta))
 		var preview_distance = orbit_distance * (1.14 if portrait else 1.0)
-		var offset = Vector3(sin(orbit) * preview_distance, preview_distance * 0.53, cos(orbit) * preview_distance)
+		var offset = Vector3(sin(orbit) * cos(orbit_pitch), sin(orbit_pitch), cos(orbit) * cos(orbit_pitch)) * preview_distance * 1.13
 		desired = position + offset
+		var camera_right = Vector3(cos(orbit), 0.0, -sin(orbit))
 		if portrait:
-			target -= Vector3.UP * 3.0
+			target -= Vector3.UP * minf(3.0, preview_distance * 0.28)
 		else:
-			var camera_right = Vector3(cos(orbit), 0.0, -sin(orbit))
 			target -= camera_right * 1.9
 			desired -= camera_right * 1.9
-	# Follow terrain when the camera crosses a hill instead of disappearing below it.
-	desired.y = maxf(desired.y, float(truck.core.terrain_height(desired.x, desired.z)) + 1.2)
-	# Keep the whole sightline above hill crests, including between its endpoints.
+		var pan = camera_right * garage_pan.x + Vector3.UP * garage_pan.y
+		target += pan
+		desired += pan
+	# Terrain collision is applied to the desired camera and the smoothed
+	# position, so slow interpolation cannot carry the eye through a slope.
+	desired.y = maxf(desired.y, float(truck.core.terrain_height(desired.x, desired.z)) + 0.65)
 	var lift = 0.0
-	# Garage framing deliberately aims below the car in portrait. Test the
-	# actual vehicle sightline so that framing cannot trigger a false hill lift.
-	var sight_anchor: Vector3 = target if driving else position + Vector3.UP * 0.6
+	var sight_anchor: Vector3 = position + Vector3.UP * 0.6
 	for sample in range(1, 9):
 		var fraction = float(sample) / 8.0
 		var point = sight_anchor.lerp(desired, fraction)
-		var clearance = float(truck.core.terrain_height(point.x, point.z)) + 0.35 - point.y
+		var clearance = float(truck.core.terrain_height(point.x, point.z)) + 0.25 - point.y
 		lift = maxf(lift, clearance / fraction)
 	desired.y += lift
+	if crawl_mode and truck.core.has_method("camera_safe_position"):
+		desired = truck.core.camera_safe_position(sight_anchor, desired, 0.22)
 	if not did_position_camera:
 		camera_target = target
 		camera.position = desired
 		did_position_camera = true
 	else:
-		camera_target = camera_target.lerp(target, 1.0 - exp(-5.0 * delta))
-		camera.position = camera.position.lerp(desired, 1.0 - exp(-4.0 * delta))
+		camera_target = camera_target.lerp(target, 1.0 - exp(-7.0 * delta))
+		camera.position = camera.position.lerp(desired, 1.0 - exp(-7.0 * delta))
+	camera.position.y = maxf(camera.position.y, float(truck.core.terrain_height(camera.position.x, camera.position.z)) + 0.4)
+	if crawl_mode and truck.core.has_method("camera_safe_position"):
+		camera.position = truck.core.camera_safe_position(sight_anchor, camera.position, 0.22)
 	if camera.position.distance_squared_to(camera_target) > 0.01:
 		camera.look_at(camera_target, Vector3.UP)
 
@@ -1031,8 +1244,10 @@ func update_telemetry() -> void:
 	drive_damage.add_theme_color_override("font_color", Color("f09375") if damage > 0.25 or broken > 0 else ACCENT)
 	garage_status.text = "%d%% chassis · %d broken beams · %d fps\n%d / %d places discovered" % [roundi((1.0 - damage) * 100.0), broken, Engine.get_frames_per_second(), discovered.size(), landmarks.size()]
 	if crawl_mode:
-		var loads = current_telemetry.get("wheel_loads", PackedFloat32Array([0, 0, 0, 0]))
-		crawl_loads.text = "TIRE LOAD  kN\nFL %.1f   FR %.1f\nRL %.1f   RR %.1f" % [loads[0] / 1000.0, loads[1] / 1000.0, loads[2] / 1000.0, loads[3] / 1000.0]
+		var loads = current_telemetry.get("wheel_normal_loads", current_telemetry.get("wheel_loads", PackedFloat32Array([0, 0, 0, 0])))
+		var squash = current_telemetry.get("wheel_compression", PackedFloat32Array([0, 0, 0, 0]))
+		var flex = current_telemetry.get("axle_articulation", PackedFloat32Array([0, 0]))
+		crawl_loads.text = "TIRE LOAD  kN\nFL %.1f   FR %.1f\nRL %.1f   RR %.1f\nSquash mm  %.0f · %.0f / %.0f · %.0f\nAxle flex  F %.0f° · R %.0f°" % [loads[0] / 1000.0, loads[1] / 1000.0, loads[2] / 1000.0, loads[3] / 1000.0, squash[0] * 1000.0, squash[1] * 1000.0, squash[2] * 1000.0, squash[3] * 1000.0, rad_to_deg(flex[0]), rad_to_deg(flex[1])]
 		var z: float = current_telemetry.get("position", CAMP).z
 		# Advance recovery only after clearing a section, never by proximity.
 		var exits = [-9.0, -22.0, -40.0, -52.0, -76.0]
@@ -1137,6 +1352,7 @@ func toggle_course() -> void:
 	landmarks = world.get_landmarks()
 	map_button.disabled = crawl_mode
 	crawl_controls.visible = crawl_mode
+	update_drive_toggles()
 	course_button.text = "JUNIPER VALLEY  ·  Exploration" if crawl_mode else "COPPERLINE  ·  Technical crawling"
 	truck.reset(CAMP)
 	did_position_camera = false

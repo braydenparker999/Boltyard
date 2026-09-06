@@ -21,6 +21,14 @@ var _nodes := PackedVector3Array()
 var _rest := PackedVector3Array()
 var _hubs := PackedInt32Array()
 var _ring_centers := PackedVector3Array()
+var _wheel_axes := PackedVector3Array()
+var _wheel_normals := PackedVector3Array()
+var _wheel_points := PackedVector3Array()
+var _wheel_phases := PackedFloat32Array()
+var _wheel_compression := PackedFloat32Array()
+var _wheel_up := Vector3.UP
+var _link_starts := PackedVector3Array()
+var _link_ends := PackedVector3Array()
 var _stats: Dictionary = {}
 var _settings: Dictionary = {}
 var _parts: Dictionary = {}
@@ -117,6 +125,10 @@ func reset(origin: Vector3 = Vector3(0.0, 1.5, 8.0)) -> void:
 func set_drivetrain(low_range: bool, locked_diffs: bool) -> void:
 	if core != null:
 		core.set_drivetrain(low_range, locked_diffs)
+
+func set_axle_drivetrain(low_range: bool, front_locked: bool, rear_locked: bool) -> void:
+	if core != null:
+		core.set_axle_drivetrain(low_range, front_locked, rear_locked)
 
 func get_telemetry() -> Dictionary:
 	if core != null:
@@ -688,6 +700,7 @@ func _build_wheels() -> void:
 		Vector2(0.86, 1.0), Vector2(1.025, 0.89),
 		Vector2(1.01, 0.66), Vector2(0.92, 0.51)]
 	for hub in _hubs:
+		var rigid_binding := 200 + int((hub - 16) / 21)
 		_wheel_profile(RUBBER, hub, profile)
 		var tread_count := 18 if tire == "mud" else (24 if tire == "rock" else 32)
 		var height := 0.080 if tire == "mud" else (0.065 if tire == "rock" else 0.037)
@@ -701,21 +714,21 @@ func _build_wheels() -> void:
 			var rim_material := AMBER if wheel == "beadlock" else METAL
 			var rim_profile: Array[Vector2] = [Vector2(side, 0.515), Vector2(side + sign_x * 0.024, 0.545),
 				Vector2(side + sign_x * 0.049, 0.53), Vector2(side + sign_x * 0.049, 0.44), Vector2(side, 0.42)]
-			_wheel_profile(rim_material, hub, rim_profile, 20)
+			_wheel_profile(rim_material, rigid_binding, rim_profile, 20)
 			var spokes := 6 if wheel == "alloy" else (8 if wheel == "beadlock" else 10)
 			var spoke_width := 0.028 if wheel == "alloy" else 0.035
 			for j in range(spokes):
 				var t := float(j) / spokes
-				_wheel_quad(DARK if wheel == "beadlock" else METAL, hub,
+				_wheel_quad(DARK if wheel == "beadlock" else METAL, rigid_binding,
 					Vector3(t - spoke_width * 0.6, side, 0.13), Vector3(t + spoke_width * 0.6, side, 0.13),
 					Vector3(t + spoke_width, side, 0.46), Vector3(t - spoke_width, side, 0.46), Vector3(0, sign_x, 0))
 			var cap_profile: Array[Vector2] = [Vector2(side, 0.145), Vector2(side + sign_x * 0.08, 0.13),
 				Vector2(side + sign_x * 0.09, 0.015)]
-			_wheel_profile(METAL, hub, cap_profile, 12)
+			_wheel_profile(METAL, rigid_binding, cap_profile, 12)
 			if wheel == "beadlock":
 				for j in range(16):
 					var t := float(j) / 16.0
-					_wheel_quad(METAL, hub, Vector3(t - 0.007, side + sign_x * 0.052, 0.47),
+					_wheel_quad(METAL, rigid_binding, Vector3(t - 0.007, side + sign_x * 0.052, 0.47),
 						Vector3(t + 0.007, side + sign_x * 0.052, 0.47), Vector3(t + 0.007, side + sign_x * 0.052, 0.515),
 						Vector3(t - 0.007, side + sign_x * 0.052, 0.515), Vector3(0, sign_x, 0))
 			# Molded sidewall ridges are subtle real geometry around the carcass.
@@ -734,6 +747,12 @@ func _link_cylinder(material_id: int, binding: int, start: float, end: float, ra
 			Vector3(end, cos(a) * radius, sin(a) * radius), normal)
 
 func _build_suspension() -> void:
+	for axle in range(2):
+		_link_cylinder(METAL, 110 + axle, 0.0, 1.0, 0.026)
+		_link_cylinder(DARK, 108 + axle, 0.08, 0.92, 0.065)
+		_link_cylinder(METAL, 108 + axle, 0.44, 0.56, 0.13)
+		_link_cylinder(DARK, 108 + axle, 0.40, 0.44, 0.10)
+		_link_cylinder(DARK, 108 + axle, 0.56, 0.60, 0.10)
 	for w in range(4):
 		# Shock bodies, pistons and lower links bind to their actual frame and hub
 		# endpoints; compression changes visible length as the tire moves.
@@ -765,6 +784,15 @@ func _refresh_visuals() -> void:
 	center /= 8.0
 	_body.global_position = center
 	_update_body_coefficients()
+	var wheels: Dictionary = core.get_wheel_visuals()
+	_wheel_axes = wheels.axes
+	_wheel_normals = wheels.normals
+	_wheel_points = wheels.points
+	_wheel_phases = wheels.phases
+	_wheel_compression = wheels.compression
+	_wheel_up = wheels.up
+	_link_starts = wheels.link_starts
+	_link_ends = wheels.link_ends
 	_ring_centers.resize(8)
 	for w in range(4):
 		for side in range(2):
@@ -783,6 +811,16 @@ func _refresh_visuals() -> void:
 		material.set_shader_parameter("ring_centers", _ring_centers)
 		material.set_shader_parameter("rig_center", center)
 		material.set_shader_parameter("tire_padding", _tire_padding)
+		material.set_shader_parameter("wheel_axes", _wheel_axes)
+		material.set_shader_parameter("wheel_normals", _wheel_normals)
+		material.set_shader_parameter("wheel_points", _wheel_points)
+		material.set_shader_parameter("wheel_phases", _wheel_phases)
+		material.set_shader_parameter("wheel_compression", _wheel_compression)
+		material.set_shader_parameter("wheel_up", _wheel_up)
+		material.set_shader_parameter("link_starts", _link_starts)
+		material.set_shader_parameter("link_ends", _link_ends)
+		material.set_shader_parameter("tire_radius", _tire_padding / 0.12)
+		material.set_shader_parameter("tire_width", _tire_padding / 0.12 * 0.58 * float(_settings.get("tire_width_scale", 1.0)))
 	if body_color != _last_color:
 		_materials[PAINT].set_shader_parameter("surface_color", body_color)
 		_last_color = body_color
@@ -855,10 +893,29 @@ func _debug_ring(first: int, phase: float) -> Vector3:
 func _debug_vertex(binding: int, p: Vector3) -> Vector3:
 	if binding < 16:
 		return debug_deform_point(_rest[0] + p * _frame_size)
+	if binding >= 200:
+		var w := binding - 200
+		var axle := _wheel_axes[w]
+		var up := _wheel_up
+		up = (up - axle * up.dot(axle)).normalized()
+		var angle := p.x * TAU + _wheel_phases[w]
+		var radial := up * cos(angle) + axle.cross(up).normalized() * sin(angle)
+		var radius := _tire_padding / 0.12
+		return _nodes[_hubs[w]] + axle * ((p.y - 0.5) * radius * 0.58 * float(_settings.get("tire_width_scale", 1.0))) + radial * (radius * 0.88 * p.z)
 	if binding >= 100:
 		var w := (binding - 100) % 4
 		var upper := _nodes[w + (4 if binding < 104 else 0)]
 		var lower := _nodes[16 + w * 21]
+		if binding >= 104 and binding < 108:
+			upper = _link_starts[binding - 104]
+			lower = _link_ends[binding - 104]
+		elif binding >= 110:
+			upper = _link_starts[binding - 106]
+			lower = _link_ends[binding - 106]
+		elif binding >= 108:
+			var axle := binding - 108
+			upper = _nodes[_hubs[axle * 2]]
+			lower = _nodes[_hubs[axle * 2 + 1]]
 		var axis := (lower - upper).normalized()
 		var forward := (_nodes[0] - _nodes[2]).normalized()
 		var side := axis.cross(forward).normalized()
@@ -869,7 +926,14 @@ func _debug_vertex(binding: int, p: Vector3) -> Vector3:
 	var ring := _debug_ring(binding + 1, p.x).lerp(_debug_ring(binding + 11, p.x), p.y)
 	var radial := ring - center
 	var pad := _tire_padding * clampf((p.z - 0.50) * 2.0, 0.0, 1.0)
-	return center + radial * p.z + (radial + Vector3.ONE * 0.000001).normalized() * pad
+	var point := center + radial * p.z + (radial + Vector3.ONE * 0.000001).normalized() * pad
+	if _wheel_compression[w] > 0.0001 and p.z > 0.55:
+		var depth := (point - _wheel_points[w]).dot(_wheel_normals[w])
+		point += _wheel_normals[w] * maxf(0.0, 0.002 - depth)
+		var patch := clampf(1.0 - maxf(depth, 0.0) / maxf(_tire_padding * 3.0, 0.01), 0.0, 1.0)
+		var sidewall := clampf(absf(p.y - 0.5) * 2.0, 0.0, 1.0) * clampf((p.z - 0.55) * 3.0, 0.0, 1.0)
+		point += _wheel_axes[w] * signf(p.y - 0.5) * _wheel_compression[w] * 0.30 * patch * sidewall
+	return point
 
 func _inspect_mesh() -> Dictionary:
 	var invalid := 0

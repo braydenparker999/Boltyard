@@ -14,7 +14,9 @@ const DEFAULTS = {
 	"mass": 1200.0, "track_width": 1.9, "wheelbase": 2.7,
 	"body_stiffness": 1.0, "low_range": true, "locked_diffs": true,
 	"tire_grip": 1.0, "tire_width_scale": 1.0, "suspension_travel": 0.22,
-	"final_drive": 1.0, "front_accessory_mass": 0.0, "roof_accessory_mass": 0.0
+	"final_drive": 1.0, "front_accessory_mass": 0.0, "roof_accessory_mass": 0.0,
+	"wheel_accessory_mass": 0.0, "compression_damping": 0.0, "rebound_damping": 0.0,
+	"compression_travel": 0.0, "front_locked": true, "rear_locked": true, "solid_axles": true
 }
 const LIMITS = {
 	"tire_radius": [0.32, 0.65], "tire_pressure": [0.5, 2.0],
@@ -24,12 +26,15 @@ const LIMITS = {
 	"wheelbase": [2.3, 3.3], "body_stiffness": [0.5, 2.0],
 	"tire_grip": [0.7, 1.4], "tire_width_scale": [0.75, 1.4],
 	"suspension_travel": [0.12, 0.4], "final_drive": [0.8, 1.5],
-	"front_accessory_mass": [0.0, 100.0], "roof_accessory_mass": [0.0, 100.0]
+	"front_accessory_mass": [0.0, 100.0], "roof_accessory_mass": [0.0, 100.0],
+	"wheel_accessory_mass": [-40.0, 80.0], "compression_damping": [1000.0, 7000.0],
+	"rebound_damping": [1000.0, 7000.0], "compression_travel": [0.06, 0.45]
 }
-# These are the ten editable setup values. Part-only coefficients stay derived.
+# Fine tuning remains separate from the coefficients supplied by installed parts.
 const TUNING_KEYS = [
 	"tire_radius", "tire_pressure", "ride_height", "spring_rate", "damping",
-	"engine_torque", "mass", "track_width", "wheelbase", "body_stiffness"
+	"engine_torque", "mass", "track_width", "wheelbase", "body_stiffness",
+	"compression_damping", "rebound_damping", "compression_travel", "suspension_travel"
 ]
 const VEHICLES = {
 	"pickup": {
@@ -134,7 +139,7 @@ static func validate_build(raw: Variant, vehicle_id: String = "") -> Dictionary:
 			var value: Variant = raw_tuning.get(key)
 			if (value is float or value is int) and is_finite(float(value)):
 				result.tuning[key] = clampf(float(value), LIMITS[key][0], LIMITS[key][1])
-		for key in ["low_range", "locked_diffs"]:
+		for key in ["low_range", "locked_diffs", "front_locked", "rear_locked"]:
 			if raw_tuning.get(key) is bool:
 				result.tuning[key] = raw_tuning[key]
 	return result
@@ -157,7 +162,22 @@ static func compose(raw_build: Dictionary) -> Dictionary:
 	# Core mass is total curb mass: attachment fields locate those kilograms,
 	# rather than adding them a second time inside the solver.
 	result.mass += result.front_accessory_mass + result.roof_accessory_mass
+	result.wheel_accessory_mass = 18.0 if build.parts.wheels == "beadlock" else (-24.0 if build.parts.wheels == "alloy" else 0.0)
+	result.front_locked = result.locked_diffs
+	result.rear_locked = result.locked_diffs
 	result.merge(build.tuning, true)
+	# Older builds stored a single differential switch. Explicit axle choices win.
+	if build.tuning.has("locked_diffs"):
+		for axle in ["front_locked", "rear_locked"]:
+			if not build.tuning.has(axle):
+				result[axle] = build.tuning.locked_diffs
+	result.locked_diffs = result.front_locked and result.rear_locked
+	if result.compression_damping <= 0.0:
+		result.compression_damping = result.damping
+	if result.rebound_damping <= 0.0:
+		result.rebound_damping = result.damping
+	if result.compression_travel <= 0.0:
+		result.compression_travel = minf(result.suspension_travel * (0.28 / 0.22), result.ride_height * 0.72)
 	for key in LIMITS:
 		result[key] = clampf(float(result[key]), LIMITS[key][0], LIMITS[key][1])
 	result.vehicle_id = build.vehicle
@@ -180,6 +200,14 @@ static func equip_part(raw_build: Dictionary, slot: String, part_id: String) -> 
 		for operation in ["multiply", "add", "set"]:
 			for key in part.effects.get(operation, {}):
 				build.tuning.erase(key)
+				if key == "locked_diffs":
+					build.tuning.erase("front_locked")
+					build.tuning.erase("rear_locked")
+				if key == "damping":
+					build.tuning.erase("compression_damping")
+					build.tuning.erase("rebound_damping")
+				if key in ["ride_height", "suspension_travel"]:
+					build.tuning.erase("compression_travel")
 				if key in ["front_accessory_mass", "roof_accessory_mass"]:
 					build.tuning.erase("mass")
 	build.parts[slot] = part_id

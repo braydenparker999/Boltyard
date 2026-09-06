@@ -4,6 +4,16 @@
 uniform vec3 node_positions[100];
 uniform vec3 body_coefficients[16];
 uniform vec3 ring_centers[8];
+uniform vec3 wheel_axes[4];
+uniform vec3 wheel_normals[4];
+uniform vec3 wheel_points[4];
+uniform float wheel_phases[4];
+uniform float wheel_compression[4];
+uniform vec3 wheel_up = vec3(0.0, 1.0, 0.0);
+uniform vec3 link_starts[6];
+uniform vec3 link_ends[6];
+uniform float tire_radius = 0.46;
+uniform float tire_width = 0.2668;
 uniform vec3 rig_center = vec3(0.0);
 uniform vec3 cab_offset = vec3(0.0);
 uniform vec3 cab_scale = vec3(1.0);
@@ -64,7 +74,15 @@ vec3 wheel_skin(int hub, vec3 p) {
     vec3 ring = mix(ring_sample(hub + 1, p.x), ring_sample(hub + 11, p.x), p.y);
     vec3 radial = ring - center;
     float pad = tire_padding * clamp((p.z - 0.50) * 2.0, 0.0, 1.0);
-    return center + radial * p.z + normalize(radial + vec3(0.000001)) * pad;
+    vec3 point = center + radial * p.z + normalize(radial + vec3(0.000001)) * pad;
+    if (wheel_compression[w] > 0.0001 && p.z > 0.55) {
+        float depth = dot(point - wheel_points[w], wheel_normals[w]);
+        point += wheel_normals[w] * max(0.0, 0.002 - depth);
+        float patch = clamp(1.0 - max(depth, 0.0) / max(tire_padding * 3.0, 0.01), 0.0, 1.0);
+        float sidewall = clamp(abs(p.y - 0.5) * 2.0, 0.0, 1.0) * clamp((p.z - 0.55) * 3.0, 0.0, 1.0);
+        point += wheel_axes[w] * sign(p.y - 0.5) * wheel_compression[w] * 0.30 * patch * sidewall;
+    }
+    return point;
 }
 void vertex() {
     bind_position = VERTEX;
@@ -75,10 +93,30 @@ void vertex() {
         vec3 mapped_normal;
         body_skin(VERTEX, NORMAL, point, mapped_normal);
         NORMAL = mapped_normal;
+    } else if (binding >= 200) {
+        int w = binding - 200;
+        vec3 axle = wheel_axes[w];
+        vec3 up = wheel_up;
+        up = normalize(up - axle * dot(up, axle));
+        float angle = VERTEX.x * 6.28318530718 + wheel_phases[w];
+        vec3 radial = up * cos(angle) + normalize(cross(axle, up)) * sin(angle);
+        point = node_positions[16 + w * 21] + axle * ((VERTEX.y - 0.5) * tire_width) + radial * (tire_radius * 0.88 * VERTEX.z);
+        NORMAL = normalize(cross(axle, radial) * NORMAL.x + axle * NORMAL.y + radial * NORMAL.z);
     } else if (binding >= 100) {
         int wheel = (binding - 100) % 4;
         vec3 upper = node_positions[wheel + (binding < 104 ? 4 : 0)];
         vec3 lower = node_positions[16 + wheel * 21];
+        if (binding >= 104 && binding < 108) {
+            upper = link_starts[binding - 104];
+            lower = link_ends[binding - 104];
+        } else if (binding >= 110) {
+            upper = link_starts[binding - 106];
+            lower = link_ends[binding - 106];
+        } else if (binding >= 108) {
+            int axle = binding - 108;
+            upper = node_positions[16 + axle * 42];
+            lower = node_positions[37 + axle * 42];
+        }
         vec3 axis = normalize(lower - upper);
         vec3 forward = normalize(node_positions[0] - node_positions[2]);
         vec3 side = normalize(cross(axis, forward));

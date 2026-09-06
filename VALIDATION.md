@@ -1,3 +1,20 @@
+# Crawlworks 1.0 validation
+
+Release candidate: package `games.boltyard.prototype`, version 1.0.0 / code 6, unchanged development signing identity. Android artifact/signature results will be recorded here after the workflow completes.
+
+Local checks completed during implementation:
+
+- Existing Godot suites:31 construction,18 offroad,53 catalog,36 explorer,257 vehicle geometry and11 crawl integration checks pass.
+- Two-finger input:48 geometry and79 actual-scene integration checks pass, including convex camera clearance, both orientations, GUI/pedal ownership, finger lifecycle, follow/reset, pause/rotation and save round-trip.
+- Tire visual checks confirm measured loaded deflection, circular rigid rims and outer tread outside the loaded plane; three camera obstruction regressions also pass.
+- Eight new native mechanics scenarios cover crossed-axle articulation, exact unsprung wheel mass, pressure/load footprint, independent lockers, physical differential clearance, tiny-throttle creep/braked hold movable tire contact and measured rebound damping.
+- Native prop tests cover convex queries, angular response, dropping, stacks/rest/sleep/wake, reset determinism and coupled drive/brake momentum.
+- Rendered views check shared collision/visual rock triangles, landscape/portrait controls, contact skin and the loose-object line.
+
+Final native regressions, gameplay rendering and Android export run again on the exact committed release source. Desktop/software rendering does not establish Samsung A15 FPS, thermal behavior or actual touch feel. Real vehicle/tire calibration has not been performed.
+
+---
+
 # Crawlworks 0.5 validation
 
 The crawling milestone adds ten native behavioral scenarios and eleven Godot integration checks. The native full-course test traverses to beyond z = -78 m with controlled throttle/steering, brakes to rest, and requires zero safety clamps, rejected states or structural damage above 1%. Its latest measured minimum up.y is 0.910. This is an actual-input numerical traversal, not an on-device play test.

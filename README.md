@@ -1,116 +1,48 @@
-# Bolt Yard — Crawlworks 0.5
+# Bolt Yard — Crawlworks 1.0
 
-Version 0.5 adds **Copperline**, an 85 m technical crawl proving ground alongside Juniper Valley. In the garage choose **COPPERLINE**, **Fit crawl setup to this rig**, then **DRIVE**. Keep LOW selected; hold GO and adjust the throttle-limit slider for gentle torque. The current session remembers cleared sections for nearby repair/recovery. Garage builds continue to save on device.
+Crawlworks 1.0 is an offline Android offroading game built with Godot 4.4.1 and a native C++ vehicle solver. Copperline adds technical rock crawling and a loose-object line alongside the retained Juniper Valley exploration map. Three vehicles, six equipment slots, saved per-vehicle builds, and portrait/landscape play remain available.
 
-Five sections progress through a training slab, staggered ledges, a rock garden, an off-camber shelf and a final climb with a controlled descent. Outside lines are open. Tire loads in kN and decimal speed help explain wheel lift and weight transfer. Grounded signs mark each section.
+## Start crawling
 
-Copperline uses native convex rock triangles shared directly with rendering, spatial culling, three tread-width queries with radial/sidewall support, pressure-dependent compliance and contact-driven tire squash. Terrain, cylinder and convex-rock support all contribute to powered traction and braking in their own tangent frames. Nine weighted support points under the deforming frame give high-centering a physical consequence.
+In the garage choose **COPPERLINE**, **Fit crawl setup to this rig**, then **DRIVE**. Start in LOW, hold GO and use the throttle slider for gentle torque. Front and rear differential locks can be switched independently. Clear each of the five sections to move the recovery point forward. The optional **LOOSE LINE** on the right contains nine physical stones, logs and crates that can slide, roll, stack and be pushed by the truck.
 
-On Copperline, wheel angular velocity responds to torque and contact impulses, with finite low-speed slip velocity and engine drag. Low range uses 22× reduction before final drive, with governed wheel speeds of 2.2 m/s forward and 1.5 m/s reverse before final drive. This is a simplified, uncalibrated drivetrain; the retained valley uses the previous driving model with corrected rock traction.
+## Two-finger camera
 
-Fictional equipment now includes Billygoat Granite LT tires, Deadbolt Ring Leader wheels, Almost Level Flex Kit suspension and Low Expectations 4-Low gears. Existing part IDs and saves remain compatible. Copper sandstone has original procedural strata/quartz seams layered over the existing mipmapped stone asset.
+Place two fingers on scenery; menus and pedals retain their own touches.
 
-This is the first crawling milestone. Suspension still uses independent prismatic guides, not solid axle/link kinematics. Separate front/rear locker controls, axle/differential housing geometry, a deformable tire carcass and a broader parts ecosystem remain future work. The vehicle's deformable frame/cab are retained. These new features have desktop regression coverage; sustained Samsung A15 performance and touch feel require device feedback.
+| Gesture | Result |
+|---|---|
+| Pinch / spread | Zoom out / in |
+| Twist | Orbit around the rig |
+| Two-finger drag, **Drag: Orbit** | Orbit sideways and tilt vertically |
+| Two-finger drag, **Drag: Pan** | Pan sideways and up/down |
+| **Follow** | Resume the driving view behind the rig |
+| **Reset view** | Recenter and restore the default camera |
 
-The Android package remains `games.boltyard.prototype`, version **0.5.0 / code 5**, with the same development signing identity. Install over the previous app to retain builds. CI produces `bolt-yard-0.5.0-crawlworks.apk`, a crawling movie, portrait/landscape/contact screenshots and numerical traces. See [the Android workflow](https://github.com/braydenparker999/Boltyard/actions/workflows/android.yml).
+Garage and driving views save separately, including zoom, tilt, pan, follow and drag mode. Camera contacts rebase after finger changes and clear on screen rotation, pause and app backgrounding. The camera checks terrain and crawl rocks to keep the eye outside solids. Follow off holds the selected view angle while continuing to travel with the truck.
 
-Build: `bash tools/ci_build.sh`. Native-only crawling checks: `g++ -std=c++17 -O2 native/test_crawling.cpp -o /tmp/test-crawling && /tmp/test-crawling`.
+## What 1.0 changes
 
----
+- **Crawl suspension:** front and rear solid axles, two trailing links and a Panhard bar per axle, physical differential/shaft clearance, independent lockers, compression/rebound damping and separate compression/droop travel.
+- **Tire behavior:** pressure-dependent load deflection and footprint, finite low-speed slip, friction-limited angular drive/brake reaction, and actual wheel-set mass at unsprung hubs. Tire rubber flattens and bulges at support while metal rims remain rigid and rotate around the actual steered axle.
+- **Movable world:** nine native convex rigid bodies with gravity, rotation, friction, rest/sleep/wake and equal/opposite vehicle contact. Their rendered faces and solved shapes are identical. Recovery resets them to the authored line.
+- **Rendering:** fractured collision-backed sandstone silhouettes, layered minerals/quartz, gravel/silt lines, desert plants and grounded signs. Visible axle housings, springs, dampers, trailing links and Panhard bars follow the solved endpoints. Performance remains the default graphics setting.
+- **Setup and feedback:** fourteen fine-tuning sliders plus independent axle controls; tire normal loads, squash in millimetres and axle articulation in degrees are visible while crawling. Old garage saves migrate without losing equipment or deliberate tuning.
 
-The following describes the retained v0.4 valley baseline; the crawling changes above supersede its collision/drivetrain limits on Copperline.
+These are physically grounded game models, not measurements calibrated to a real truck. The tire uses compliant contacts and derived visual guides rather than a full rubber finite-element carcass. There is no deformable soil, buoyancy, vehicle self-collision, working winch or detachable bodywork. Juniper Valley retains its proven independent-guide suspension and driving baseline. Sustained Samsung A15 FPS, thermal behavior and actual touch feel need testing on the phone.
 
-# Bolt Yard — Trailworks 0.4
+## Android build
 
-An original offline Android offroading prototype with a native C++ deformable vehicle simulation and Godot 4.4.1 graphics. Version 0.4 rebuilds the tire contact and driving model, closes vehicle body seams, and gives Juniper Valley a new outdoor lighting and material treatment. Three vehicles, interchangeable equipment, saved builds and portrait support remain available.
+Package: `games.boltyard.prototype`. Version: **1.0.0 / code 6**. The development signing identity is unchanged; install over the previous app to retain saves. The game needs no Play Store account, runtime network access or storage permission.
 
-## Explore and build
+The [Android workflow](https://github.com/braydenparker999/Boltyard/actions/workflows/android.yml) produces `bolt-yard-1.0.0-crawlworks.apk`, signature/package checks, gameplay movies, portrait/landscape/contact views and numerical traces. Build and artifact results are recorded in [VALIDATION.md](VALIDATION.md).
 
-- **Juniper Valley:** a 768 × 768 metre landscape with a forest trail, terraced quarry, overlook, lake shore and ridge. Six named destinations appear on the terrain map. Choose a destination, follow its compass bearing and drive into its discovery radius; discoveries persist.
-- **Three distinct vehicles:** Bison Pickup, Scout SUV and Nomad Buggy have different body shapes, native structural bracing, dimensions and weight distributions. Each uses 16 deformable frame/cab nodes and four physical wheel assemblies. Eighty derived tire guides preserve the 100-position render interface; they are no longer independent tire masses.
-- **Six equipment slots:** tires, wheels, suspension, final drive, front bumper and roof equipment. Each vehicle has three compatible options per slot. The Nomad has its own nose brace and spare carrier; expedition armor and cargo racks fit the pickup/SUV. Equipment affects tire geometry and grip, suspension, gearing or mass distribution as appropriate.
-- **Saved garage:** separate builds and six paint choices for every vehicle, with ten optional fine-tuning controls. Existing 0.2 pickup tuning migrates into the pickup bay; the old save remains intact. Equipping a part clears only the manual overrides affected by that part.
-- **Portrait and landscape:** rotate while playing. The garage changes between a sidebar and bottom sheet, and driving controls rearrange for the screen. Input is cleared during rotation, pause and app backgrounding.
-- **Connected vehicle bodywork:** one continuous deformation field keeps adjoining panels together. Enclosed wheel wells, body interiors, supported cage braces and real accessory brackets replace floating or incomplete sections. Clear-coated paint, tinted dielectric glass, metal wheels and rubber have distinct material responses.
-- **A new landscape treatment:** weathered stone, olive vegetation, layered rock faces, detailed juniper branches, clustered ground cover and a terrain-clipped shoreline. Mipmapped ground materials reduce distant shimmer. A cloud sky and late-afternoon lighting carry into the vehicle reflections. Dry tire contacts leave subtle dust while driving.
-- **Three graphics settings:** Performance is the default; Balanced and High add terrain material detail, longer shadows and a static camp reflection. 3D resolution scales to 75% / 85% / 100%, with 2× MSAA on Balanced/High; controls and text remain at full resolution. The panoramic sky also supplies reflections across the map. Reflections use cached environment captures rather than live mirrors.
+## Development
 
-Low range, differential coupling, live deformation, X-ray beam diagnostics, impact testing and repair/recovery remain available. The earlier construction sandbox is retained in `main.tscn`; the app opens `offroad_main.tscn`.
+Run `bash tools/ci_build.sh` on Ubuntu with JDK17 and an Android SDK. The workflow pins Godot 4.4.1, godot-cpp revision `e4b7c25e721ce3435a029087e3917a30aa73f06b`, SCons4.8.1 and Android NDK23.2.8568313. It builds Linux and ARM64 GDExtensions, runs native and engine tests, renders real gameplay and exports/verifies the signed APK.
 
-The simulation is experimental and is not calibrated to real vehicle or tire data. Obstacles use cylinder contacts, suspension uses simplified guides, and the lake is scenery without buoyancy. There is no vehicle self-collision, deformable soil, functioning winch, fluid mud, detachable panels or multiplayer. See [SIMULATION.md](SIMULATION.md) for the model and its limits.
+Native tests include the retained vehicle and complete-road regressions, full crawling course, solid axle/load/grip cases, movable-object contact and drive/brake momentum. Engine tests cover construction, driving, catalog/save migration, body and wheel geometry, actual two-touch input routing and camera lifecycle. Rendered reviews exercise the real Compatibility shaders. Desktop/software-rendered results are not phone performance measurements.
 
-## Install
+Source: `native/soft_rig.hpp` (vehicle), `native/dynamic_objects.hpp` (props), `native/crawl_rocks.hpp` (shared convex environment), `native/binding.cpp` (Godot API), `scripts/offroad_truck.gd` and `shaders/vehicle_skin.gdshaderinc` (vehicle mesh), `scripts/crawl_world.gd` (Copperline), `scripts/crawl_props.gd` (rigid meshes), `scripts/offroad_main.gd` and `scripts/two_finger_camera.gd` (UI/input), `scripts/vehicle_catalog.gd` (equipment/saves).
 
-Open the [verified 0.4 build](https://github.com/braydenparker999/Boltyard/actions/runs/33992149892) and download **bolt-yard-android**. Extract `bolt-yard-0.4.0-trailworks.apk` and open it on an ARM64 Android phone. Allow installation from your download/file app if Android asks.
-
-The APK uses package `games.boltyard.prototype`, version 0.4.0 / code 4 and the same development signing key as earlier prototypes, so install it over the existing app to retain saves. The included key is only for development builds. The game needs no Play Store account, runtime network access or storage permission.
-
-The user reported that 0.3 ran on a Samsung A15 but had slow, glitchy driving and incomplete-looking bodywork. The 0.4 rebuild targets those problems. New-version FPS, temperature, touch feel and sustained play still need validation on that phone. Start with Performance; compare Balanced if it stays smooth. Build verification and downloadable artifact details are recorded in [VALIDATION.md](VALIDATION.md).
-
-## Measured handling improvement
-
-Default pickup, flat ground, same desktop native benchmark:
-
-| Measurement | 0.3 | 0.4 |
-|---|---:|---:|
-| Speed after 5 seconds | 17.4 km/h | 52.9 km/h |
-| Distance after 10 seconds | 41.5 m | 123.5 m |
-| Vertical velocity RMS on flat ground | 0.0444 m/s | 0.00018 m/s |
-
-The new native simulation also uses less CPU in the same host benchmark. These results exclude rendering and are not phone performance claims. The frame/cab remain deformable; continuous round wheel contacts replace independently simulated polygon tire rings. See [SIMULATION.md](SIMULATION.md) for forces, tests and limits.
-
-## Controls
-
-Choose a vehicle and equipment, then tap **DRIVE**. Hold **GO** together with **LEFT** or **RIGHT**; **REV** reverses and **BRAKE** stops. **Map** selects a destination. **Repair & camp** rebuilds the vehicle at base camp while keeping builds and discoveries. Returning to the garage also resets the vehicle at camp. The garage includes orbit/zoom controls, **X-ray** and **Impact test**.
-
-Keyboard: WASD or arrows drive and steer, Space brakes, R repairs, Tab changes garage/drive and M opens the map. Escape pauses or closes the map. Saves are local to the installed app.
-
-## Build and test
-
-GitHub Actions installs Godot 4.4.1, its Android template, JDK 17, Android SDK 34 and NDK 23.2.8568313. It pins godot-cpp to `e4b7c25e721ce3435a029087e3917a30aa73f06b` and SCons to 4.8.1, builds Linux and ARM64 GDExtensions, runs native and engine tests, drives two complete 1.3 km road loops, renders screenshots and a 21-second controlled driving movie, exports the APK and verifies its signature and native library contents.
-
-Complete Ubuntu build with JDK 17 and Android SDK configured:
-
-```bash
-bash tools/ci_build.sh
-```
-
-Standalone physics tests, without Godot:
-
-```bash
-mkdir -p build
-g++ -std=c++17 -O2 -Wall -Wextra -pedantic native/test_soft_rig.cpp -o build/test-soft-rig
-build/test-soft-rig
-```
-
-Build native libraries with `bash tools/build_native.sh` before importing. The checked-in extension maps Linux x86_64 and Android ARM64 debug builds; other hosts and release exports need corresponding builds and mappings. Use Godot 4.4.1 export templates and **Export With Debug**.
-
-```bash
-godot --headless --path . --editor --import
-godot --headless --path . --script tests/run.gd
-godot --headless --path . --script tests/offroad.gd
-godot --headless --path . --script tests/catalog.gd
-godot --headless --path . --script tests/explorer.gd
-godot --headless --path . --script tests/vehicle_geometry.gd
-```
-
-Run tests and screenshots against disposable user data. The explorer suite backs up/restores its save fixtures, but the retained prototype tests and capture script may write setup/blueprint saves. Mesa software-rendered screenshots are not phone performance measurements.
-
-## Source map
-
-| File | Purpose |
-| --- | --- |
-| `native/soft_rig.hpp` | Native node/beam model and XPBD solver |
-| `native/terrain_v03.hpp` | Shared exploration heightfield, surfaces and obstacles |
-| `native/binding.cpp` | Godot interface, fixed cadence and diagnostics |
-| `native/test_soft_rig.cpp` | Physics behavior and stability checks |
-| `scripts/vehicle_catalog.gd` | Vehicle definitions, compatible equipment and composed tuning |
-| `scripts/offroad_truck.gd` | Persistent particle-bound vehicle geometry |
-| `shaders/vehicle_skin.gdshaderinc` | GPU binding to chassis, cab, tire and suspension particles |
-| `scripts/offroad_world.gd` | Terrain, vegetation, lighting and quality levels |
-| `scripts/offroad_main.gd` | Garage, saves, responsive controls and camera |
-| `scripts/exploration_map.gd` | Terrain map and selectable destinations |
-| `tests/catalog.gd`, `tests/explorer.gd` | Equipment, save migration, discovery and orientation checks |
-| `tools/ci_build.sh` | Test gates, screenshot capture, Android export and verification |
-
-Original material sources and generation prompts are documented in `assets/world/TERRAIN_MATERIALS.md` and the three `assets/world/*.provenance.md` files.
+The earlier construction sandbox remains in `main.tscn`; the app opens `offroad_main.tscn`. More numerical detail and model limits are in [SIMULATION.md](SIMULATION.md).

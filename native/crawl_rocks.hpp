@@ -6,24 +6,110 @@ struct CrawlRock {
     std::vector<std::array<int,3>> triangles;
     Vec3 center;
     float reach=0, surface=1.15f;
+    // Generated once with the hull; every physics query uses the same faces.
+    std::vector<Vec3> triangle_normals;
 };
-inline CrawlRock crawl_rock(float x,float z,float width,float depth,float height,float slope=0,float roll=0,float yaw=0,float base=0) {
-    CrawlRock r; r.center={x,base+height*.5f,z};
-    constexpr float ring[8][2]={{-.72f,-1},{.72f,-1},{1,-.72f},{1,.72f},{.72f,1},{-.72f,1},{-1,.72f},{-1,-.72f}};
-    for(int layer=0;layer<2;++layer) for(auto &p:ring){
+inline CrawlRock crawl_fractured_rock(float x,float z,float width,float depth,float height,float slope,float roll,float yaw,float base,unsigned fracture_variant) {
+    CrawlRock r;
+    const unsigned seed=unsigned(int(x*173.f))^unsigned(int(z*367.f))^
+        unsigned(int(width*919.f))^unsigned(int(depth*1237.f))^(fracture_variant*2654435761u);
+    auto variation=[&](unsigned i){unsigned h=seed+i*374761393u;h=(h^(h>>13))*1274126177u;h^=h>>16;return float(h&65535u)/65535.f;};
+    // Unequal corner fractures give each footprint a distinct silhouette while
+    // retaining its authored dimensions and broad, driveable central surface.
+    float corner[8];for(int i=0;i<8;++i)corner[i]=.19f+.22f*variation(i+1);
+    const float ring[8][2]={{-1+corner[0],-1},{1-corner[1],-1},
+        {1,-1+corner[2]},{1,1-corner[3]},{1-corner[4],1},
+        {-1+corner[5],1},{-1,1-corner[6]},{-1,-1+corner[7]}};
+    std::vector<Vec3> original;
+    for(int layer=0;layer<2;++layer)for(auto &p:ring){
         float px=p[0]*width*.5f,pz=p[1]*depth*.5f;
-        const float taper=.12f/height;
-        const float tilt=-slope*pz+roll*px;
+        const float taper=.12f/height,tilt=-slope*pz+roll*px;
         float py=layer?(height+tilt)/(1+taper*tilt):0;
-        float factor=1-taper*py;px*=factor;pz*=factor;
-        r.vertices.push_back({x+px*std::cos(yaw)+pz*std::sin(yaw),base+py,z-px*std::sin(yaw)+pz*std::cos(yaw)});
+        float factor=1-taper*py;
+        original.push_back({px*factor,py,pz*factor});
     }
-    // Orient each face outward independently, robust to handedness.
-    auto face=[&](int a,int b,int c){auto n=(r.vertices[b]-r.vertices[a]).cross(r.vertices[c]-r.vertices[a]);if(n.dot(r.vertices[a]-r.center)<0)std::swap(b,c);r.triangles.push_back({a,b,c});};
-    for(int i=1;i<7;++i){face(0,i,i+1);face(8,8+i,9+i);}
-    for(int i=0;i<8;++i){int j=(i+1)%8;face(i,j,8+j);face(i,8+j,8+i);}
+    using Polygon=std::vector<Vec3>;
+    std::vector<Polygon> faces;
+    faces.emplace_back(original.begin(),original.begin()+8);
+    faces.emplace_back(original.begin()+8,original.end());
+    for(int i=0;i<8;++i){int j=(i+1)%8;faces.push_back({original[i],original[j],original[8+j],original[8+i]});}
+    // Intersect with oblique fracture planes. Clipping a convex solid keeps
+    // every resulting facet convex; this is actual wheel/body collision mesh.
+    auto clip=[&](Vec3 normal,float offset){
+        std::vector<Polygon> result;Polygon cap;
+        auto add_cap=[&](Vec3 p){for(auto q:cap)if((p-q).length_squared()<1e-9f)return;cap.push_back(p);};
+        for(const auto &poly:faces){
+            Polygon cut;
+            for(size_t i=0;i<poly.size();++i){
+                Vec3 a=poly[i],b=poly[(i+1)%poly.size()];
+                float da=normal.dot(a)-offset,db=normal.dot(b)-offset;
+                bool ia=da<=0,ib=db<=0;
+                if(ia)cut.push_back(a);
+                if(ia!=ib){Vec3 q=a+(b-a)*(da/(da-db));cut.push_back(q);add_cap(q);}
+            }
+            if(cut.size()>=3)result.push_back(cut);
+        }
+        if(cap.size()>=3){
+            Vec3 middle;for(auto p:cap)middle+=p;middle*=1.f/cap.size();
+            Vec3 axis=normal.cross(std::abs(normal.y)<.8f?Vec3{0,1,0}:Vec3{1,0,0}).normalized();
+            Vec3 other=normal.cross(axis);
+            std::sort(cap.begin(),cap.end(),[&](Vec3 a,Vec3 b){a-=middle;b-=middle;return std::atan2(a.dot(other),a.dot(axis))<std::atan2(b.dot(other),b.dot(axis));});
+            result.push_back(cap);
+        }
+        faces=std::move(result);
+    };
+    const Vec3 top=Vec3{-roll,1,slope}.normalized();
+    const float top_offset=height/std::sqrt(1+roll*roll+slope*slope);
+    for(int i=0;i<(fracture_variant<8?8:0);++i){
+        int j=(i+1)%8;
+        Vec3 side=(original[j]-original[i]).cross(original[8+i]-original[i]).normalized();
+        if(side.dot(original[i]-Vec3{0,height*.5f,0})<0)side=-side;
+        // Big outcrops have broad broken shoulders, not slab-sized edge cuts.
+        // Low route slabs keep their validated ledge and wheel-contact profile.
+        const bool outcrop=height>2.5f;
+        float rim=std::min(width,depth)*(outcrop?(.095f+.115f*variation(i+19)):(.030f+.032f*variation(i+19)));
+        float drop=outcrop?height*(.19f+.19f*variation(i+37)):std::min(.58f,height*(.10f+.12f*variation(i+37)));
+        // Each rim has its own angle and depth, like broken sedimentary slabs.
+        float weight=rim/std::max(.025f,drop);
+        Vec3 normal=side+top*weight;
+        float offset=side.dot(original[i])+top_offset*weight-rim;
+        float magnitude=normal.length();clip(normal/magnitude,offset/magnitude);
+    }
+    auto vertex=[&](Vec3 p){
+        for(size_t i=0;i<r.vertices.size();++i)if((p-r.vertices[i]).length_squared()<1e-9f)return int(i);
+        r.vertices.push_back(p);return int(r.vertices.size()-1);
+    };
+    for(auto &poly:faces){
+        // Remove numerical duplicate/collinear corners before fan triangulation.
+        bool changed=true;
+        while(changed&&poly.size()>3){changed=false;for(size_t i=0;i<poly.size();++i){
+            Vec3 a=poly[(i+poly.size()-1)%poly.size()],b=poly[i],c=poly[(i+1)%poly.size()];
+            if((a-b).length_squared()<1e-9f||(b-a).cross(c-b).length_squared()<1e-12f){poly.erase(poly.begin()+i);changed=true;break;}
+        }}
+        int a=vertex(poly[0]);for(size_t i=1;i+1<poly.size();++i){
+            if((poly[i]-poly[0]).cross(poly[i+1]-poly[0]).length_squared()>1e-12f)
+                r.triangles.push_back({a,vertex(poly[i]),vertex(poly[i+1])});
+        }
+    }
+    for(auto &p:r.vertices){float px=p.x,pz=p.z;p={x+px*std::cos(yaw)+pz*std::sin(yaw),base+p.y,z-px*std::sin(yaw)+pz*std::cos(yaw)};r.center+=p;}
+    r.center*=1.f/r.vertices.size();
+    for(auto &t:r.triangles){
+        Vec3 n=(r.vertices[t[1]]-r.vertices[t[0]]).cross(r.vertices[t[2]]-r.vertices[t[0]]).normalized();
+        if(n.dot(r.vertices[t[0]]-r.center)<0){std::swap(t[1],t[2]);n=-n;}
+        r.triangle_normals.push_back(n);
+    }
+    // A cut that almost coincides with another can leave a millimetric edge.
+    // Reject that fracture pattern if world-space float precision makes any
+    // triangle cease to support the hull. Regeneration is deterministic and
+    // happens only once during course construction, never during simulation.
+    for(size_t i=0;i<r.triangles.size();++i)for(auto p:r.vertices)
+        if((p-r.vertices[r.triangles[i][0]]).dot(r.triangle_normals[i])>.0004f&&fracture_variant<8)
+            return crawl_fractured_rock(x,z,width,depth,height,slope,roll,yaw,base,fracture_variant+1);
     for(auto p:r.vertices)r.reach=std::max(r.reach,(p-r.center).length());
     return r;
+}
+inline CrawlRock crawl_rock(float x,float z,float width,float depth,float height,float slope=0,float roll=0,float yaw=0,float base=0) {
+    return crawl_fractured_rock(x,z,width,depth,height,slope,roll,yaw,base,0);
 }
 inline const std::vector<CrawlRock>& crawl_course(){
     static const std::vector<CrawlRock> rocks=[] {
@@ -39,9 +125,38 @@ inline const std::vector<CrawlRock>& crawl_course(){
         r.push_back(crawl_rock(0,-62,7,12,1.15f,.18f));
         r.push_back(crawl_rock(-1.6f,-64,2.5f,4,.30f,0,0,.1f,1.55f));
         r.push_back(crawl_rock(0,-70.5f,7,8,1.15f,-.27f));
-        // The bordering outcrops share collision too, even off the marked line.
-        for(int side:{-1,1})for(int i=0;i<10;++i)
-            r.push_back(crawl_rock(side*(21.f+(i%3)*3.f),16-i*11.f,10.f+i%4*2,13.f,3.f+i%5,.12f,.08f,side*.32f+i*.28f));
+        // Authored canyon shoulders are deliberately asymmetric. Their full
+        // footprints clear the bypass lanes and the route markers at x=-4.6.
+        r.push_back(crawl_rock(-13.5f,11,10,11,3.8f,.13f,-.07f,.35f));
+        r.push_back(crawl_rock(-10.1f,-3,6,8,2.7f,-.09f,.16f,-.18f));
+        r.push_back(crawl_rock(-13.8f,-15,10,12,4.8f,.14f,.08f,.28f));
+        r.push_back(crawl_rock(-10.2f,-29,6,9,3.5f,-.11f,-.17f,-.25f));
+        r.push_back(crawl_rock(-14.8f,-41,12,15,6.2f,.18f,.12f,-.10f));
+        r.push_back(crawl_rock(-11.5f,-55,7,10,3.8f,-.13f,.09f,.32f));
+        r.push_back(crawl_rock(-14.2f,-68,11,13,5.6f,.14f,-.11f,-.40f));
+        r.push_back(crawl_rock(-10.1f,-80,6,9,2.9f,-.08f,.15f,.20f));
+        r.push_back(crawl_rock(13,13,10,11,3.8f,-.11f,.09f,-.20f));
+        // The movable-object practice area at x=7..11, z=-12..-37 is open.
+        r.push_back(crawl_rock(22,-3,10,12,4.4f,.16f,-.14f,.23f));
+        r.push_back(crawl_rock(20.5f,-19,8,11,5.5f,-.19f,.10f,-.14f));
+        r.push_back(crawl_rock(22,-34,10,13,6.5f,.12f,.18f,.24f));
+        r.push_back(crawl_rock(12.5f,-53,9,10,4.2f,-.15f,-.11f,.20f));
+        r.push_back(crawl_rock(10.9f,-67,7,8,3.7f,.13f,.17f,-.20f));
+        r.push_back(crawl_rock(14,-81,11,12,5.2f,-.12f,.08f,.28f));
+        // A few detached, grounded pieces tie the large formations to the trail.
+        r.push_back(crawl_rock(-6.8f,1,1.4f,2.4f,.44f,.08f,-.03f,.17f));
+        r.push_back(crawl_rock(-7.1f,-21,1.8f,2.8f,.67f,-.10f,.06f,-.21f));
+        r.push_back(crawl_rock(-7.2f,-48,2.0f,2.5f,.51f,.07f,.10f,.31f));
+        r.push_back(crawl_rock(7.2f,-60,1.8f,2.7f,.62f,-.09f,-.06f,-.28f));
+        r.push_back(crawl_rock(7.4f,-76,2.0f,2.9f,.77f,.13f,.07f,.24f));
+        // Sparse distant silhouettes, staggered in both distance and elevation.
+        for(int side:{-1,1})for(int i=0;i<4;++i)
+            r.push_back(crawl_rock(side*(29.f+(i%3)*4.7f),22-i*32.f+side*7.f,
+                12.f+(i%3)*3,16.f+(i%2)*5,6.f+(i%3)*2,.17f,-side*.13f,side*.31f+i*.43f));
+        // The wash bends beyond the finish. These actual collision shoulders
+        // close its distant horizon, leaving every recovery point and route open.
+        r.push_back(crawl_rock(12,-121,25,22,11,.19f,-.16f,.22f));
+        r.push_back(crawl_rock(-12,-111,19,18,7,-.13f,.17f,-.31f));
         return r;
     }();return rocks;
 }
@@ -58,7 +173,7 @@ inline Vec3 closest_triangle(Vec3 p,Vec3 a,Vec3 b,Vec3 c){
 struct RockDistance {float distance;Vec3 normal,point;};
 inline RockDistance rock_distance(const CrawlRock&r,Vec3 p){
     float closest=1e20f,max_plane=-1e20f;Vec3 q,n,inside_n;
-    for(auto t:r.triangles){Vec3 a=r.vertices[t[0]],b=r.vertices[t[1]],c=r.vertices[t[2]];Vec3 face=(b-a).cross(c-a).normalized();float plane=(p-a).dot(face);if(plane>max_plane){max_plane=plane;inside_n=face;}
+    for(size_t i=0;i<r.triangles.size();++i){auto t=r.triangles[i];Vec3 a=r.vertices[t[0]],b=r.vertices[t[1]],c=r.vertices[t[2]];Vec3 face=r.triangle_normals.size()==r.triangles.size()?r.triangle_normals[i]:(b-a).cross(c-a).normalized();float plane=(p-a).dot(face);if(plane>max_plane){max_plane=plane;inside_n=face;}
         Vec3 v=closest_triangle(p,a,b,c);float d=(p-v).length_squared();if(d<closest){closest=d;q=v;n=face;}}
     if(max_plane<=0)return {max_plane,inside_n,p-inside_n*max_plane};
     float d=std::sqrt(closest);return {d,d>1e-7f?(p-q)/d:n,q};

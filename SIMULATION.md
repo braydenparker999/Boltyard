@@ -1,3 +1,21 @@
+# Crawlworks 1.0 model
+
+The following additions supersede the 0.5 crawl suspension and axle limitations below. Mode3 (Copperline) uses coupled solid axles; valley modes retain the independent guide baseline.
+
+Each crawl axle enforces fixed hub separation, two longitudinal trailing-link distances and one diagonal Panhard distance. Spring force uses gradients of the actual moving suspension endpoints. Compression/rebound damping and compression/droop stops are independent setup values. Axle shaft and central differential contacts can support the rig and unload its tires. Wheel camber follows the articulated axle; front steer rotates the rolling axes. The renderer uses those exact hub/link endpoints for metal axle/link meshes, and actual wheel phase/axis for rigid rims.
+
+Tire contact stiffness is pressure-dependent. Per-wheel load and deepest supported compression give a circular-section footprint estimate, `2 sqrt(2 R d - d²)`. Each contact retains its own normal and tangent frame; angular wheel drive/brake impulses respect available friction and reaction inertia. Finite implicit contact shear permits controlled very-low-throttle creep. The derived rubber ring guides flatten at support; the rendered tread padding is clipped to the strongest loaded plane with modest sidewall bulge. This is not a volumetric tire carcass or a fitted real-world tire model.
+
+Front and rear locks are separate. Legacy saved combined switches migrate to both axles unless an explicit per-axle choice exists. Signed wheel-set mass changes (beadlock +18kg, alloy -24kg) are already included in total vehicle mass and are allocated to the physical wheel hubs; they are not added twice or smeared over the body.
+
+Nine bounded convex rigid props are integrated in the same 240Hz step. Contact uses solved position/orientation, rotational effective mass, static/dynamic friction and equal/opposite impulses; drive and brake tire reactions use prop contact-point velocity. Static rock, prop/prop and vehicle/prop contacts participate in the solve. Sleeping bodies wake on contact/impulse. Local convex render triangles never change after upload; solved transforms update each frame. Their density and inertia are simplified game values.
+
+The camera uses stable contact IDs and batches raw screen-touch motion per rendered frame. A two-finger centroid drives orbit/tilt or pan; span ratio drives zoom and wrapped angle delta drives twist. GUI-owned touches, third contacts, tiny spans and lifecycle changes cannot inject stale camera deltas. A convex segment test against expanded rock/prop planes shortens obstructed crawl views. Terrain clearance is also applied before and after smoothing.
+
+All new models remain uncalibrated. Contact discretization, rigid props, derived tire geometry and simplified drivetrain/soil behavior limit real-world accuracy. Desktop tests establish internal invariants and gameplay scenarios; they do not establish real tire friction curves, real suspension response, sustained device FPS or thermal performance.
+
+---
+
 # Crawlworks 0.5 additions
 
 The original 0.4 model description below remains the valley baseline. These additions apply in 0.5:
