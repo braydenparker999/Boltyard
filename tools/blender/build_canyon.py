@@ -27,7 +27,7 @@ def surface(x,z):
  t=-z-16; q=x-center(z)
  # A connected sloping bedrock bed. Each curved fracture crosses the entire
  # formation; weathered shoulders offer alternative wheel lines, not boxes.
- h=.078*t+.24*math.sin(t*.13)+.018*q*q
+ h=.078*t+.24*math.sin(t*.13)+.018*min(q*q,64)
  h+=.17*math.sin(q*.75+t*.18)+.075*math.sin(q*1.8-t*.61)
  for k,(s,rise) in enumerate([(9,.32),(16,.42),(24,.62),(33,.40),(38,.55),(47,.38),(55,.66),(64,.43),(72,.58),(81,.36),(91,.53),(102,.46),(112,.32)]):
   edge=s+1.5*math.sin(q*.17+k*1.41)+q*(.07 if k%2 else -.10)
@@ -111,7 +111,7 @@ def stone(name,x,z,w,d,h,base_y,yaw=0,lean=0):
 # Wall beds continue along the canyon, irregular joints and leaning buttresses.
 for side in [-1,1]:
  for k in range(16):
-  z=-28-k*6.8+random.uniform(-1,1);cx=center(z)
+  z=-36-k*6.2+random.uniform(-1,1);cx=center(z)
   wall=cx+side*(11.2+2.6*math.sin(k*.63+side))
   y=ground(wall,z)-1.8
   for bed in range(3+(k%4==1)):

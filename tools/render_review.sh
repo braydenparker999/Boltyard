@@ -54,7 +54,9 @@ test -s bin/libboltyard.linux.x86_64.so
 
 timeout 120 "$godot_bin" --headless --path . --editor --import \
   2>&1 | tee build/render-import.log
-if grep -Eq 'SCRIPT ERROR|Parse Error|ERROR:|Failed to load script' build/render-import.log; then
+# Godot 4.4 dummy renderer cannot create a GLB editor thumbnail. The runtime
+# mesh contract below checks the imported asset; retain all other error gates.
+if sed '/^ERROR: Parameter "t" is null\.$/d' build/render-import.log | grep -Eq 'SCRIPT ERROR|Parse Error|ERROR:|Failed to load script'; then
   exit 1
 fi
 
