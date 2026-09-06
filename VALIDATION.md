@@ -8,7 +8,19 @@ Integration coverage checks matching native course selection, fitted equipment, 
 
 `tests/crawling_video.gd` records live throttle input onto the training slab, brakes, and checks progress, vehicle height, upright attitude, damage and final speed. `tests/crawl_views.gd` captures landscape, portrait and a tire-contact close-up. Both are part of Android CI, alongside retained valley tests. Per-wheel loads, spin, slip, travel and native timing are saved in `crawling-trace.json`.
 
-The Android workflow must succeed before the 0.5 APK is delivered. Physical A15 installation, sustained frame rate, thermals and touch feel remain untested here. Version/code are 0.5.0/5; package and signing configuration are unchanged.
+The Android workflow succeeded before delivery (record below). Physical A15 installation, sustained frame rate, thermals and touch feel remain untested here. Version/code are 0.5.0/5; package and signing configuration are unchanged.
+
+## Verified Android delivery
+
+[Android run 34006217325](https://github.com/braydenparker999/Boltyard/actions/runs/34006217325) succeeded against source commit `90d2c39120c0c693e1a0296b86cdc6d70da730d2`. It passed 478 assertions, ten crawling scenarios and both retained full-road scenarios. The rendered crawling capture finished at z = -9.01 m, maximum frame height 1.94 m, damage 0.0000 and zero final speed. Portrait, landscape and loaded-contact views were reviewed from the same run.
+
+- APK: `bolt-yard-0.5.0-crawlworks.apk`, 35,961,091 bytes.
+- SHA-256: `2c966371190f61ab2cd18faa782a187fa3b3ff28683bc09df9eac5130561ed2b`.
+- Package/version: `games.boltyard.prototype`, 0.5.0 / code 5, ARM64.
+- Signing certificate SHA-256: `a882ee66b05eff32ad4629269a96d79bfc3514bcbf0e16e99f42f6046836ea73`, matching v0.4.
+- Android apksigner verified v1, v2 and v3 signatures. The downloaded ZIP/APK passed integrity and checksum checks; the native solver and new sandstone shader are packaged.
+
+The graphics captures use desktop software rendering. Their displayed FPS values are not measurements of A15 performance. Installation and sustained play still need the user's device test.
 
 ---
 
