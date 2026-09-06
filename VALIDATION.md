@@ -1,3 +1,11 @@
+## Crawlworks 2.3 Thumbdrive — verified 2026-09-06
+
+Signed Android build [34055272179](https://github.com/braydenparker999/Boltyard/actions/runs/34055272179) passed from source `99579225adb5ba63b6a8dc592da4e0de08edc6bd`, tree `37c97474306181f405384d7cca4a3d66c72b3b39`. Native recovery checks cover preserved damage, upright heading, support, rejected placement and all trail starts. Actual touch dispatch and camera integration passed 213 checks; the full build retained native, vehicle, terrain and rendered checks. Portrait recovery and portrait/landscape driving screenshots were inspected. The first build exposed a legacy camera fixture touching the new thumb strip; its gesture positions were corrected without weakening movement checks.
+
+Downloaded APK `bolt-yard-2.3.0-thumbdrive.apk`: 43,295,510 bytes; SHA-256 `c1d913faef56f52282de434ddeb34f6b716da57c1f2252dc7508cf88f7254fa8`. Package `games.boltyard.prototype`, version 2.3.0, code 10, ARM64. ZIP integrity, workflow checksum, packaged mobile controls and native recovery binding verified. Official apksigner verified v1/v2/v3 signatures with the unchanged certificate SHA-256 `a882ee66b05eff32ad4629269a96d79bfc3514bcbf0e16e99f42f6046836ea73`.
+
+2.3 has not yet been tested on the user's phone. The supplied 2.2 A15 capture is recorded in README as the device baseline. Recovery uses conservative placement bounds and may refuse dense obstacles; safe-spot history lasts for the current drive. Movies are opt-in via `BOLT_RECORD_MOVIE=1`; ordinary builds still render gameplay and UI stills.
+
 # Crawlworks 2.2 Articulation — verified Android update
 
 [Android run 34051952587](https://github.com/braydenparker999/Boltyard/actions/runs/34051952587) passed on 2026-09-06, building release source [`075e5e8e69998ae284c220c65ca26e9a2ecb3177`](https://github.com/braydenparker999/Boltyard/commit/075e5e8e69998ae284c220c65ca26e9a2ecb3177). Its complete Git tree `bdbc77488a87480aca3c00dd65f7f77786b12701` matches the local tested tree. This documentation-only follow-up records the downloaded evidence.
