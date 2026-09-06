@@ -25,11 +25,15 @@ void fragment() {
     earth *= .81 + aggregate.r * .22 + grain * .26;
     float small_stones = smoothstep(.61, .77, aggregate.b) * (1.0 - worn * .6);
     earth = mix(earth, vec3(.39, .337, .251) * (.75 + grain * .5), small_stones * .50);
-    ALBEDO = earth * COLOR.rgb;
+    // Beyond the authored wash, the aggregate falls below useful pixel size.
+    // Fade its periodic macro field into distant silt instead of exposing a
+    // repeating texture grid when the camera is raised for a route overview.
+    float detail_visibility = 1.0 - smoothstep(65.0, 190.0, distance(p, CAMERA_POSITION_WORLD));
+    ALBEDO = mix(vec3(.335, .275, .195), earth * COLOR.rgb, detail_visibility);
     ROUGHNESS = .97;
     SPECULAR = .12;
     if (detailed_surface) {
-        float relief = aggregate.g * .0012 + grain * .0008;
+        float relief = (aggregate.g * .0012 + grain * .0008) * detail_visibility;
         vec3 dpdx = dFdx(p), dpdy = dFdy(p);
         vec3 n = vec3(0.0, 1.0, 0.0);
         vec3 r1 = cross(dpdy, n), r2 = cross(n, dpdx);
