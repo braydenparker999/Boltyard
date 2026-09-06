@@ -13,6 +13,7 @@ struct CrawlRock {
     std::vector<std::array<int,3>> triangles;
     Vec3 center;
     float reach=0, surface=1.15f;
+    bool surface_mesh=false; // Closed authored concave scenery; convex vehicle shapes keep their fast path.
     // Generated once with the hull; every physics query uses the same faces.
     std::vector<Vec3> triangle_normals;
     struct Bounds {
@@ -212,11 +213,39 @@ inline Vec3 closest_triangle(Vec3 p,Vec3 a,Vec3 b,Vec3 c){
     float inv=1/(va+vb+vc);return a+ab*(vb*inv)+ac*(vc*inv);
 }
 struct RockDistance {float distance;Vec3 normal,point;};
+// Closed triangle-mesh inside test, accelerated by the existing face BVH.
+// Crossings at a shared edge are counted once. No convex half-space shortcut
+// is valid for a concave cliff or an arch opening.
+inline bool rock_mesh_inside(const CrawlRock&r,Vec3 p) {
+    if(r.query_nodes.empty() || r.query_nodes[0].bounds.distance_squared(p)>0)return false;
+    std::vector<double> hits;
+    auto visit=[&](auto&&self,int id)->void {
+        const auto &node=r.query_nodes[id];const auto &b=node.bounds;
+        if(b.high.x<p.x||p.y<b.low.y||p.y>b.high.y||p.z<b.low.z||p.z>b.high.z)return;
+        if(node.left>=0){self(self,node.left);self(self,node.right);return;}
+        for(int k=node.begin;k<node.end;++k){int i=r.query_faces[k];auto t=r.triangles[i];
+            const auto a=r.vertices[t[0]],b=r.vertices[t[1]],c=r.vertices[t[2]];
+            // Double-precision barycentrics avoid missed intersections on
+            // near-parallel arch faces at large world coordinates.
+            const double by=double(b.y)-a.y,bz=double(b.z)-a.z,cy=double(c.y)-a.y,cz=double(c.z)-a.z;
+            const double py=double(p.y)-a.y,pz=double(p.z)-a.z,denom=by*cz-bz*cy;
+            if(std::abs(denom)<1e-14)continue;
+            const double u=(py*cz-pz*cy)/denom,v=(by*pz-bz*py)/denom;
+            if(u< -1e-10||v< -1e-10||u+v>1+1e-10)continue;
+            const double distance=double(a.x)-p.x+u*(double(b.x)-a.x)+v*(double(c.x)-a.x);
+            if(distance>=0)hits.push_back(distance);
+        }
+    };
+    visit(visit,0);std::sort(hits.begin(),hits.end());int crossings=0;double last=-1e20;
+    for(double h:hits)if(h-last>1e-7){++crossings;last=h;}
+    return crossings%2==1;
+}
 inline RockDistance rock_distance_reference(const CrawlRock&r,Vec3 p){
     BOLT_ROCK_COUNT(calls);
     float closest=1e20f,max_plane=-1e20f;Vec3 q,n,inside_n;
     for(size_t i=0;i<r.triangles.size();++i){auto t=r.triangles[i];Vec3 a=r.vertices[t[0]],b=r.vertices[t[1]],c=r.vertices[t[2]];Vec3 face=r.triangle_normals.size()==r.triangles.size()?r.triangle_normals[i]:(b-a).cross(c-a).normalized();float plane=(p-a).dot(face);if(plane>max_plane){max_plane=plane;inside_n=face;}
         BOLT_ROCK_COUNT(triangles); Vec3 v=closest_triangle(p,a,b,c);float d=(p-v).length_squared();if(d<closest){closest=d;q=v;n=face;}}
+    if(r.surface_mesh){float d=std::sqrt(closest);return rock_mesh_inside(r,p)?RockDistance{-d,n,q}:RockDistance{d,d>1e-7f?(p-q)/d:n,q};}
     if(max_plane<=0)return {max_plane,inside_n,p-inside_n*max_plane};
     float d=std::sqrt(closest);return {d,d>1e-7f?(p-q)/d:n,q};
 }
@@ -224,7 +253,7 @@ inline RockDistance rock_distance(const CrawlRock&r,Vec3 p){
     // Unindexed ad-hoc hulls remain correct. Production builders index once.
     if(r.query_nodes.empty() || r.triangle_normals.size()!=r.triangles.size())return rock_distance_reference(r,p);
     BOLT_ROCK_COUNT(calls);
-    if(r.query_nodes[0].bounds.distance_squared(p)==0) {
+    if(!r.surface_mesh && r.query_nodes[0].bounds.distance_squared(p)==0) {
         float plane=-1e20f;Vec3 normal;bool outside=false;
         for(size_t i=0;i<r.triangles.size();++i) {
             const float d=(p-r.vertices[r.triangles[i][0]]).dot(r.triangle_normals[i]);
@@ -250,5 +279,7 @@ inline RockDistance rock_distance(const CrawlRock&r,Vec3 p){
             self(self,first);self(self,second);
         }
     };
-    visit(visit,0);float d=std::sqrt(closest);return {d,d>1e-7f?(p-point)/d:normal,point};
+    visit(visit,0);float d=std::sqrt(closest);
+    if(r.surface_mesh && rock_mesh_inside(r,p))return {-d,normal,point};
+    return {d,d>1e-7f?(p-point)/d:normal,point};
 }

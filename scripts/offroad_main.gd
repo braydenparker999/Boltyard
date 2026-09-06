@@ -336,6 +336,7 @@ func build_garage() -> void:
 	var details = label(trails, "", 13, MUTED)
 	details.name = "MapDetails"
 	details.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	button(trails, "DRIVE BEDROCK NARROWS  ›", start_bedrock_narrows, 0)
 	course_button = button(trails, "EQUIP CRAWLER SETUP", fit_crawl_setup, 0)
 	label(trails, "OPEN EXPLORATION  /  640 m REGIONS", 11, ACCENT)
 	var equipment_page = column(options, 7)
@@ -1677,3 +1678,19 @@ func fit_crawl_setup() -> void:
 	sync_controls()
 	apply_tuning()
 	toast("Billygoat tires, Almost Level lift and Low Expectations gears fitted.")
+
+func start_bedrock_narrows() -> void:
+	if driving:
+		return
+	select_map("canyon")
+	clear_controls()
+	toggle_mode()
+	var at := Vector3(8, 0, -30)
+	at.y = truck.core.terrain_height(at.x, at.z) + 1.4
+	truck.reset(at)
+	safe_spots.clear()
+	safe_time = 0
+	world.update_focus(at)
+	set_camera_preset("follow")
+	did_position_camera = false
+	toast("BEDROCK NARROWS · Pick your line through the rock shelves")

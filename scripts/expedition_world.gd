@@ -72,7 +72,8 @@ func _make_lighting() -> void:
 	settings.sky.sky_material = sky_material
 	if map_mode == 6:
 		_sun.rotation_degrees = Vector3(-38, -46, 0)
-		_sun.light_color = Color("ffe8cc")
+		_sun.light_color = Color("fff4e8")
+		_sun.light_energy = .92
 		settings.ambient_light_color = Color("c4d4e3")
 		settings.ambient_light_energy = .40
 		settings.fog_light_color = Color("c6aca0")
@@ -111,7 +112,7 @@ func _make_materials() -> void:
 	if map_mode == 6:
 		for material in [_ground_material, _expedition_rock]:
 			material.shader = load("res://shaders/canyon_surface.gdshader")
-			material.set_shader_parameter("rock_texture", load("res://assets/world/canyon_rock.jpg"))
+			material.set_shader_parameter("rock_texture", load("res://assets/world/terrain_rock_photo.png"))
 			material.set_shader_parameter("rock_normal", load("res://assets/world/canyon_rock_normal.jpg"))
 		_ground_material.set_shader_parameter("ground_surface", true)
 	for kind in ["pine", "birch"]:
@@ -174,6 +175,8 @@ func _build_course() -> void:
 			_course.add_child(visual)
 			_chunks.append({"center": Vector3(x + 32, 0, z + 32), "visual": visual,
 				"near_mesh": near_mesh, "far_mesh": far_mesh})
+	if map_mode == 6:
+		_build_blender_floor()
 	_build_expedition_rocks()
 	_build_forest()
 	_build_expedition_lake()
@@ -209,6 +212,10 @@ func _terrain_chunk(x0: float, z0: float, step: int) -> ArrayMesh:
 			surface_detail.append(Vector2(_gravel_weights[sample_index], 0))
 	for iz in range(side - 1):
 		for ix in range(side - 1):
+			var mx := x0 + float(ix * step) + float(step) * .5
+			var mz := z0 + float(iz * step) + float(step) * .5
+			if map_mode == 6 and mx > -32 and mx < 32 and mz > -144 and mz < -16:
+				continue # Exact Blender floor replaces these coarse triangles.
 			var a := iz * side + ix
 			indices.append_array(PackedInt32Array([a, a + 1, a + side, a + 1, a + side + 1, a + side]))
 	# Skirts extend downward only. The entire driving radius uses the native 2 m
@@ -223,6 +230,9 @@ func _terrain_chunk(x0: float, z0: float, step: int) -> ArrayMesh:
 		for i in range(edge.size() - 1):
 			var a: int = edge[i]
 			var b: int = edge[i + 1]
+			var midpoint := (vertices[a] + vertices[b]) * .5
+			if map_mode == 6 and midpoint.x >= -32 and midpoint.x <= 32 and midpoint.z >= -144 and midpoint.z <= -16:
+				continue
 			var c := vertices.size()
 			vertices.append(vertices[a] - Vector3.UP * 8)
 			vertices.append(vertices[b] - Vector3.UP * 8)
@@ -489,7 +499,7 @@ func _build_forest() -> void:
 	if map_mode == 6:
 		for material in [_ground_material, _expedition_rock]:
 			material.shader = load("res://shaders/canyon_surface.gdshader")
-			material.set_shader_parameter("rock_texture", load("res://assets/world/canyon_rock.jpg"))
+			material.set_shader_parameter("rock_texture", load("res://assets/world/terrain_rock_photo.png"))
 			material.set_shader_parameter("rock_normal", load("res://assets/world/canyon_rock_normal.jpg"))
 		_ground_material.set_shader_parameter("ground_surface", true)
 	for kind in ["pine", "birch"]:
@@ -652,3 +662,16 @@ func _build_trailhead() -> void:
 	_box(Vector3(2.78, .13, .30), at + Vector3(0, 2.40, 0), _materials.wood)
 	_label(title, at + Vector3(0, 2.00, .068), 29, .0044)
 	_label(sub + "\nEXPLORE / CHOOSE YOUR LINE", at + Vector3(0, 1.63, .068), 21, .0040)
+
+func _build_blender_floor() -> void:
+	var scene := load("res://assets/canyon/bedrock_floor.glb") as PackedScene
+	var floor_root := scene.instantiate() as Node3D
+	floor_root.name = "BlenderBedrockNarrows"
+	_course.add_child(floor_root)
+	var material := _ground_material.duplicate() as ShaderMaterial
+	material.set_shader_parameter("authored_floor", true)
+	for child in floor_root.find_children("*", "MeshInstance3D", true, false):
+		var mesh := child as MeshInstance3D
+		mesh.material_override = material
+		# Supporting mesh detail stays fixed; visual LOD must not shift tire contact.
+		mesh.lod_bias = 1000.0

@@ -249,6 +249,7 @@ public:
             return shape.triangle_normals.size()==shape.triangles.size()?shape.triangle_normals[i]:(shape.vertices[t[1]]-a).cross(shape.vertices[t[2]]-a).normalized();
         };
         auto escape=[&](const boltyard::CrawlRock &shape,const boltyard::Vec3 &local_start,const boltyard::Vec3 &local_end){
+            if(shape.surface_mesh){auto hit=boltyard::rock_distance(shape,local_end);return hit.distance<padding?hit.normal*(padding+gap-hit.distance):boltyard::Vec3{};}
             float nearest=-std::numeric_limits<float>::infinity();boltyard::Vec3 normal;
             for(size_t i=0;i<shape.triangles.size();++i){
                 const auto a=shape.vertices[shape.triangles[i][0]],n=face_normal(shape,i);
@@ -267,6 +268,16 @@ public:
                 candidate+=b.rotation.rotate(escape(b.shape,b.local_point(start),b.local_point(candidate)));
             const auto delta=candidate-start;float fraction=1.f;
             auto clip=[&](const boltyard::CrawlRock &shape,const boltyard::Vec3 &local_start,const boltyard::Vec3 &local_delta){
+                if(shape.surface_mesh){
+                    const float length=local_delta.length();if(length<1e-5f)return;
+                    float t=0;
+                    for(int k=0;k<96 && t<fraction;++k){
+                        auto hit=boltyard::rock_distance(shape,local_start+local_delta*t);
+                        if(hit.distance<padding+gap){if(t>0)fraction=std::min(fraction,std::max(0.f,t-gap/length));return;}
+                        t+=std::max(.001f,(hit.distance-padding)*.85f)/length;
+                    }
+                    return;
+                }
                 float enter=0,leave=fraction;bool inside=true;
                 for(size_t i=0;i<shape.triangles.size();++i){
                     const auto a=shape.vertices[shape.triangles[i][0]],n=face_normal(shape,i);

@@ -2,6 +2,7 @@
 // Three fictional expedition landscapes. The 2 m cache is the authoritative
 // ground mesh: contact heights, normals, materials and rendering share it.
 #include "terrain_v03.hpp"
+#include "generated/canyon_floor.hpp"
 
 namespace boltyard {
 struct ExpeditionMaterial { float rock, dirt, grass, wet; };
@@ -259,7 +260,7 @@ struct Cache {
     explicit Cache(int mode):height(side*side),surface(side*side),gravel(side*side),material(side*side) {
         for(int iz=0;iz<side;++iz)for(int ix=0;ix<side;++ix) {
             float x=-extent+ix*spacing,z=-extent+iz*spacing;size_t i=size_t(iz)*side+ix;
-            height[i]=authored_height(mode,x,z);
+            height[i]=(mode==6 && blender_canyon::contains(x,z))?blender_canyon::sample(x,z):authored_height(mode,x,z);
         }
         for(int iz=0;iz<side;++iz)for(int ix=0;ix<side;++ix) {
             float x=-extent+ix*spacing,z=-extent+iz*spacing;size_t i=size_t(iz)*side+ix;
@@ -285,6 +286,7 @@ struct Cache {
                 dirt=1-rock;wet=0;gravel[i]=0;
             }
             if(mode==4&&std::hypot((x-12)/10.f,(z+61)/6.f)<.65f)wet=.65f;
+            if(mode==6 && blender_canyon::contains(x,z)){rock=blender_canyon::sample(x,z,nullptr,nullptr,blender_canyon::rock_weights);dirt=1-rock;}
             material[i]={rock,dirt,1-rock-dirt,wet};
             surface[i]=clamp(rock*(1.10f-wet*.54f)+dirt*(.89f-wet*.35f)+
                 (1-rock-dirt)*(.83f-wet*.31f)-gravel[i]*.12f,.52f,1.12f);
@@ -301,11 +303,13 @@ inline float sample(const std::vector<float>&data,float x,float z) {
 }
 inline float expedition_height(int mode,float x,float z) {
     if(!std::isfinite(x)||!std::isfinite(z))return 0;
+    if(mode==6 && blender_canyon::contains(x,z))return blender_canyon::sample(x,z);
     return expedition_detail::sample(expedition_detail::cache(mode).height,x,z)+
         std::max(0.f,std::max(std::abs(x),std::abs(z))-expedition_detail::extent)*.65f;
 }
 inline ExplorationNormal expedition_normal(int mode,float x,float z) {
     if(!std::isfinite(x)||!std::isfinite(z))return {0,1,0};
+    if(mode==6 && blender_canyon::contains(x,z)){float dx,dz;blender_canyon::sample(x,z,&dx,&dz);float l=std::sqrt(dx*dx+dz*dz+1);return {-dx/l,1/l,-dz/l};}
     using namespace expedition_detail;const auto&data=cache(mode).height;
     float gx=clamp((x+extent)/spacing,0,float(side-1)),gz=clamp((z+extent)/spacing,0,float(side-1));
     int ix=std::min(side-2,int(gx)),iz=std::min(side-2,int(gz));size_t i=size_t(iz)*side+ix;
@@ -318,11 +322,13 @@ inline ExplorationNormal expedition_normal(int mode,float x,float z) {
 }
 inline float expedition_surface(int mode,float x,float z) {
     if(!std::isfinite(x)||!std::isfinite(z))return .85f;
+    if(mode==6 && blender_canyon::contains(x,z)){float rock=blender_canyon::sample(x,z,nullptr,nullptr,blender_canyon::rock_weights);return rock*1.10f+(1-rock)*.78f;}
     return expedition_detail::sample(expedition_detail::cache(mode).surface,x,z);
 }
 inline ExpeditionMaterial expedition_material(int mode,float x,float z) {
     using namespace expedition_detail;
     if(!std::isfinite(x)||!std::isfinite(z))return {0,0,1,0};
+    if(mode==6 && blender_canyon::contains(x,z)){float r=blender_canyon::sample(x,z,nullptr,nullptr,blender_canyon::rock_weights);return {r,1-r,0,0};}
     const auto&data=cache(mode).material;
     float gx=clamp((x+extent)/spacing,0,float(side-1)),gz=clamp((z+extent)/spacing,0,float(side-1));
     int ix=std::min(side-2,int(gx)),iz=std::min(side-2,int(gz));
@@ -365,8 +371,8 @@ inline const std::vector<ExpeditionLandmark>& expedition_landmarks(int mode) {
     };
     static const std::vector<ExpeditionLandmark> canyon{
         {0,8,"Redstone Trailhead","Sandstone country / choose your line"},
-        {10,-53,"Warmup Ledges","Low steps with a smooth shoulder bypass"},
-        {14,-78,"Split Crack Garden","Offset shelves and cross-axle lines"},
+        {8,-40,"Bedrock Narrows","Blender-built rock chute / connected shelves"},
+        {8,-70,"Fracture Steps","Choose a line through continuous bedrock"},
         {-57,-158,"Rim Traverse","Narrow elevated line / bypass on main trail"},
         {-121,-229,"Slickrock Rise","Long grippy climb toward the arch"},
         {-211,-232,"Window Arch","Open rock span and a sweeping return trail"}
