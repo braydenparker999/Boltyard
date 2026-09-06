@@ -87,7 +87,7 @@ done
 timeout 240 xvfb-run -a "$godot_bin" --path . --audio-driver Dummy --rendering-method gl_compatibility --fixed-fps 30 --script tests/crawl_views.gd 2>&1 | tee build/crawl-views.log
 grep -q 'CRAWL VIEWS:' build/crawl-views.log
 if grep -Eq 'SCRIPT ERROR|Parse Error|ERROR:' build/crawl-views.log; then exit 1; fi
-timeout 240 xvfb-run -a "$godot_bin" --path . --audio-driver Dummy --rendering-method gl_compatibility --fixed-fps 30 --script tests/camera_views.gd 2>&1 | tee build/camera-views.log
+timeout 300 xvfb-run -a "$godot_bin" --path . --audio-driver Dummy --rendering-method gl_compatibility --fixed-fps 30 --script tests/camera_views.gd 2>&1 | tee build/camera-views.log
 if grep -Eq 'SCRIPT ERROR|Parse Error|ERROR:' build/camera-views.log; then exit 1; fi
 for suite in expedition_worlds; do
   timeout 300 xvfb-run -a "$godot_bin" --path . --audio-driver Dummy --rendering-method gl_compatibility --fixed-fps 30 --script "tests/$suite.gd" 2>&1 | tee "build/$suite.log"

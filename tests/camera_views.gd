@@ -9,7 +9,7 @@ var temporary_backup = null
 func _initialize() -> void:
 	call_deferred("run")
 
-func settle(count: int = 24) -> void:
+func settle(count: int = 12) -> void:
 	for index in range(count):
 		await process_frame
 		await RenderingServer.frame_post_draw
@@ -97,7 +97,6 @@ func run() -> void:
 			scene.camera_pan_mode = false
 			scene.update_camera_tools()
 			scene.toast_remaining = 0.0
-			await settle()
 			assert(scene.camera_drag_button.visible == (preset == "free"))
 			assert(scene.camera_follow_button.visible)
 			await capture("camera-%s-%s.png" % [preset, orientation])
