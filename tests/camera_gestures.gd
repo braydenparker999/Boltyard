@@ -6,7 +6,8 @@ const CENTER = Vector2(400, 300)
 var checks = 0
 var failures = 0
 
-# One contact drags; exactly two only pinch. GUI contacts remain excluded.
+# One contact emits drag for Garage/Free; Follow/Trail ignore it in the scene.
+# Exactly two only pinch. GUI and guarded-control contacts remain excluded.
 # Contact-count changes rebase; three contacts suspend. Crossing and collapse
 # cannot jump the camera. Jitter accumulates through a viewport-scaled dead zone.
 
@@ -187,6 +188,31 @@ func test_gui_and_third_finger() -> void:
 	gesture.touch_move(27, Vector2(565, 330))
 	expect_motion(gesture.sample(VIEWPORT), Vector2.ZERO, 1.1, "the restored pair zooms from its current positions")
 
+func test_multiple_control_ownership() -> void:
+	var gesture = Gesture.new()
+	gesture.touch_down(91, Vector2(60, 648), true)
+	gesture.touch_down(92, Vector2(1210, 640), true)
+	gesture.touch_down(93, Vector2(60, 592), true)
+	gesture.touch_move(91, Vector2(300, 300))
+	gesture.touch_move(92, Vector2(500, 300))
+	gesture.touch_move(93, Vector2(400, 300))
+	expect_empty(gesture.sample(VIEWPORT), "steering, GO, and a guarded near miss stay excluded after leaving their controls")
+	gesture.touch_down(11, Vector2(300, 300))
+	gesture.touch_move(11, Vector2(318, 300))
+	expect_motion(gesture.sample(VIEWPORT), Vector2(0.025, 0), 1.0, "one Free-camera finger remains independent of three held control contacts")
+	gesture.touch_down(27, Vector2(518, 300))
+	gesture.touch_move(11, Vector2(308, 300))
+	gesture.touch_move(27, Vector2(528, 300))
+	gesture.touch_up(91)
+	gesture.touch_up(92)
+	expect_motion(gesture.sample(VIEWPORT), Vector2.ZERO, 1.1, "releasing simultaneous steering and GO preserves the independent pending pinch")
+	gesture.touch_up(11)
+	gesture.touch_up(27)
+	gesture.touch_up(93)
+	gesture.touch_down(93, CENTER)
+	gesture.touch_move(93, CENTER + Vector2(18, 0))
+	expect_motion(gesture.sample(VIEWPORT), Vector2(0.025, 0), 1.0, "a released guarded contact ID can later begin a fresh scenery gesture")
+
 func test_cancel_and_scaling() -> void:
 	var gesture = single()
 	gesture.touch_move(11, CENTER + Vector2(30, 0))
@@ -224,6 +250,7 @@ func run() -> void:
 	test_crossed_and_collapsed_contacts()
 	test_contact_handoff()
 	test_gui_and_third_finger()
+	test_multiple_control_ownership()
 	test_cancel_and_scaling()
 	print("CAMERA GESTURES: %d checks, %d failures" % [checks, failures])
 	quit(1 if failures else 0)

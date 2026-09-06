@@ -5,6 +5,10 @@
 
 namespace boltyard {
 struct ExpeditionMaterial { float rock, dirt, grass, wet; };
+// Shared with tire telemetry; these describe the contact patch, not the map.
+enum ExpeditionSurfaceMaterial { ExpeditionDirt=0, ExpeditionDryRock=1,
+    ExpeditionWetRock=2, ExpeditionMud=3, ExpeditionSand=4,
+    ExpeditionWood=5, ExpeditionGravel=6 };
 struct ExpeditionTrailPoint { float x,z,h,width; int route; };
 struct ExpeditionLandmark { float x,z; const char *name,*detail; };
 struct ExpeditionWater { float x,z,rx,rz,height; };
@@ -16,7 +20,7 @@ using exploration_detail::smooth;
 using exploration_detail::noise;
 using exploration_detail::mound;
 using exploration_detail::hash;
-inline const std::vector<ExpeditionTrailPoint>& trails(int mode) {
+inline const std::vector<ExpeditionTrailPoint>& trail_anchors(int mode) {
     static const std::vector<ExpeditionTrailPoint> mountain{
         {0,8,0,3.6f,0},{-18,-36,2,3.1f,0},{-38,-76,8,3.0f,0},
         {-76,-112,18,3.0f,0},{-110,-148,30,3.0f,0},{-105,-205,44,3.0f,0},
@@ -48,19 +52,91 @@ inline const std::vector<ExpeditionTrailPoint>& trails(int mode) {
     };
     return mode==5?taiga:mountain;
 }
+inline const std::vector<ExpeditionTrailPoint>& trails(int mode) {
+    auto build=[](int map) {
+        const auto& anchors=trail_anchors(map);std::vector<ExpeditionTrailPoint> out;
+        auto length=[](const ExpeditionTrailPoint&a,const ExpeditionTrailPoint&b){
+            return std::hypot(b.x-a.x,b.z-a.z);
+        };
+        // A distance-parameterized Hermite curve passes through every landmark
+        // and junction. Smooth, monotone elevation tangents remove the sharp
+        // pitch breaks of the former long straight segments.
+        for(size_t first=0;first<anchors.size();) {
+            size_t end=first+1;while(end<anchors.size()&&anchors[end].route==anchors[first].route)++end;
+            const bool closed=length(anchors[first],anchors[end-1])<.01f;
+            auto tangent=[&](size_t i) {
+                const auto&p=anchors[i];
+                const auto&prev=anchors[i==first?(closed?end-2:first):i-1];
+                const auto&next=anchors[i+1==end?(closed?first+1:end-1):i+1];
+                float before=length(prev,p),after=length(p,next);
+                if(before<.01f)return std::array<float,3>{(next.x-p.x)/after,(next.z-p.z)/after,(next.h-p.h)/after};
+                if(after<.01f)return std::array<float,3>{(p.x-prev.x)/before,(p.z-prev.z)/before,(p.h-prev.h)/before};
+                float incoming=(p.h-prev.h)/before,outgoing=(next.h-p.h)/after;
+                float slope=incoming*outgoing>0?2*incoming*outgoing/(incoming+outgoing):0;
+                return std::array<float,3>{(next.x-prev.x)/(before+after),(next.z-prev.z)/(before+after),slope};
+            };
+            for(size_t i=first;i+1<end;++i) {
+                const auto&a=anchors[i];const auto&b=anchors[i+1];
+                float span=length(a,b);auto ta=tangent(i),tb=tangent(i+1);
+                int steps=int(std::ceil(span/2.8f));
+                for(int step=0;step<steps;++step) {
+                    float t=float(step)/steps,t2=t*t,t3=t2*t;
+                    float p=2*t3-3*t2+1,q=-2*t3+3*t2,u=t3-2*t2+t,v=t3-t2;
+                    out.push_back({p*a.x+q*b.x+span*(u*ta[0]+v*tb[0]),
+                        p*a.z+q*b.z+span*(u*ta[1]+v*tb[1]),
+                        p*a.h+q*b.h+span*(u*ta[2]+v*tb[2]),
+                        a.width+(b.width-a.width)*smooth(0,1,t),a.route});
+                }
+            }
+            out.push_back(anchors[end-1]);first=end;
+        }
+        return out;
+    };
+    if(mode==5){static const auto points=build(5);return points;}
+    static const auto points=build(4);return points;
+}
 struct TrailSample { float distance,height,width,along,dx,dz; int route; };
-inline TrailSample nearest_trail(int mode,float x,float z) {
-    TrailSample result{1e8f,0,3,0,0,-1,0};
-    const auto &points=trails(mode); float along=0;
-    for(size_t i=1;i<points.size();++i) {
-        const auto &a=points[i-1],&b=points[i];
-        if(a.route!=b.route){along=0;continue;}
-        const float dx=b.x-a.x,dz=b.z-a.z,length=std::sqrt(dx*dx+dz*dz);
+struct TrailSegment { ExpeditionTrailPoint a,b;float dx,dz,length,along; };
+inline const std::vector<TrailSegment>& trail_segments(int mode) {
+    auto build=[](int map){
+        std::vector<TrailSegment> out;const auto&points=trails(map);float along=0;
+        for(size_t i=1;i<points.size();++i){
+            const auto&a=points[i-1];const auto&b=points[i];
+            if(a.route!=b.route){along=0;continue;}
+            float dx=b.x-a.x,dz=b.z-a.z,length=std::hypot(dx,dz);
+            out.push_back({a,b,dx,dz,length,along});along+=length;
+        }
+        return out;
+    };
+    if(mode==5){static const auto segments=build(5);return segments;}
+    static const auto segments=build(4);return segments;
+}
+inline std::array<TrailSample,4> nearby_trails(int mode,float x,float z) {
+    std::array<TrailSample,4> result;
+    std::array<float,4> height_sum{},weight_sum{};
+    for(int route=0;route<4;++route)result[route]={1e8f,0,3,0,0,-1,route};
+    for(const auto &segment:trail_segments(mode)) {
+        const auto &a=segment.a,&b=segment.b;
+        const float dx=segment.dx,dz=segment.dz,length=segment.length;
         const float t=clamp(((x-a.x)*dx+(z-a.z)*dz)/(length*length),0,1);
-        const float px=x-a.x-dx*t,pz=z-a.z-dz*t,d=std::sqrt(px*px+pz*pz);
-        if(d<result.distance)result={d,a.h+(b.h-a.h)*t,a.width+(b.width-a.width)*t,along+t*length,dx/length,dz/length,a.route};
-        along+=length;
+        const float px=x-a.x-dx*t,pz=z-a.z-dz*t,d=px*px+pz*pz;
+        float weight=length/((d+36)*(d+36));
+        height_sum[a.route]+=(a.h+(b.h-a.h)*t)*weight;weight_sum[a.route]+=weight;
+        if(d<result[a.route].distance)result[a.route]={d,a.h+(b.h-a.h)*t,a.width+(b.width-a.width)*t,segment.along+t*length,dx/length,dz/length,a.route};
     }
+    for(auto&route:result){
+        route.distance=std::sqrt(route.distance);
+        // Between two arms of one winding route, the shoulder follows their
+        // smoothly integrated contour influence. Retain the exact authored
+        // elevation under the track; never create a Voronoi cliff in between.
+        float shoulder=smooth(route.width+3,route.width+17,route.distance);
+        if(weight_sum[route.route]>1e-12f)route.height+=(height_sum[route.route]/weight_sum[route.route]-route.height)*shoulder;
+    }
+    return result;
+}
+inline TrailSample nearest_trail(int mode,float x,float z) {
+    const auto nearby=nearby_trails(mode,x,z);auto result=nearby[0];
+    for(int route=1;route<4;++route)if(nearby[route].distance<result.distance)result=nearby[route];
     return result;
 }
 inline ExpeditionWater water(int mode) { return mode==5?ExpeditionWater{26,-147,83,66,-1.6f}:ExpeditionWater{108,-87,35,28,5}; }
@@ -80,39 +156,42 @@ inline float authored_height(int mode,float x,float z) {
     if(mode==4) {
         // Interlocking ridge spurs wrap around a broad glacial valley. Relief
         // grows coherently towards the massif, rather than random isolated hills.
-        h=5+noise(x*.008f,z*.008f)*8+noise(x*.027f,z*.027f)*2.4f;
+        h=5+noise(x*.008f,z*.008f)*8+noise(x*.021f,z*.021f)*1.6f;
         h+=mound(x,z,-178,-234,115,125,69)+mound(x,z,-270,-45,91,149,61);
         h+=mound(x,z,145,-206,124,98,75)+mound(x,z,287,-129,74,126,104);
         h+=mound(x,z,-121,269,146,70,77)+mound(x,z,235,253,102,80,117);
         h+=mound(x,z,12,-319,115,53,75);
-        float ridge=1-std::abs(noise(x*.023f+noise(x*.005f,z*.005f),z*.023f));
+        float ridged_noise=noise(x*.016f+noise(x*.005f,z*.005f)*.65f,z*.016f);
+        float ridge=1-std::sqrt(ridged_noise*ridged_noise+.10f);
         float relief=smooth(15,80,h);
-        h+=relief*(ridge*ridge*12+noise(x*.080f,z*.080f)*2.2f);
+        h+=relief*(ridge*ridge*11+noise(x*.044f,z*.044f)*.72f);
         // Glacial scouring leaves coherent smooth shoulders with short rough
         // steps. Larger exposed ledges are exact convex hulls in the rock cache.
-        h+=noise(x*.16f,z*.16f)*(.16f+relief*.55f);
+        h+=noise(x*.083f,z*.083f)*(.045f+relief*.11f);
         h+=smooth(277,340,std::max(std::abs(x),std::abs(z)))*29;
     } else {
         // Low, elongated glacial ridges, damp hollows and rounded granite knobs.
         float warp=noise(x*.008f,z*.008f)*.6f;
-        h=3.2f+noise(x*.009f,z*.014f)*3.0f+noise(x*.032f,z*.023f)*1.2f;
+        h=3.2f+noise(x*.009f,z*.014f)*3.0f+noise(x*.025f,z*.018f)*.8f;
         h+=mound(x,z,-223,5,67,143,12)+mound(x,z,144,203,119,70,17);
         h+=mound(x,z,-152,-231,95,59,11)+mound(x,z,245,-120,68,127,17);
-        h+=std::pow(1-std::abs(noise(x*.025f+warp,z*.012f)),3.f)*2.8f;
-        h+=noise(x*.13f,z*.13f)*.19f;
+        float spine=noise(x*.020f+warp,z*.010f);
+        h+=std::pow(1-std::sqrt(spine*spine+.08f),3.f)*2.8f;
+        h+=noise(x*.075f,z*.075f)*.075f;
         h+=smooth(279,350,std::max(std::abs(x),std::abs(z)))*16;
     }
     const auto lake=water(mode);const float d=lake_distance(mode,x,z);
-    const float blend=smooth(.90f,1.27f,d);
-    const float bed=lake.height-1.7f+smooth(.30f,1.03f,d)*2.8f+noise(x*.09f,z*.09f)*.11f;
+    const float blend=smooth(.89f,1.40f,d);
+    const float bed=lake.height-1.7f+smooth(.30f,1.03f,d)*2.8f+noise(x*.055f,z*.055f)*.07f;
     const float shore_raise=(std::max(h,lake.height+1.1f)-h)*(1-smooth(1.25f,1.75f,d));
     h=bed*(1-blend)+(h+shore_raise)*blend;
     if(mode==5) {
         const float c=creek_distance(mode,x,z);
         float bed=lake.height+.16f+std::max(0.f,x-95)*.006f;
-        h=bed*(1-smooth(2.8f,10,c))+h*smooth(2.8f,10,c);
+        h=bed*(1-smooth(3.2f,34,c))+h*smooth(3.2f,34,c);
     }
-    auto r=nearest_trail(mode,x,z);
+    const auto routes=nearby_trails(mode,x,z);auto r=routes[0];
+    for(int route=1;route<4;++route)if(routes[route].distance<r.distance)r=routes[route];
     // Trail surface blends through a graded shoulder into native landform.
     // Technical branches retain coherent exposed-rock undulations, while the
     // main forest track has shallow paired wheel ruts and a subtle crown.
@@ -120,36 +199,33 @@ inline float authored_height(int mode,float x,float z) {
     // landscape must not become a narrow, mechanically excavated trench when
     // a route elevation differs from the broad ridge field. Wider relief
     // transitions retain woodland and asymmetry around the actual wheel track.
-    float shoulder=clamp(15.f+std::abs(h-r.height)*1.8f,20.f,66.f);
-    shoulder*=.94f+.12f*noise(x*.019f,z*.019f);
-    const float blend_trail=smooth(r.width,r.width+shoulder,r.distance);
-    const float rough=r.route>=2?.085f:.025f;
-    float trail_h=r.height+noise(x*.14f,z*.14f)*rough;
+    float influence=0,weighted_height=0,weight_sum=0;
+    for(const auto&route:routes) {
+        float shoulder=clamp(19.f+std::abs(h-route.height)*2.05f,26.f,86.f);
+        shoulder*=.97f+.07f*noise(x*.013f,z*.013f);
+        float blend=1-smooth(route.width+1,route.width+shoulder,route.distance);
+        float weight=blend/std::pow(1+route.distance*route.distance*.13f,2.f);
+        weighted_height+=route.height*weight;weight_sum+=weight;
+        influence=std::max(influence,blend);
+    }
+    // Blend the influences of adjacent contour tracks before grading the
+    // shoulder. A hard nearest-route switch previously made false cliff seams.
+    float route_h=weight_sum>1e-8f?weighted_height/weight_sum:r.height;
+    const float rough=r.route>=2?.065f:.022f;
+    float trail_h=route_h+noise(x*.09f,z*.09f)*rough;
     const float rut=std::exp(-std::pow((r.distance-0.87f)/.29f,2.f));
     trail_h-=(mode==5?.065f:.035f)*rut;
-    h=trail_h*(1-blend_trail)+h*blend_trail;
+    h=trail_h*influence+h*(1-influence);
     // The camp, garage and map handoff are the same level on both maps.
     float camp=std::sqrt(x*x+(z-8)*(z-8));
     float camp_blend=smooth(12,40,camp);
     camp_blend+=(smooth(12,22,camp)-camp_blend)*(1-smooth(r.width,r.width+8,r.distance));
     return h*camp_blend;
 }
-inline ExpeditionMaterial authored_material(int mode,float x,float z,float h) {
-    const auto r=nearest_trail(mode,x,z);
-    const float trail=1-smooth(r.width-.5f,r.width+2.1f,r.distance);
-    const float wet=(mode==5?.86f:.48f)*(1-smooth(.88f,1.20f,lake_distance(mode,x,z)));
-    const float creek=mode==5?.7f*(1-smooth(3,11,creek_distance(mode,x,z))):0;
-    const float slopes=std::abs(authored_height(mode,x+1,z)-authored_height(mode,x-1,z))+
-                       std::abs(authored_height(mode,x,z+1)-authored_height(mode,x,z-1));
-    float rock=clamp(smooth(.55f,2.8f,slopes)*.86f+(mode==4?smooth(44,87,h)*.64f:0),0,.94f);
-    if(r.route>=2)rock=std::max(rock,trail*(mode==4?.64f:.42f));
-    float dirt=trail*(1-rock)*.90f;
-    return {rock,dirt,1-rock-dirt,std::max(wet,creek)};
-}
 struct Cache {
-    std::vector<float> height,surface;
+    std::vector<float> height,surface,gravel;
     std::vector<ExpeditionMaterial> material;
-    explicit Cache(int mode):height(side*side),surface(side*side),material(side*side) {
+    explicit Cache(int mode):height(side*side),surface(side*side),gravel(side*side),material(side*side) {
         for(int iz=0;iz<side;++iz)for(int ix=0;ix<side;++ix) {
             float x=-extent+ix*spacing,z=-extent+iz*spacing;size_t i=size_t(iz)*side+ix;
             height[i]=authored_height(mode,x,z);
@@ -165,9 +241,17 @@ struct Cache {
             float dirt=trail*(1-rock)*.9f;
             float wet=(mode==5?.86f:.48f)*(1-smooth(.88f,1.20f,lake_distance(mode,x,z)));
             if(mode==5)wet=std::max(wet,.7f*(1-smooth(3,11,creek_distance(mode,x,z))));
-            if(mode==5&&r.route==0)wet=std::max(wet,trail*.18f*(.5f+.5f*noise(x*.038f,z*.038f)));
+            if(mode==5) {
+                float hollow=(1-smooth(.04f,.19f,slope))*(.5f+.5f*noise(x*.028f+3,z*.022f));
+                wet=std::max(wet,(.16f+trail*.31f)*hollow);
+            }
+            // Loose granitic debris collects on lower trail margins and dry
+            // shore fans. Fine soil and moss retain less grip when saturated.
+            gravel[i]=trail*(1-rock)*(mode==4?.93f:.68f)*
+                (.65f+.35f*noise(x*.031f+5,z*.027f))*(1-wet*.65f);
             material[i]={rock,dirt,1-rock-dirt,wet};
-            surface[i]=clamp(rock*1.08f+dirt*.91f+(1-rock-dirt)*.83f-wet*.28f,.52f,1.12f);
+            surface[i]=clamp(rock*(1.10f-wet*.54f)+dirt*(.89f-wet*.35f)+
+                (1-rock-dirt)*(.83f-wet*.31f)-gravel[i]*.12f,.52f,1.12f);
         }
     }
 };
@@ -203,9 +287,24 @@ inline float expedition_surface(int mode,float x,float z) {
 inline ExpeditionMaterial expedition_material(int mode,float x,float z) {
     using namespace expedition_detail;
     if(!std::isfinite(x)||!std::isfinite(z))return {0,0,1,0};
-    int ix=int(clamp(std::round((x+extent)/spacing),0,float(side-1)));
-    int iz=int(clamp(std::round((z+extent)/spacing),0,float(side-1)));
-    return cache(mode).material[size_t(iz)*side+ix];
+    const auto&data=cache(mode).material;
+    float gx=clamp((x+extent)/spacing,0,float(side-1)),gz=clamp((z+extent)/spacing,0,float(side-1));
+    int ix=std::min(side-2,int(gx)),iz=std::min(side-2,int(gz));
+    float tx=gx-ix,tz=gz-iz;size_t i=size_t(iz)*side+ix;
+    auto blend=[](const ExpeditionMaterial&a,const ExpeditionMaterial&b,const ExpeditionMaterial&c,float wa,float wb,float wc){
+        return ExpeditionMaterial{a.rock*wa+b.rock*wb+c.rock*wc,a.dirt*wa+b.dirt*wb+c.dirt*wc,
+            a.grass*wa+b.grass*wb+c.grass*wc,a.wet*wa+b.wet*wb+c.wet*wc};
+    };
+    if(tx+tz<=1)return blend(data[i],data[i+1],data[i+side],1-tx-tz,tx,tz);
+    return blend(data[i+side+1],data[i+side],data[i+1],tx+tz-1,1-tx,1-tz);
+}
+inline int expedition_surface_material(int mode,float x,float z) {
+    const auto m=expedition_material(mode,x,z);
+    if(m.rock>=.50f)return m.wet>.30f?ExpeditionWetRock:ExpeditionDryRock;
+    if(m.wet>.40f)return ExpeditionMud;
+    if(std::isfinite(x)&&std::isfinite(z)&&
+        expedition_detail::sample(expedition_detail::cache(mode).gravel,x,z)>.42f)return ExpeditionGravel;
+    return ExpeditionDirt;
 }
 inline float expedition_trail_distance(int mode,float x,float z){return expedition_detail::nearest_trail(mode,x,z).distance;}
 inline const std::vector<ExpeditionTrailPoint>& expedition_trail_points(int mode){return expedition_detail::trails(mode);}

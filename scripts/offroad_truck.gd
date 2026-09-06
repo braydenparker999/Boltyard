@@ -26,6 +26,8 @@ var _wheel_normals := PackedVector3Array()
 var _wheel_points := PackedVector3Array()
 var _wheel_phases := PackedFloat32Array()
 var _wheel_compression := PackedFloat32Array()
+var _patch_planes := PackedColorArray()
+var _patch_centers := PackedColorArray()
 var _wheel_up := Vector3.UP
 var _link_starts := PackedVector3Array()
 var _link_ends := PackedVector3Array()
@@ -798,6 +800,8 @@ func _refresh_visuals() -> void:
 	_wheel_points = wheels.points
 	_wheel_phases = wheels.phases
 	_wheel_compression = wheels.compression
+	_patch_planes = wheels.patch_planes
+	_patch_centers = wheels.patch_centers
 	_wheel_up = wheels.up
 	_link_starts = wheels.link_starts
 	_link_ends = wheels.link_ends
@@ -821,10 +825,9 @@ func _refresh_visuals() -> void:
 		material.set_shader_parameter("rig_center", center)
 		material.set_shader_parameter("tire_padding", _tire_padding)
 		material.set_shader_parameter("wheel_axes", _wheel_axes)
-		material.set_shader_parameter("wheel_normals", _wheel_normals)
-		material.set_shader_parameter("wheel_points", _wheel_points)
+		material.set_shader_parameter("patch_planes", _patch_planes)
+		material.set_shader_parameter("patch_centers", _patch_centers)
 		material.set_shader_parameter("wheel_phases", _wheel_phases)
-		material.set_shader_parameter("wheel_compression", _wheel_compression)
 		material.set_shader_parameter("wheel_up", _wheel_up)
 		material.set_shader_parameter("link_starts", _link_starts)
 		material.set_shader_parameter("link_ends", _link_ends)
@@ -942,12 +945,21 @@ func _debug_vertex(binding: int, p: Vector3) -> Vector3:
 	var radial := ring - center
 	var pad := _tire_padding * clampf((p.z - 0.50) * 2.0, 0.0, 1.0)
 	var point := center + radial * p.z + (radial + Vector3.ONE * 0.000001).normalized() * pad
-	if _wheel_compression[w] > 0.0001 and p.z > 0.55:
-		var depth := (point - _wheel_points[w]).dot(_wheel_normals[w])
-		point += _wheel_normals[w] * maxf(0.0, 0.002 - depth)
-		var patch := clampf(1.0 - maxf(depth, 0.0) / maxf(_tire_padding * 3.0, 0.01), 0.0, 1.0)
-		var sidewall := clampf(absf(p.y - 0.5) * 2.0, 0.0, 1.0) * clampf((p.z - 0.55) * 3.0, 0.0, 1.0)
-		point += _wheel_axes[w] * signf(p.y - 0.5) * _wheel_compression[w] * 0.30 * patch * sidewall
+	if p.z < 0.85:
+		var rigid_point := _debug_vertex(200 + w, p)
+		point = rigid_point.lerp(point, smoothstep(0.51, 0.85, p.z))
+	if p.z > 0.55:
+		for pass_index in range(2):
+			for j in range(6):
+				var plane := _patch_planes[w * 6 + j]
+				var patch := _patch_centers[w * 6 + j]
+				var normal := Vector3(plane.r, plane.g, plane.b)
+				if normal.length_squared() < 0.5 or patch.a <= 0.0:
+					continue
+				var delta := point - Vector3(patch.r, patch.g, patch.b)
+				var tangent := delta - normal * delta.dot(normal)
+				if tangent.length_squared() <= patch.a * patch.a:
+					point += normal * maxf(0.0, 0.002 - (point.dot(normal) - plane.a))
 	return point
 
 func _inspect_mesh() -> Dictionary:

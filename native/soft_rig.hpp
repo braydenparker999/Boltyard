@@ -10,7 +10,8 @@
 // contact model and are not independently integrated mass nodes. Structural
 // beams still yield and break, so impacts permanently deform the actual body.
 // Bounded mobile model: no self-contact, fluid mud, detailed clutch/transmission,
-// or independently deformable tire carcass. Pressure changes tire compliance.
+// or full tire finite elements. Bounded contact patches deform a compliant rubber
+// envelope; the hub/rim remains rigid. Pressure changes carcass and shear compliance.
 
 #include <algorithm>
 #include <array>
@@ -105,6 +106,12 @@ public:
     static constexpr int tire_segments = 10;
     static constexpr int nodes_per_wheel = 1 + 2 * tire_segments;
     static constexpr float fixed_dt = 1.0f / 240.0f;
+    static constexpr int max_tire_patches = 6;
+    struct TirePatch {
+        Vec3 normal, point, shear; // world-space plane and elastic tangent displacement
+        float load=0, compression=0, half_length=0, half_width=0, friction=0;
+        int surface=0, dynamic_body=-1;
+    };
     std::vector<Particle> particles;
     std::vector<Beam> beams;
     std::vector<Vec3> rest_positions; // undeformed world positions for binding each vehicle's render skin
@@ -158,6 +165,8 @@ public:
         velocity_limit_count_ = 0; nonfinite_count_ = 0; dropped_time_ = 0;
         wheel_contact_counts_.fill(0); wheel_spin_.fill(0); wheel_phase_.fill(0); wheel_slip_.fill(0);
         near_rocks_.clear(); rock_lambdas_.clear();
+        for(auto &c:wheel_manifolds_)c.clear();
+        wheel_shear_.fill({});
         dynamic_objects_.set_terrain(terrain_mode_); dynamic_objects_.reset(); near_dynamic_.clear(); dynamic_lambdas_.clear();
         const float frame_x = cfg_.track_width * 0.38f;
         const float frame_z = cfg_.wheelbase * 0.50f;
@@ -269,6 +278,8 @@ public:
         const bool was_solid = solid_axles_active();
         terrain_mode_ = std::clamp(mode, 0, 5);
         dynamic_objects_.set_terrain(terrain_mode_);
+        for(auto &c:wheel_manifolds_)c.clear();
+        wheel_shear_.fill({});
         if (was_solid == solid_axles_active()) return;
         if (solid_axles_active()) initialize_axle_carriers();
         else if (particles.size() > 100) {
@@ -328,6 +339,20 @@ public:
     }
     DynamicObjects &dynamic_objects() { return dynamic_objects_; }
     const DynamicObjects &dynamic_objects() const { return dynamic_objects_; }
+    std::vector<TirePatch> wheel_contact_patches(int w) const {
+        std::vector<TirePatch> out;
+        if(!valid_wheel(w))return out;
+        for(const auto &c:tire_contacts(w)) {
+            const float load=c.lambda/(fixed_dt*fixed_dt), depth=std::min(cfg_.tire_radius*.42f,load/tire_stiffness());
+            const float length=std::sqrt(std::max(0.f,2*cfg_.tire_radius*depth-depth*depth));
+            Vec3 shear=c.patch_index>=0?c.shear:wheel_shear_[w];
+            shear-=c.normal*shear.dot(c.normal);
+            out.push_back({c.normal,c.point,shear,load,depth,length,tire_width_*.5f,c.mu,c.surface,c.dynamic_body});
+        }
+        std::sort(out.begin(),out.end(),[](const TirePatch&a,const TirePatch&b){return a.load>b.load;});
+        if(out.size()>max_tire_patches)out.resize(max_tire_patches);
+        return out;
+    }
     float wheel_load(int w) const { float load=0; for(const auto& c: tire_contacts(w)) load += c.normal.y*c.lambda/(fixed_dt*fixed_dt); return load; }
     float wheel_rock_load(int w) const { float load=0; for(const auto& c: tire_contacts(w)) if(c.rock)load += c.normal.y*c.lambda/(fixed_dt*fixed_dt); return load; }
     float wheel_slip(int w) const { return w >= 0 && w < 4 ? wheel_slip_[w] : 0; }
@@ -494,7 +519,14 @@ public:
     }
 
 private:
-    struct TireContact {Vec3 normal, point; float lambda, mu; bool rock; int dynamic_body = -1;};
+    struct TireContact {Vec3 normal, point; float lambda, mu; bool rock; int dynamic_body = -1, surface=0; Vec3 shear{}; int patch_index=-1;};
+    struct WheelSurfaceContact {
+        Vec3 normal, point, friction, shear;
+        float lambda=0, gap=0, width_sample=0, longitudinal_sample=0, mu=1;
+        int rock=-1, surface=0;
+    };
+    std::array<std::vector<WheelSurfaceContact>,4> wheel_manifolds_;
+    std::array<Vec3,4> wheel_shear_{};
     DynamicObjects dynamic_objects_;
     std::vector<int> near_dynamic_;
     std::vector<float> dynamic_lambdas_;
@@ -511,16 +543,28 @@ private:
     bool solid_axles_active() const { return terrain_mode_ >= 3 && cfg_.solid_axles; }
     float tire_stiffness() const { return 300000.f * cfg_.tire_pressure; }
     bool axle_locked(int w) const { return w < 2 ? cfg_.front_locked : cfg_.rear_locked; }
-    float tire_mu(float surface) const {return 1.18f*cfg_.tire_grip*surface*std::clamp(1.05f-.1f*(cfg_.tire_pressure-1),.88f,1.12f);}
+    float tire_mu(float surface) const {
+        // Rubber compound and the contacted material set Coulomb capacity.
+        // Lower pressure changes footprint/shear compliance, never a grip bonus.
+        return 1.18f*cfg_.tire_grip*surface*(terrain_mode_>=3?1.f:std::clamp(1.05f-.1f*(cfg_.tire_pressure-1),.88f,1.12f));
+    }
+    float wood_surface(Vec3 point) const {
+        return .82f-(terrain_mode_>=4?.24f*expedition_material(terrain_mode_,point.x,point.z).wet:0.f);
+    }
     std::vector<TireContact> tire_contacts(int w) const {
-        std::vector<TireContact> out; const int h=wheel_hubs[w];const auto&p=particles[h];
+        std::vector<TireContact> out; if(!valid_wheel(w))return out;
+        const int h=wheel_hubs[w];const auto&p=particles[h];
+        if(terrain_mode_>=3)for(int i=0;i<int(wheel_manifolds_[w].size());++i) {
+            const auto &c=wheel_manifolds_[w][i];if(c.lambda>1e-8f)
+                out.push_back({c.normal,c.point,c.lambda,c.mu,c.rock>=0,-1,c.surface,c.shear,i});
+        }
         if(contact_lambdas_[h]>1e-8f)out.push_back({contact_normals_[h],p.pos-contact_normals_[h]*(cfg_.tire_radius-contact_lambdas_[h]/(fixed_dt*fixed_dt*300000*cfg_.tire_pressure)),contact_lambdas_[h],tire_mu(terrain_surface(p.pos.x,p.pos.z)),false});
-        for(size_t k=0;k<nearby_obstacles_.size();++k){size_t pair=k*particles.size()+h;if(obstacle_lambdas_[pair]>1e-8f)out.push_back({obstacle_normals_[pair],p.pos-obstacle_normals_[pair]*cfg_.tire_radius,obstacle_lambdas_[pair],tire_mu(1),true});}
+        for(size_t k=0;k<nearby_obstacles_.size();++k){size_t pair=k*particles.size()+h;if(obstacle_lambdas_[pair]>1e-8f)out.push_back({obstacle_normals_[pair],p.pos-obstacle_normals_[pair]*cfg_.tire_radius,obstacle_lambdas_[pair],tire_mu(terrain_mode_>=3?wood_surface(p.pos-obstacle_normals_[pair]*cfg_.tire_radius):1.f),true,-1,terrain_mode_>=3?5:0});}
         for(size_t k=0;k<near_rocks_.size();++k){size_t pair=k*particles.size()+h;if(rock_lambdas_[pair]>1e-8f)out.push_back({rock_normals_[pair],rock_points_[pair],rock_lambdas_[pair],tire_mu(near_rocks_[k]->surface),true});}
         for (size_t k = 0; k < near_dynamic_.size(); ++k) {
             const size_t pair = k * particles.size() + h;
             if (dynamic_lambdas_[pair] > 1e-8f)
-                out.push_back({dynamic_normals_[pair], dynamic_points_[pair], dynamic_lambdas_[pair], tire_mu(.95f), true, near_dynamic_[k]});
+                out.push_back({dynamic_normals_[pair], dynamic_points_[pair], dynamic_lambdas_[pair], tire_mu(dynamic_objects_.tire_surface(near_dynamic_[k],dynamic_points_[pair])), true, near_dynamic_[k], dynamic_objects_.surface_material(near_dynamic_[k],dynamic_points_[pair])});
         }
         return out;
     }
@@ -643,7 +687,14 @@ private:
         for(int w=0;w<4;++w){
             auto&hub=particles[wheel_hubs[w]];float inv=dynamic_inv_mass(hub),inertia=std::max(1.f,.5f/inv*cfg_.tire_radius*cfg_.tire_radius);
             if(brake){float before=wheel_spin_[w];wheel_spin_[w]*=std::exp(-24*fixed_dt);if(!contacts[w].empty())wheel_spin_[w]=0;
-                apply_axle_angular_impulse(w/2,wheel_axis(w)*(-(wheel_spin_[w]-before)*inertia));wheel_slip_[w]=0;continue;}
+                apply_axle_angular_impulse(w/2,wheel_axis(w)*(-(wheel_spin_[w]-before)*inertia));wheel_slip_[w]=0;
+                Vec3 brake_shear;for(auto &patch:wheel_manifolds_[w]) {
+                    Vec3 target=patch.friction/(fixed_dt*fixed_dt*95000.f*std::sqrt(cfg_.tire_pressure));
+                    const float magnitude=target.length();if(magnitude>cfg_.tire_radius*.12f)target*=cfg_.tire_radius*.12f/magnitude;
+                    patch.shear+=(target-patch.shear)*(1-std::exp(-fixed_dt/.035f));brake_shear+=target;
+                }
+                const float size=brake_shear.length();if(size>cfg_.tire_radius*.12f)brake_shear*=cfg_.tire_radius*.12f/size;
+                wheel_shear_[w]+=(brake_shear-wheel_shear_[w])*(1-std::exp(-fixed_dt/.035f));continue;}
             float axle_cap=axle_locked(w)?capacity[w]:std::min(capacity[w],capacity[w^1]);
             float force=std::clamp(engine_force,-axle_cap,axle_cap);
             // Crawl range couples angular tire speed to contact impulses.
@@ -658,7 +709,7 @@ private:
                 if(std::abs(throttle)<.001f){float drag=std::min(std::abs(wheel_spin_[w]),35.f*ratio*.25f/inertia*fixed_dt);wheel_spin_[w]-=std::copysign(drag,wheel_spin_[w]);}
                 apply_axle_angular_impulse(w/2,wheel_axis(w)*(-(wheel_spin_[w]-before)*inertia));
             }
-            float spin=0,weight=0;wheel_slip_[w]=0;
+            float spin=0,weight=0;wheel_slip_[w]=0;Vec3 next_shear;
             for(auto c:contacts[w]){
                 Vec3 rolling=c.normal.cross(wheel_axis(w)).normalized();if(rolling.dot(forward())<0)rolling=-rolling;
                 Vec3 lateral=rolling.cross(c.normal).normalized();
@@ -676,7 +727,10 @@ private:
                     // impulse remain coupled, with one friction budget per patch.
                     const float normal_force = c.lambda / (fixed_dt * fixed_dt);
                     const float contact_speed = std::max(.35f, std::max(std::abs(v), std::abs(wheel_spin_[w] * cfg_.tire_radius)));
-                    const float longitudinal_stiffness = 14.f * normal_force / contact_speed;
+                    const float depth=normal_force/tire_stiffness();
+                    const float patch_length=2*std::sqrt(std::max(0.f,2*cfg_.tire_radius*depth-depth*depth));
+                    const float footprint=std::clamp(patch_length/.14f,.65f,1.65f);
+                    const float longitudinal_stiffness = 14.f * normal_force / contact_speed * std::sqrt(footprint);
                     longitudinal = -(v + wheel_spin_[w] * cfg_.tire_radius) /
                         (inv + moving_inv + cfg_.tire_radius * cfg_.tire_radius / inertia + 1 / std::max(.001f, longitudinal_stiffness * fixed_dt));
                 }
@@ -687,12 +741,26 @@ private:
                 }
                 Vec3 impulse=rolling*longitudinal+lateral*lateral_impulse;
                 float limit=c.mu*c.lambda/fixed_dt,requested=impulse.length();if(requested>limit&&requested>1e-7f)impulse*=limit/requested;
+                // A finite shear stiffness turns the actual tangential contact
+                // force into rubber deflection; no torque means no invented squirm.
+                const float rubber_stiffness=std::max(20000.f,95000.f*std::sqrt(cfg_.tire_pressure)*std::max(.3f,share));
+                Vec3 target_shear=impulse*(-1/(fixed_dt*rubber_stiffness));
+                const float shear_size=target_shear.length();if(shear_size>cfg_.tire_radius*.12f)target_shear*=cfg_.tire_radius*.12f/shear_size;
+                next_shear+=target_shear*share;
+                if(c.patch_index>=0) {
+                    auto &patch=wheel_manifolds_[w][c.patch_index];
+                    patch.shear+=(target_shear-patch.shear)*(1-std::exp(-fixed_dt/.035f));
+                }
                 hub.velocity+=impulse*inv;
                 if (c.dynamic_body >= 0) dynamic_objects_.apply_impulse(c.dynamic_body, c.point, -impulse);
                 if(terrain_mode_>=3)wheel_spin_[w]+=impulse.dot(rolling)*cfg_.tire_radius/inertia;
                 spin+=(-v/cfg_.tire_radius-std::copysign(std::max(0.f,requested-limit)*cfg_.tire_radius/inertia,throttle))*share;weight+=share;
                 wheel_slip_[w]+=std::abs(v+wheel_spin_[w]*cfg_.tire_radius)*share;
             }
+            const float relax=1-std::exp(-fixed_dt/.035f);
+            wheel_shear_[w]+=(next_shear-wheel_shear_[w])*relax;
+            const float shear_limit=cfg_.tire_radius*.12f;
+            if(wheel_shear_[w].length()>shear_limit)wheel_shear_[w]*=shear_limit/wheel_shear_[w].length();
             if(terrain_mode_>=3)continue;
             if(weight>0)wheel_spin_[w]=spin/weight;
             else{wheel_spin_[w]+=-throttle*cfg_.engine_torque*ratio*.25f/inertia*fixed_dt;wheel_spin_[w]*=std::exp(-.18f*fixed_dt);wheel_spin_[w]=std::clamp(wheel_spin_[w],-top_speed/cfg_.tire_radius,top_speed/cfg_.tire_radius);}
@@ -714,16 +782,39 @@ private:
             const Vec3 u = (up() - axle * up().dot(axle)).normalized();
             const Vec3 radial = axle.cross(u).normalized();
             wheel_phase_[w] = std::remainder(wheel_phase_[w] + wheel_spin_[w] * fixed_dt, 6.28318530718f);
-            const auto patches = tire_contacts(w);
+            const auto patches = wheel_contact_patches(w);
             for (int side = 0; side < 2; ++side) for (int j = 0; j < tire_segments; ++j) {
                 auto &p = particles[wheel_hubs[w] + 1 + side * tire_segments + j];
                 const float theta = 6.28318530718f * j / tire_segments + wheel_phase_[w];
-                Vec3 radius = (u * std::cos(theta) + radial * std::sin(theta)) * (cfg_.tire_radius * 0.88f);
-                p.prev = p.pos;
-                p.pos = hub.pos + axle * ((side == 0 ? -0.5f : 0.5f) * tire_width_) + radius;
-                // Pressure/contact compression flattens just the supported patch.
-                for(auto c:patches){float distance=(p.pos-c.point).dot(c.normal);if(distance<p.radius*.65f)p.pos+=c.normal*(p.radius*.65f-distance);}
-                p.velocity = hub.velocity + axle.cross(radius) * wheel_spin_[w];
+                const Vec3 direction=u*std::cos(theta)+radial*std::sin(theta);
+                const float side_sign=side==0?-1.f:1.f;
+                const Vec3 shoulder=axle*(side_sign*tire_width_*.5f);
+                Vec3 outer=hub.pos+shoulder+direction*cfg_.tire_radius;
+                Vec3 deformation;float bulge=0;
+                for(const auto &c:patches) {
+                    const float facing=std::max(0.f,-direction.dot(c.normal));
+                    // The carcass bends beyond the smaller tread contact patch.
+                    // Compliance follows load and pressure, and fades smoothly
+                    // around the shoulder; this is independent of wheel phase.
+                    const float support=std::pow(facing,8.f);
+                    const Vec3 tangent=outer-c.point-c.normal*(outer-c.point).dot(c.normal);
+                    const float reach=std::sqrt(c.half_length*c.half_length+c.half_width*c.half_width)+cfg_.tire_radius*.18f;
+                    const float indentation=tangent.length_squared()<reach*reach?std::max(0.f,-(outer-c.point).dot(c.normal)):0.f;
+                    deformation+=c.normal*indentation+c.shear*support;
+                    bulge=std::max(bulge,c.compression*.52f*support);
+                }
+                p.prev=p.pos;
+                p.pos=hub.pos+shoulder+direction*(cfg_.tire_radius*.88f)+deformation+axle*(side_sign*bulge);
+                // A second projection retains simultaneous oppositely angled
+                // contacts after tangential rubber shear around a rock corner.
+                for(const auto &c:patches) {
+                    const float distance=(p.pos+direction*(cfg_.tire_radius*.12f)-c.point).dot(c.normal);
+                    const Vec3 offset=p.pos+direction*(cfg_.tire_radius*.12f)-c.point;
+                    const Vec3 tangent=offset-c.normal*distance;
+                    const float reach=std::sqrt(c.half_length*c.half_length+c.half_width*c.half_width)+cfg_.tire_radius*.18f;
+                    if(distance<0&&tangent.length_squared()<reach*reach)p.pos-=c.normal*distance;
+                }
+                p.velocity=hub.velocity+axle.cross(direction*cfg_.tire_radius)*wheel_spin_[w];
             }
         }
     }
@@ -889,10 +980,98 @@ private:
 
         }
     }
+    WheelSurfaceContact query_wheel_surface(int w,int rock,float across,float along) const {
+        WheelSurfaceContact c;c.rock=rock;c.width_sample=across;c.longitudinal_sample=along;
+        const auto &hub=particles[wheel_hubs[w]];
+        const Vec3 axle=wheel_axis(w), radial_forward=(forward()-axle*forward().dot(axle)).normalized();
+        const Vec3 line_center=hub.pos+axle*across;
+        const Vec3 query=line_center+radial_forward*along;
+        if(rock<0) {
+            c.normal=terrain_normal(query.x,query.z);
+            c.point={query.x,terrain_height(query.x,query.z),query.z};
+            // Circular longitudinal slice: a crest loads the actual tread arc.
+            const float support=std::sqrt(std::max(0.f,cfg_.tire_radius*cfg_.tire_radius-along*along));
+            c.gap=(query-c.point).dot(c.normal)-support;
+            c.mu=tire_mu(terrain_surface(c.point.x,c.point.z));
+            c.surface=terrain_mode_>=4?expedition_surface_material(terrain_mode_,c.point.x,c.point.z):0;
+        } else {
+            const auto &r=*near_rocks_[rock];auto hit=rock_distance(r,query);
+            c.normal=hit.normal;c.point=hit.point;
+            // Support of the real radial disc avoids a full-radius side sphere.
+            const float axial=c.normal.dot(axle);
+            const float support=std::max(.055f,cfg_.tire_radius*std::sqrt(std::max(0.f,1-axial*axial)));
+            c.gap=(line_center-hit.point).dot(c.normal)-support;
+            // A sampled face cannot act as an infinite plane beyond its hull.
+            // Reject it when its radial support point does not meet the convex solid.
+            if(std::abs(along)>.001f) {
+                const Vec3 radial=(c.normal-axle*axial).normalized();
+                const Vec3 support_point=line_center-radial*cfg_.tire_radius;
+                if(rock_distance(r,support_point).distance>std::max(.012f,-c.gap))c.gap=1.f;
+            }
+            const float surface=terrain_mode_>=4&&!custom_rocks_?
+                1.10f-.54f*expedition_material(terrain_mode_,hit.point.x,hit.point.z).wet:r.surface;
+            c.mu=tire_mu(surface);
+            c.surface=terrain_mode_>=4&&expedition_material(terrain_mode_,hit.point.x,hit.point.z).wet>.30f?2:1;
+        }
+        return c;
+    }
+    void build_wheel_manifolds() {
+        if(terrain_mode_<3)return;
+        for(int w=0;w<4;++w) {
+            auto &manifold=wheel_manifolds_[w];const auto previous=manifold;manifold.clear();
+            auto add=[&](WheelSurfaceContact c) {
+                if(c.gap>.045f)return;
+                // Co-planar samples describe one patch: do not multiply normal
+                // stiffness or available friction by the number of queries.
+                for(auto &old:manifold)if(old.rock==c.rock&&old.normal.dot(c.normal)>.985f) {
+                    if(c.gap<old.gap-.0001f)old=c;
+                    return;
+                }
+                manifold.push_back(c);
+            };
+            for(int source=-1;source<int(near_rocks_.size());++source) {
+                if(source>=0) {
+                    const auto&r=*near_rocks_[source];const float reach=r.reach+cfg_.tire_radius+tire_width_*.5f+.05f;
+                    if((particles[wheel_hubs[w]].pos-r.center).length_squared()>reach*reach)continue;
+                }
+                for(float across:{0.f,-tire_width_*.46f,tire_width_*.46f})
+                    for(float along:{0.f,-cfg_.tire_radius*.38f,cfg_.tire_radius*.38f})
+                        add(query_wheel_surface(w,source,across,along));
+            }
+            std::sort(manifold.begin(),manifold.end(),[](const WheelSurfaceContact&a,const WheelSurfaceContact&b){return a.gap<b.gap;});
+            if(manifold.size()>max_tire_patches)manifold.resize(max_tire_patches);
+            for(auto &c:manifold)for(const auto &old:previous)
+                if(old.rock==c.rock&&old.normal.dot(c.normal)>.95f&&(old.point-c.point).length_squared()<.16f) {
+                    c.shear=old.shear-c.normal*old.shear.dot(c.normal);break;
+                }
+        }
+    }
+    void solve_wheel_manifolds(bool brake) {
+        for(int w=0;w<4;++w)for(auto &c:wheel_manifolds_[w]) {
+            auto &hub=particles[wheel_hubs[w]];const float inv=dynamic_inv_mass(hub);
+            const auto hit=query_wheel_surface(w,c.rock,c.width_sample,c.longitudinal_sample);
+            c.normal=hit.normal;c.point=hit.point;c.gap=hit.gap;c.mu=hit.mu;c.surface=hit.surface;
+            const float alpha=1/(tire_stiffness()*fixed_dt*fixed_dt);
+            const float next=std::max(0.f,c.lambda+(-c.gap-alpha*c.lambda)/(inv+alpha));
+            hub.pos+=c.normal*((next-c.lambda)*inv);c.lambda=next;
+            if(!brake||next<=0)continue;
+            Vec3 slip=hub.pos-hub.prev;slip-=c.normal*slip.dot(c.normal);
+            Vec3 proposed=c.friction+slip/std::max(inv,1e-8f);
+            const float limit=c.mu*next,magnitude=proposed.length();
+            if(magnitude>limit&&magnitude>1e-8f)proposed*=limit/magnitude;
+            hub.pos-=(proposed-c.friction)*inv;c.friction=proposed;
+        }
+    }
+    void solve_wheel_contact_velocities() {
+        for(int w=0;w<4;++w)for(const auto &c:wheel_manifolds_[w])if(c.lambda>1e-7f) {
+            auto &hub=particles[wheel_hubs[w]];++contact_count_;++wheel_contact_counts_[w];
+            const float vn=hub.velocity.dot(c.normal);if(vn<0)hub.velocity-=c.normal*vn;
+        }
+    }
     void solve_contacts(bool brake) {
         for (std::size_t i = 0; i < particles.size(); ++i) {
             auto &p = particles[i];
-            if (p.tire) continue;
+            if (p.tire || (terrain_mode_>=3 && p.wheel>=0)) continue;
             const float radius = contact_radius(p);
             const float inv_mass = dynamic_inv_mass(p);
             float h = terrain_height(p.pos.x, p.pos.z);
@@ -1018,7 +1197,7 @@ private:
                 if (next_lambda <= 0 || (p.wheel >= 0 && !brake)) continue;
                 const Vec3 displacement = p.pos - p.prev;
                 Vec3 proposed = obstacle_friction_[pair] + displacement - normal * displacement.dot(normal);
-                const float bound = (p.wheel >= 0 ? tire_mu(1) : 0.45f) * next_lambda * inv_mass;
+                const float bound = (p.wheel >= 0 ? tire_mu(terrain_mode_>=3?wood_surface(p.pos-normal*radius):1.f) : 0.45f) * next_lambda * inv_mass;
                 const float l = proposed.length();
                 if (l > bound && l > 1e-8f) proposed *= bound / l;
                 p.pos -= proposed - obstacle_friction_[pair];
@@ -1028,7 +1207,7 @@ private:
     }
     void solve_rock_contacts(bool brake) {
         for(size_t k=0;k<near_rocks_.size();++k) for(size_t i=0;i<particles.size();++i){
-            auto&p=particles[i];if(p.tire)continue;const auto&r=*near_rocks_[k];float radius=contact_radius(p);size_t pair=k*particles.size()+i;
+            auto&p=particles[i];if(p.tire||(terrain_mode_>=3&&p.wheel>=0))continue;const auto&r=*near_rocks_[k];float radius=contact_radius(p);size_t pair=k*particles.size()+i;
             if((p.pos-r.center).length_squared()>(r.reach+radius+.04f)*(r.reach+radius+.04f))continue;
             auto hit=rock_distance(r,p.pos);
             if(p.wheel>=0){
@@ -1084,7 +1263,7 @@ private:
             const Vec3 tangent = slip_length > 1e-8f ? slip / slip_length : Vec3{};
             const float tangent_inv = inv + dynamic_objects_.point_inverse_mass(id, hit.point, tangent);
             Vec3 proposed = dynamic_friction_[pair] + slip / std::max(tangent_inv, 1e-8f);
-            const float bound = (p.wheel >= 0 ? tire_mu(.95f) : .45f) * next, magnitude = proposed.length();
+            const float bound = (p.wheel >= 0 ? tire_mu(dynamic_objects_.tire_surface(id,hit.point)) : .45f) * next, magnitude = proposed.length();
             if (magnitude > bound && magnitude > 1e-8f) proposed *= bound / magnitude;
             const Vec3 correction = proposed - dynamic_friction_[pair]; dynamic_friction_[pair] = proposed;
             p.pos -= correction * inv;
@@ -1357,6 +1536,7 @@ private:
         for(auto &c:four_links_)c.lambda=0;
         for(auto &c:coilovers_)c.lambda=0;
         spring_stop_lambdas_.fill(0);
+        build_wheel_manifolds();
         constexpr int iterations = 9;
         for (int iteration = 0; iteration < iterations; ++iteration) {
             if (iteration % 2 == 0) for (auto &b : beams) solve_beam(b);
@@ -1368,6 +1548,7 @@ private:
             if (terrain_mode_ >= 3) {
                 dynamic_objects_.solve_world(fixed_dt);
                 solve_dynamic_contacts(braking);
+                solve_wheel_manifolds(braking);
                 solve_moving_support_contacts();
             }
             solve_skid_contacts();
@@ -1418,6 +1599,7 @@ private:
         if (terrain_mode_ >= 3) {
             dynamic_objects_.finish_step(fixed_dt);
             solve_dynamic_contact_velocities();
+            solve_wheel_contact_velocities();
             solve_moving_support_velocities();
         }
         if(solid_axles_active()) {

@@ -67,6 +67,12 @@ func run() -> void:
 	scene.fit_crawl_setup()
 	scene.toast_remaining = 0.0
 	await capture("camera-garage-landscape.png")
+	scene.show_garage_tab("rig")
+	await capture("camera-equipment-landscape.png")
+	scene.show_garage_tab("trails")
+	scene.toggle_map()
+	await capture("camera-map-landscape.png")
+	scene.toggle_map()
 	root.size = Vector2i(720, 1280)
 	scene.layout_ui()
 	await capture("camera-garage-portrait.png")
@@ -77,53 +83,75 @@ func run() -> void:
 	await capture("camera-map-portrait.png")
 	scene.toggle_map()
 	scene.toggle_mode()
-	scene.reset_camera()
-	scene.toast_remaining = 0.0
-	await capture("camera-follow-portrait.png")
-	scene.toggle_rig_controls()
-	await capture("camera-rig-portrait.png")
-	scene.toggle_rig_controls()
 	for dimensions in [Vector2i(1280, 720), Vector2i(720, 1280)]:
-		# Keep the existing artifact names while reviewing both exploration maps.
+		# Review the taller sandstone and the forest map in both camera styles.
 		if dimensions.y > dimensions.x:
 			scene.toggle_mode()
 			scene.select_map("russia")
 			scene.toggle_mode()
 		root.size = dimensions
 		scene.layout_ui()
-		scene.reset_camera()
-		scene.toast_remaining = 0.0
-		await settle()
-		var points = scenery_pair(scene)
-		var a: Vector2 = points[0]
-		var b: Vector2 = points[1]
-		var center = (a + b) * 0.5
-		contact(scene, 4, a, true)
-		contact(scene, 7, b, true)
-		# Translating or rotating two contacts must not influence camera angles.
-		var span = ((b - a) * 0.5).rotated(0.30) * 1.40
-		drag(scene, 4, center + Vector2(0, 24) - span)
-		drag(scene, 7, center + Vector2(0, 24) + span)
+		var orientation = "portrait" if dimensions.y > dimensions.x else "landscape"
+		for preset in ["follow", "trail", "free"]:
+			scene.set_camera_preset(preset)
+			scene.camera_pan_mode = false
+			scene.update_camera_tools()
+			scene.toast_remaining = 0.0
+			await settle()
+			assert(scene.camera_drag_button.visible == (preset == "free"))
+			assert(scene.camera_follow_button.visible)
+			await capture("camera-%s-%s.png" % [preset, orientation])
+			scene.toggle_rig_controls()
+			scene.toast_remaining = 0.0
+			await capture("camera-rig-%s-%s.png" % [preset, orientation])
+			scene.toggle_rig_controls()
+			if preset == "free":
+				continue
+			var points = scenery_pair(scene)
+			var before: Dictionary = scene.camera_preferences()
+			contact(scene, 4, points[0], true)
+			drag(scene, 4, points[0] + Vector2(70, 28))
+			scene._process(0.0)
+			assert(scene.camera_preferences() == before, "locked presets ignore a single scenery finger")
+			contact(scene, 4, points[0] + Vector2(70, 28), false)
+			var center: Vector2 = (points[0] + points[1]) * 0.5
+			contact(scene, 4, points[0], true)
+			contact(scene, 7, points[1], true)
+			var span: Vector2 = ((points[1] - points[0]) * 0.5).rotated(0.30) * 1.40
+			drag(scene, 4, center + Vector2(0, 24) - span)
+			drag(scene, 7, center + Vector2(0, 24) + span)
+			scene._process(0.0)
+			assert(scene.camera_preset == preset and scene.camera_follow and is_equal_approx(scene.drive_distance, float(before.drive_distance) / 1.40) and is_equal_approx(scene.drive_pitch, float(before.drive_pitch)))
+			contact(scene, 4, center + Vector2(0, 24) - span, false)
+			contact(scene, 7, center + Vector2(0, 24) + span, false)
+			await capture("camera-%s-pinch-%s.png" % [preset, orientation])
+
+		# Manual movement requires an explicit Free selection. Keep the earlier
+		# touch artifact names to make before/after reviews easy to compare.
+		scene.set_camera_preset("follow")
+		scene.set_camera_preset("free")
+		scene.camera_pan_mode = false
+		var point: Vector2 = scenery_pair(scene)[0]
+		contact(scene, 4, point, true)
+		drag(scene, 4, point + Vector2(70, 28))
 		scene._process(0.0)
-		assert(scene.camera_follow and scene.drive_distance < 7.0 and is_equal_approx(scene.drive_pitch, 0.30))
-		contact(scene, 4, center + Vector2(0, 24) - span, false)
-		contact(scene, 7, center + Vector2(0, 24) + span, false)
-		# One finger controls the view. Verify both orbit/tilt and target panning.
-		contact(scene, 4, a, true)
-		drag(scene, 4, a + Vector2(70, 28))
-		scene._process(0.0)
-		assert(not scene.camera_follow and scene.drive_pitch > 0.30)
-		contact(scene, 4, a + Vector2(70, 28), false)
+		assert(scene.camera_preset == "free" and not scene.camera_follow and scene.drive_pitch > 0.30)
+		contact(scene, 4, point + Vector2(70, 28), false)
 		scene.toggle_camera_drag()
 		scene.toast_remaining = 0.0
-		contact(scene, 4, a, true)
-		drag(scene, 4, a + Vector2(22, 12))
+		contact(scene, 4, point, true)
+		drag(scene, 4, point + Vector2(22, 12))
 		scene._process(0.0)
 		assert(scene.drive_pan.length() > 0.0)
-		contact(scene, 4, a + Vector2(22, 12), false)
-		await capture("camera-touch-%s.png" % ("portrait" if dimensions.y > dimensions.x else "landscape"))
+		contact(scene, 4, point + Vector2(22, 12), false)
+		await capture("camera-touch-%s.png" % orientation)
 		scene.camera_pan_mode = false
 		scene.update_camera_tools()
+		scene.set_camera_preset("follow")
+		scene.toggle_rig_controls()
+		scene.toast_remaining = 0.0
+		await capture("camera-rig-%s.png" % orientation)
+		scene.toggle_rig_controls()
 	scene.clear_controls()
 	scene.free()
 	restore_file(SAVE, backup)
