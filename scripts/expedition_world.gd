@@ -72,7 +72,8 @@ func _make_lighting() -> void:
 	settings.sky.sky_material = sky_material
 	if map_mode == 6:
 		_sun.rotation_degrees = Vector3(-38, -46, 0)
-		_sun.light_color = Color("ffe8cc")
+		_sun.light_color = Color("fff4e8")
+		_sun.light_energy = .92
 		settings.ambient_light_color = Color("c4d4e3")
 		settings.ambient_light_energy = .40
 		settings.fog_light_color = Color("c6aca0")

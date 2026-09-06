@@ -88,8 +88,9 @@ def stone(name,x,z,w,d,h,base_y,yaw=0,lean=0):
    px=u*w*.5*scale+lean*yy;pz=v*d*.5*scale
    py=base_y+yy*h+(tilt*px if layer==2 else 0)
    xx=x+px*math.cos(yaw)+pz*math.sin(yaw);zz=z-px*math.sin(yaw)+pz*math.cos(yaw)
-   verts.append(bv(xx,py,zz))
+   verts.append(bv(xx-x,py-base_y,zz-z))
  ob=mesh_object(name,verts,[])
+ ob.location=bv(x,base_y,z)
  bm=bmesh.new()
  for v in ob.data.vertices:bm.verts.new(v.co)
  hull=bmesh.ops.convex_hull(bm,input=list(bm.verts),use_existing_faces=False)
@@ -97,7 +98,8 @@ def stone(name,x,z,w,d,h,base_y,yaw=0,lean=0):
  bmesh.ops.recalc_face_normals(bm,faces=list(bm.faces));bm.to_mesh(ob.data);bm.free()
  bpy.context.view_layer.objects.active=ob;ob.select_set(True)
  bevel=ob.modifiers.new('Weathered fracture edges','BEVEL');bevel.width=min(w,d,h)*random.uniform(.04,.085);bevel.segments=1
- bpy.ops.object.modifier_apply(modifier=bevel.name)
+ if min(w,d,h)>.8:bpy.ops.object.modifier_apply(modifier=bevel.name)
+ else:ob.modifiers.remove(bevel)
  # Re-hull removes numerical concavities before native signed-distance queries.
  bm=bmesh.new()
  for v in ob.data.vertices:bm.verts.new(v.co)
@@ -105,21 +107,57 @@ def stone(name,x,z,w,d,h,base_y,yaw=0,lean=0):
  bmesh.ops.delete(bm,geom=hull['geom_interior'],context='VERTS')
  bmesh.ops.recalc_face_normals(bm,faces=list(bm.faces));bmesh.ops.triangulate(bm,faces=list(bm.faces))
  bm.to_mesh(ob.data);bm.free()
+ ob.data.update()
+ worst=max((v.co-ob.data.vertices[p.vertices[0]].co).dot(p.normal) for p in ob.data.polygons for v in ob.data.vertices)
+ if worst>.0003:
+  # Bevel's tolerance can leave a tiny non-supporting facet on small rubble.
+  # Re-export its original fracture hull instead; visuals and contacts agree.
+  bm=bmesh.new()
+  for point in verts:bm.verts.new(point)
+  hull=bmesh.ops.convex_hull(bm,input=list(bm.verts),use_existing_faces=False)
+  bmesh.ops.delete(bm,geom=hull['geom_interior'],context='VERTS')
+  bmesh.ops.recalc_face_normals(bm,faces=list(bm.faces));bmesh.ops.triangulate(bm,faces=list(bm.faces))
+  bm.to_mesh(ob.data);bm.free();ob.data.update()
  ob.data.materials.append(mat);ob.select_set(False)
  ob['collision']='Final Blender convex mesh, exported verbatim'
  rocks.append(ob)
-# Wall beds continue along the canyon, irregular joints and leaning buttresses.
+# Continuous closed cliff volumes. Front faces are a sculpted section through
+# sedimentary beds; no separated wall bricks. Each chunk shares its border
+# exactly with its neighbour and exports the very same concave collision mesh.
+levels=[-1.8,0,.7,1.6,2.6,2.9,3.15,3.5,4.8,5.8,6.05,6.35,7.7,8.8,9.1,9.45,10.8,12.2,13.2,14.0]
+def cliff_vertex(side,z,v):
+ cx=center(z);t=-z
+ # Broad buttresses, vertical erosion channels, and subtle bedding recesses.
+ buttress=1.25*math.sin(t*.21+side)+.65*math.sin(t*.49+side*.4)
+ groove=.40*math.exp(-(math.sin(t*.36)/.16)**2)
+ bed=.32*math.sin(v*2.09)+.11*math.sin(v*4.2+t*.06)
+ x=cx+side*(10.4+buttress+v*.12+bed+groove)
+ top=1+.11*math.sin(t*.075)+.07*math.sin(t*.26+side)
+ y=surface(cx+side*8,z)-.7+v*top+.18*math.sin(t*.17+v*.13)
+ return bv(x,y,z)
 for side in [-1,1]:
- for k in range(16):
-  z=-36-k*6.2+random.uniform(-1,1);cx=center(z)
-  wall=cx+side*(11.2+2.6*math.sin(k*.63+side))
-  y=ground(wall,z)-1.8
-  for bed in range(3+(k%4==1)):
-   h=random.uniform(2.7,4.0)
-   stone('Cliff_%s_%02d_Bed%d'%('W' if side<0 else 'E',k,bed),wall+side*bed*.6,z+random.uniform(-.9,.9),random.uniform(8.5,12),random.uniform(8,11),h,y,random.uniform(-.16,.16),side*random.uniform(.1,.7))
-   y+=h*.84
+ for chunk in range(8):
+  verts=[];faces=[];ny=len(levels);rows=17
+  for j in range(rows):
+   z=-32-(chunk*16+j)*.8
+   for v in levels:verts.append(cliff_vertex(side,z,v))
+   # Back lower and upper vertices make each section a closed solid volume.
+   front_bottom=verts[-ny];front_top=verts[-1]
+   verts.extend([bv(center(z)+side*26,front_bottom[2],z),bv(center(z)+side*26,front_top[2]-.8,z)])
+  stride=ny+2
+  for j in range(rows-1):
+   a=j*stride;b=(j+1)*stride
+   for k in range(ny-1):faces.append((a+k,b+k,b+k+1,a+k+1))
+   faces.extend([(a,b,a+ny,b+ny),(a+ny,a+ny+1,b+ny+1,b+ny),(a+ny-1,b+ny-1,b+ny+1,a+ny+1)])
+   # Bottom polygon winding is corrected by Blender below.
+   faces[-3]=(a,b,b+ny,a+ny)
+  faces.append(tuple(list(range(ny))+[ny+1,ny]))
+  end=(rows-1)*stride;faces.append(tuple([end+k for k in range(ny)]+[end+ny+1,end+ny]))
+  ob=mesh_object('Continuous_cliff_%d_%d'%(side,chunk),verts,faces)
+  bm=bmesh.new();bm.from_mesh(ob.data);bmesh.ops.recalc_face_normals(bm,faces=list(bm.faces));bmesh.ops.triangulate(bm,faces=list(bm.faces));bm.to_mesh(ob.data);bm.free()
+  ob.data.materials.append(mat);ob['surface_mesh']=True;ob['collision']='Closed sculpted triangle mesh with native BVH';rocks.append(ob)
 # Broken shoulder slabs extend out of the parent rock into the driving floor.
-for k in range(33):
+for k in range(20):
  z=random.uniform(-133,-29);side=-1 if k%2 else 1;x=center(z)+side*random.uniform(5.5,9.5)
  stone('Embedded_shelf_%02d'%k,x,z,random.uniform(3.2,6),random.uniform(3.5,7),random.uniform(.9,2.2),ground(x,z)-.55,random.uniform(-.5,.5))
 # Rubble concentrated under cliff joints, leaving the central crawl line open.
@@ -127,16 +165,24 @@ for k in range(72):
  z=random.uniform(-133,-27);side=-1 if k%2 else 1;x=center(z)+side*random.uniform(4.3,10)
  s=random.uniform(.22,1.15)
  stone('Talus_%02d'%k,x,z,s*1.3,s*1.8,s*.72,ground(x,z)-s*.24,random.uniform(-3,3))
-# One natural bridge above the chute, with asymmetric rock piers and clear air.
+# A continuous concave arch volume with a real shaped opening, not a lintel box.
 z=-93;cx=center(z);y=ground(cx,z)
-for side in [-1,1]:
- stone('Arch_abutment_'+str(side),cx+side*9.8,z,8,8,11,y-1,.13,side*.8)
-stone('Natural_bridge',cx,z,24,7.5,3.5,y+9.8,.06,.4)
-stone('Bridge_crown',cx-3,z-1,17,7,2.4,y+12.6,.10,.3)
+outline=[(-12,-1),(-13,5),(-11,11),(-8,14),(-3,15),(3,14.5),(8,13.7),(12,10),(13,3),(12,-1),(6,-1),(6,4),(5.4,6.5),(3.5,8.6),(.5,9.2),(-3,8.7),(-5.5,6.1),(-6.2,3.5),(-6,-1)]
+verts=[]
+for depth in [-3.2,3.2]:
+ for x,h in outline:verts.append(bv(cx+x,y+h,z+depth+.24*math.sin(x*.6)))
+n=len(outline);faces=[tuple(range(n-1,-1,-1)),tuple(range(n,2*n))]
+for i in range(n):j=(i+1)%n;faces.append((i,j,n+j,n+i))
+ob=mesh_object('Sculpted_Window_Arch',verts,faces)
+bm=bmesh.new();bm.from_mesh(ob.data);bmesh.ops.recalc_face_normals(bm,faces=list(bm.faces));bmesh.ops.triangulate(bm,faces=list(bm.faces));bm.to_mesh(ob.data);bm.free()
+ob.data.materials.append(mat);ob['surface_mesh']=True;ob['collision']='Closed arch volume with open passage';rocks.append(ob)
 # Export final native samples and hulls. Quantize all geometry to 1 micrometre
 # BEFORE GLB output so native and rendered positions stay within float error.
+bpy.context.view_layer.update()
 for ob in floor_objects+rocks:
- for v in ob.data.vertices:v.co=tuple(round(c,6) for c in v.co)
+ matrix=ob.matrix_world.copy()
+ for v in ob.data.vertices:v.co=tuple(round(c,6) for c in matrix @ v.co)
+ ob.matrix_world.identity()
 def fl(v):
  s=f'{float(v):.6f}'.rstrip('0').rstrip('.');return s+('.0' if '.' not in s else '')+'f'
 header=['#pragma once','// Generated by tools/blender/build_canyon.py. Do not edit.','namespace boltyard { namespace blender_canyon {',
@@ -157,7 +203,7 @@ header+=['};','inline bool contains(float x,float z){return x>=x0&&x<=x0+(nx-1)*
 header=['#pragma once','// Final convex meshes exported from Bedrock Narrows.blend.','inline void append_blender_canyon_rocks(std::vector<CrawlRock>& out){']
 tri_count=0
 for ob in rocks:
- header+=['{CrawlRock r; r.surface=1.10f; r.vertices={']
+ header+=['{CrawlRock r; r.surface=1.10f; r.surface_mesh='+('true' if ob.get('surface_mesh',False) else 'false')+'; r.vertices={']
  for v in ob.data.vertices:header.append('{'+','.join(fl(c) for c in (v.co.x,v.co.z,-v.co.y))+'},')
  header+=['};r.triangles={']
  for p in ob.data.polygons:header.append('{'+','.join(str(i) for i in p.vertices)+'},');tri_count+=1

@@ -4,8 +4,8 @@
   "width_m": 64,
   "floor_spacing_m": 0.5,
   "floor_triangles": 65536,
-  "collision_hulls": 213,
-  "rock_triangles": 29766,
+  "collision_hulls": 109,
+  "rock_triangles": 17964,
   "floor_sha256": "2577a695afd225ea64014034e33d7414824ba7b965f7bc7cdef608d5f106e273",
   "entry": [
     5,

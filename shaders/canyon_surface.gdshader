@@ -24,7 +24,7 @@ void fragment() {
     float band=.97+.03*sin(strata*6.28318);
     float distance_filter=1.-smoothstep(.3,1.1,fwidth(strata));
     band=mix(1.,band,distance_filter*(1.-abs(n.y)));
-    vec3 warm=vec3(.42,.245,.145)*(.26+grain*2.65);
+    vec3 warm=vec3(.28,.18,.13)*(.26+grain*2.65);
     warm*=band*mix(.88,1.12,macro);
     // Top surfaces carry paler dust; mineral photographs retain their own
     // fractures. Broad subtle bedding avoids zebra stripes and distant aliasing.

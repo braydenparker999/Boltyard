@@ -296,7 +296,13 @@ public:
                 CrawlRock::Bounds bounds;
                 if(!rock.query_nodes.empty())bounds=rock.query_nodes[0].bounds;
                 else for(const auto&v:rock.vertices)bounds.add(v);
-                if(overlaps(box,bounds)){occupied=true;break;}
+                if(overlaps(box,bounds)){
+                    if(rock.surface_mesh){
+                        for(size_t i=0;i<particles.size();++i){float radius=particles[i].wheel>=0?cfg_.tire_radius:particles[i].radius;
+                            if(rock_distance(rock,at+offsets[i]).distance<radius+.18f){occupied=true;break;}}
+                    }else occupied=true;
+                    if(occupied)break;
+                }
             }
             if(occupied)continue;
             if(terrain_mode_==2||terrain_mode_>=4){
@@ -1069,7 +1075,9 @@ private:
             c.mu=tire_mu(terrain_surface(c.point.x,c.point.z));
             c.surface=terrain_mode_>=4?expedition_surface_material(terrain_mode_,c.point.x,c.point.z):0;
         } else {
-            const auto &r=*near_rocks_[rock];auto hit=rock_distance(r,query);
+            const auto &r=*near_rocks_[rock];
+            if(r.surface_mesh && r.query_nodes[0].bounds.distance_squared(query)>(cfg_.tire_radius+.1f)*(cfg_.tire_radius+.1f)){c.gap=1.f;return c;}
+            auto hit=rock_distance(r,query);
             c.normal=hit.normal;c.point=hit.point;
             // Support of the real radial disc avoids a full-radius side sphere.
             const float axial=c.normal.dot(axle);
@@ -1283,6 +1291,7 @@ private:
         for(size_t k=0;k<near_rocks_.size();++k) for(size_t i=0;i<particles.size();++i){
             auto&p=particles[i];if(p.tire||(terrain_mode_>=3&&p.wheel>=0))continue;const auto&r=*near_rocks_[k];float radius=contact_radius(p);size_t pair=k*particles.size()+i;
             if((p.pos-r.center).length_squared()>(r.reach+radius+.04f)*(r.reach+radius+.04f))continue;
+            if(r.surface_mesh && rock_lambdas_[pair]==0 && r.query_nodes[0].bounds.distance_squared(p.pos)>(radius+.04f)*(radius+.04f))continue;
             auto hit=rock_distance(r,p.pos);
             if(p.wheel>=0){
                 const Vec3 axle=wheel_axis(p.wheel),side=axle*(tire_width_*.46f);
@@ -1440,7 +1449,9 @@ private:
                     point = {p.x, terrain_height(p.x, p.z), p.z};
                     distance = (p - point).dot(normal);
                 } else {
-                    auto hit = rock_distance(*near_rocks_[surface - 1], p);
+                    const auto& r=*near_rocks_[surface-1];
+                    if(r.surface_mesh && axle_contact_lambdas_[surface*10+axle*5+sample]==0 && r.query_nodes[0].bounds.distance_squared(p)>(radius+.02f)*(radius+.02f))continue;
+                    auto hit = rock_distance(r, p);
                     normal = hit.normal; point = hit.point; distance = hit.distance;
                 }
                 const size_t pair = surface * 10 + axle * 5 + sample;
@@ -1466,6 +1477,7 @@ private:
             float x=(ix+1)*.25f,z=(iz+1)*.25f;float weights[4]={(1-x)*(1-z),x*(1-z),(1-x)*z,x*z};
             Vec3 p,prev;float inv=0;for(int j=0;j<4;++j){p+=particles[j].pos*weights[j];prev+=particles[j].prev*weights[j];inv+=particles[j].inv_mass*weights[j]*weights[j];}
             const auto&r=*near_rocks_[k];if((p-r.center).length_squared()>(r.reach+.08f)*(r.reach+.08f))continue;
+            if(r.surface_mesh && skid_lambdas_[k*9+iz*3+ix]==0 && r.query_nodes[0].bounds.distance_squared(p)>.08f*.08f)continue;
             auto hit=rock_distance(r,p);size_t pair=k*9+iz*3+ix;float C=hit.distance-.04f;if(C>.025f&&skid_lambdas_[pair]==0)continue;
             float alpha=1/(4500000.f*fixed_dt*fixed_dt);float dl=(-C-alpha*skid_lambdas_[pair])/(inv+alpha),next=std::max(0.f,skid_lambdas_[pair]+dl);dl=next-skid_lambdas_[pair];skid_lambdas_[pair]=next;
             Vec3 slip=p-prev;slip-=hit.normal*slip.dot(hit.normal);Vec3 proposed=skid_friction_[pair]+slip/inv;float bound=.45f*next;float l=proposed.length();if(l>bound&&l>1e-8f)proposed*=bound/l;

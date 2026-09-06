@@ -30,9 +30,9 @@ int main(){
     require(length>1500,"substantial connected network");
     for(const auto &r:rocks){
         std::map<std::pair<int,int>,int> edges;
-        require(rock_distance(r,r.center).distance<0,"solid rock center");
+        if(!r.surface_mesh)require(rock_distance(r,r.center).distance<0,"solid rock center");
         for(size_t i=0;i<r.triangles.size();++i){auto t=r.triangles[i];
-            for(auto v:r.vertices)require(r.triangle_normals[i].dot(v-r.vertices[t[0]])<.002f,"convex contact planes");
+            if(!r.surface_mesh)for(auto v:r.vertices)require(r.triangle_normals[i].dot(v-r.vertices[t[0]])<.002f,"convex contact planes");
             for(int k=0;k<3;++k){int a=t[k],b=t[(k+1)%3];if(a>b)std::swap(a,b);++edges[{a,b}];}
         }
         for(auto e:edges)require(e.second==2,"closed manifold hull");

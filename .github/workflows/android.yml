@@ -37,7 +37,7 @@ jobs:
       - name: Validate and build native Android APK
         run: bash tools/ci_build.sh
         env:
-          BOLT_RECORD_MOVIE: "1"
+          BOLT_RECORD_MOVIE: "0"
       - name: Save installable APK
         uses: actions/upload-artifact@v4
         with:
