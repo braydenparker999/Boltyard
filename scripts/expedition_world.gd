@@ -555,11 +555,46 @@ func _build_expedition_lake() -> void:
 	if map_mode == 6:
 		return
 	if map_mode == 4:
-		_build_water_patch(Vector2(12, -61), Vector2(10, 6), 5.3, "SplitGraniteFord")
+		_build_forest_ford()
 	var center := Vector2(108, -87) if map_mode == 4 else Vector2(26, -147)
 	var radius := Vector2(35, 28) if map_mode == 4 else Vector2(83, 66)
 	var water_height := 5.0 if map_mode == 4 else -1.6
 	_build_water_patch(center, radius, water_height, "GlacialLake")
+
+func _build_forest_ford() -> void:
+	# Shallow runoff follows the native bed; its depth fades to zero at the
+	# banks. A polar mesh gives the small pool a continuous curved boundary.
+	var surface := SurfaceTool.new()
+	surface.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var rings := 8
+	var sectors := 40
+	var point := func(r: float, a: float) -> Vector3:
+		var x := 12.0 + cos(a)*5.0*r
+		var z := -61.0 + sin(a)*3.2*r
+		var depth := .045*(1.0-r*r)
+		return Vector3(x, _core.terrain_height(x,z)+.006+depth, z)
+	for ring in range(rings):
+		var r0 := float(ring)/rings
+		var r1 := float(ring+1)/rings
+		for j in range(sectors):
+			var a := float(j)*TAU/sectors
+			var b := float(j+1)*TAU/sectors
+			var p0: Vector3 = point.call(r0,a)
+			var p1: Vector3 = point.call(r0,b)
+			var p2: Vector3 = point.call(r1,a)
+			var p3: Vector3 = point.call(r1,b)
+			for vertex in ([p0,p2,p3] if ring == 0 else [p0,p2,p1,p1,p2,p3]):
+				surface.set_normal(Vector3.UP)
+				surface.set_color(Color(.1,0,0))
+				surface.add_vertex(vertex)
+	var material := ShaderMaterial.new()
+	material.shader = load("res://shaders/world_water.gdshader")
+	material.set_shader_parameter("ripple_normal",load("res://assets/world/terrain_dirt_normal.png"))
+	material.set_shader_parameter("shallow_color",Color("696e5d"))
+	material.set_shader_parameter("ford",true)
+	var water := _instance(surface.commit(),material,Vector3.ZERO)
+	water.name = "SplitGraniteFord"
+	water.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 
 func _build_water_patch(center: Vector2, radius: Vector2, water_height: float, title: String) -> void:
 	var surface := SurfaceTool.new()
@@ -568,11 +603,6 @@ func _build_water_patch(center: Vector2, radius: Vector2, water_height: float, t
 	for z in range(floori(center.y - radius.y - 8), ceili(center.y + radius.y + 8), 2):
 		for x in range(floori(center.x - radius.x - 8), ceili(center.x + radius.x + 8), 2):
 			for triangle in [[Vector2(x,z), Vector2(x+2,z), Vector2(x,z+2)], [Vector2(x+2,z), Vector2(x+2,z+2), Vector2(x,z+2)]]:
-				# A local ford must not flood unrelated lower terrain nearby.
-				if title == "SplitGraniteFord":
-					var midpoint: Vector2 = (triangle[0]+triangle[1]+triangle[2])/3.0
-					if ((midpoint-center)/radius).length_squared() > .72:
-						continue
 				var polygon: Array[Vector3] = []
 				for p in triangle:
 					polygon.append(Vector3(p.x, _core.terrain_height(p.x, p.y), p.y))
@@ -597,9 +627,6 @@ func _build_water_patch(center: Vector2, radius: Vector2, water_height: float, t
 	material.set_shader_parameter("ripple_normal", load("res://assets/world/terrain_dirt_normal.png"))
 	material.set_shader_parameter("deep_color", Color("172d32") if map_mode == 5 else Color("233f49"))
 	material.set_shader_parameter("shallow_color", Color("475548"))
-	if title == "SplitGraniteFord":
-		material.set_shader_parameter("shallow_color", Color("777664"))
-		material.set_shader_parameter("ford", true)
 	var water := _instance(surface.commit(), material, Vector3.ZERO)
 	water.name = title
 	water.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF

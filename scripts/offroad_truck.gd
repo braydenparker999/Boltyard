@@ -170,7 +170,7 @@ func _build_materials() -> void:
 	var colors: Array[Color] = [body_color, Color("202728"), Color("29434b"),
 		Color("b2babd"), Color("f5ebd7"), Color("92252a"), Color("202729"),
 		Color("2a3232"), Color("bd9659"), Color("dbddd5")]
-	var roughness: Array[float] = [0.43, 0.61, 0.085, 0.25, 0.17, 0.22, 0.87, 0.82, 0.32, 0.55]
+	var roughness: Array[float] = [0.62, 0.61, 0.085, 0.25, 0.17, 0.22, 0.87, 0.82, 0.32, 0.55]
 	var metallic: Array[float] = [0.04, 0.18, 0.0, 0.93, 0.0, 0.0, 0.0, 0.0, 0.82, 0.35]
 	_materials.clear()
 	for i in range(10):
@@ -181,7 +181,7 @@ func _build_materials() -> void:
 			material.set_shader_parameter("surface_kind", i)
 			material.set_shader_parameter("material_roughness", roughness[i])
 			material.set_shader_parameter("material_metallic", metallic[i])
-			material.set_shader_parameter("paint_coat", 0.30 if i == PAINT else 0.0)
+			material.set_shader_parameter("paint_coat", 0.0 if i == PAINT else 0.0)
 			material.set_shader_parameter("lamp_energy", 0.24 if i == LIGHT else (0.055 if i == RED else 0.0))
 		_materials.append(material)
 	_graph_material = StandardMaterial3D.new()

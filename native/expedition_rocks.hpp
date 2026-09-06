@@ -99,7 +99,8 @@ inline CrawlRock expedition_granite(int mode,float x,float z,float width,float d
 inline const std::vector<CrawlRock>& canyon_rocks() {
     static const auto rocks=[] {
         using namespace expedition_detail;std::vector<CrawlRock> out;unsigned seed=821;
-        auto block=[&](float x,float z,float w,float d,float height,float yaw,float base){
+        auto block=[&](float x,float z,float w,float d,float height,float yaw,float base,bool grounded=true){
+            if(grounded){base-=14;height+=14;}
             auto r=expedition_granite(6,x,z,w,d,height,yaw,seed++);
             // Affine vertical remapping keeps the rounded convex geology while
             // placing stacked beds and the suspended arch lintel precisely.
@@ -143,7 +144,7 @@ inline const std::vector<CrawlRock>& canyon_rocks() {
                         float base=expedition_height(6,cx,cz)-3;
                         float tall=6+v*10+(a.route==3?7:0);
                         block(cx,cz,11+v*6,18+v*6,tall,yaw+.12f,base);
-                        block(cx+nx*sign*2,cz+nz*sign*2,10+v*4,15+v*4,tall*.40f,yaw+.16f,base+tall-.3f);
+                        block(cx+nx*sign*2,cz+nz*sign*2,10+v*4,15+v*4,tall*.40f,yaw+.16f,base+tall*.52f,false);
                     }
                 }
                 next+=(a.route>=2?10.f:27.f)*(.83f+v*.34f);++index;
@@ -158,14 +159,14 @@ inline const std::vector<CrawlRock>& canyon_rocks() {
             if(nearest_trail(6,x,z).distance<26)continue;
             float base=expedition_height(6,x,z)-6;
             block(x,z,25+v*15,29+v*16,20+v*25,angle,base);
-            block(x,z,21+v*10,23+v*12,11+v*14,angle+.04f,base+19+v*25);
+            block(x,z,21+v*10,23+v*12,11+v*14,angle+.04f,base+(20+v*25)*.52f,false);
         }
         // A true open arch: two convex piers and one rock lintel. No hidden
         // wall closes the hole. The nearby overlook stays on the main loop.
         float ax=-211,az=-249,base=expedition_height(6,ax,az)-3;
         block(ax-10,az,10,13,18,.06f,base);
         block(ax+10,az,10,13,18,-.08f,base);
-        block(ax,az,29,12,5,.02f,base+15);
+        block(ax,az,29,12,5,.02f,base+15,false);
         return out;
     }();return rocks;
 }
