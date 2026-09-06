@@ -1,9 +1,10 @@
 #pragma once
 
-// Crawlworks 1.0: deformable XPBD frame, continuous compliant tire contacts,
-// crawl-mode beam axles on geometric trailing links/Panhard bars, and coupled
+// Crawlworks Expedition: deformable XPBD frame, compliant tire contacts,
+// tetrahedral axle carriers on triangulated four-links, and coupled
 // movable convex obstacles. Legacy valley handling remains on its v0.4 guides.
-// SI units. The 16 frame/cab particles and four lumped wheel assemblies carry
+// SI units. The 16 frame/cab particles, four wheel assemblies and four
+// internal axle-carrier mass nodes (crawl/exploration modes) carry
 // mass, gravity, suspension loads, contact traction and collision impulses.
 // The 80 sidewall samples preserve render bindings; they follow the round tire
 // contact model and are not independently integrated mass nodes. Structural
@@ -18,6 +19,7 @@
 #include <limits>
 #include <vector>
 #include "terrain_v03.hpp"
+#include "expedition_terrain.hpp"
 
 namespace boltyard {
 
@@ -47,6 +49,7 @@ inline float length(Vec3 v) { return v.length(); }
 inline Vec3 normalized(Vec3 v) { return v.normalized(); }
 
 #include "crawl_rocks.hpp"
+#include "expedition_rocks.hpp"
 #include "dynamic_objects.hpp"
 
 struct Config {
@@ -60,7 +63,7 @@ struct Config {
     bool locked_diffs = true;       // compatibility master; set_drivetrain updates both axles
     bool front_locked = true;
     bool rear_locked = true;
-    bool solid_axles = true;        // coupled link geometry in dedicated crawl mode only
+    bool solid_axles = true;        // coupled four-link geometry in crawl/exploration modes
     float mass = 1200.0f;           // kg, entire vehicle including wheels
     float track_width = 1.90f;      // m between hub centers
     float wheelbase = 2.70f;        // m
@@ -155,7 +158,7 @@ public:
         velocity_limit_count_ = 0; nonfinite_count_ = 0; dropped_time_ = 0;
         wheel_contact_counts_.fill(0); wheel_spin_.fill(0); wheel_phase_.fill(0); wheel_slip_.fill(0);
         near_rocks_.clear(); rock_lambdas_.clear();
-        dynamic_objects_.reset(); near_dynamic_.clear(); dynamic_lambdas_.clear();
+        dynamic_objects_.set_terrain(terrain_mode_); dynamic_objects_.reset(); near_dynamic_.clear(); dynamic_lambdas_.clear();
         const float frame_x = cfg_.track_width * 0.38f;
         const float frame_z = cfg_.wheelbase * 0.50f;
         const bool suv = cfg_.vehicle_type == 1;
@@ -237,6 +240,7 @@ public:
             // stops and a damper acting on the whole unsprung assembly.
             add_beam(w, wheel_hubs[w], SUSPENSION, 1.0f / cfg_.spring_rate);
         }
+        if (solid_axles_active()) initialize_axle_carriers();
         contact_lambdas_.assign(particles.size(), 0);
         friction_offsets_.assign(particles.size(), Vec3{});
         contact_normals_.assign(particles.size(), Vec3(0, 1, 0));
@@ -261,9 +265,29 @@ public:
         accumulator_ = std::clamp(accumulator_, 0.0, double(fixed_dt));
     }
 
-    void set_terrain(int mode) { terrain_mode_ = std::clamp(mode, 0, 3); }
+    void set_terrain(int mode) {
+        const bool was_solid = solid_axles_active();
+        terrain_mode_ = std::clamp(mode, 0, 5);
+        dynamic_objects_.set_terrain(terrain_mode_);
+        if (was_solid == solid_axles_active()) return;
+        if (solid_axles_active()) initialize_axle_carriers();
+        else if (particles.size() > 100) {
+            // Return the same allocated axle mass to its wheel assemblies when
+            // entering a legacy map; no mass is added or removed by map choice.
+            for (int w = 0; w < 4; ++w) {
+                float total = 1 / dynamic_inv_mass(particles[wheel_hubs[w]]) + carrier_mass_[w / 2];
+                for (int j = 0; j < nodes_per_wheel; ++j) particles[wheel_hubs[w]+j].inv_mass = nodes_per_wheel / total;
+            }
+            particles.resize(100); rest_positions.resize(100);
+        }
+        contact_lambdas_.assign(particles.size(), 0); friction_offsets_.assign(particles.size(), {});
+        contact_normals_.assign(particles.size(), {0,1,0});
+        near_rocks_.clear(); nearby_obstacles_.clear(); near_dynamic_.clear();
+    }
+    int get_terrain_mode() const { return terrain_mode_; }
     float terrain_height(float x, float z) const {
         if ((terrain_mode_ == 0 || terrain_mode_ == 3) || !std::isfinite(x) || !std::isfinite(z)) return 0;
+        if (terrain_mode_ >= 4) return expedition_height(terrain_mode_, x, z);
         if (terrain_mode_ == 2) return exploration_height(x, z);
         const float d = -z;
         const float active = smoothstep(0, 12, d);
@@ -282,6 +306,7 @@ public:
     }
     Vec3 terrain_normal(float x, float z) const {
         if (terrain_mode_ == 0 || terrain_mode_ == 3) return {0, 1, 0};
+        if (terrain_mode_ >= 4) { const auto n=expedition_normal(terrain_mode_,x,z); return {n.x,n.y,n.z}; }
         if (terrain_mode_ == 2) {
             const auto n = exploration_normal(x, z);
             return {n.x, n.y, n.z};
@@ -292,6 +317,7 @@ public:
     }
     float terrain_surface(float x, float z) const {
         if (!std::isfinite(x) || !std::isfinite(z)) return 1.0f;
+        if (terrain_mode_ >= 4) return expedition_surface(terrain_mode_,x,z);
         if (terrain_mode_ == 2) return exploration_surface(x, z);
         if (terrain_mode_ == 1 && z < -7 && z > -15) return 0.72f;
         return 1.0f;
@@ -336,12 +362,43 @@ public:
         return result;
     }
     Vec3 wheel_axle_direction(int w) const { return w >= 0 && w < 4 ? wheel_axis(w) : right(); }
-    Vec3 suspension_link_start(int w) const { return w >= 0 && w < 4 ? particles[solid_axles_active() ? (w ^ 2) : w].pos : Vec3{}; }
-    Vec3 suspension_link_end(int w) const { return w >= 0 && w < 4 ? particles[wheel_hubs[w]].pos : Vec3{}; }
-    Vec3 panhard_start(int axle) const { return axle >= 0 && axle < 2 ? particles[axle * 2 + 1].pos : Vec3{}; }
-    Vec3 panhard_end(int axle) const { return axle >= 0 && axle < 2 ? particles[wheel_hubs[axle * 2]].pos : Vec3{}; }
+    Vec3 suspension_link_start(int w) const { return valid_wheel(w) ? (solid_axles_active() ? attachment_position(lower_frame_[w]) : particles[w].pos) : Vec3{}; }
+    Vec3 suspension_link_end(int w) const { return valid_wheel(w) ? (solid_axles_active() ? attachment_position(lower_axle_[w]) : particles[wheel_hubs[w]].pos) : Vec3{}; }
+    Vec3 upper_link_start(int w) const { return valid_wheel(w) ? (solid_axles_active() ? attachment_position(upper_frame_[w]) : particles[w+4].pos) : Vec3{}; }
+    Vec3 upper_link_end(int w) const { return valid_wheel(w) ? (solid_axles_active() ? attachment_position(upper_axle_[w]) : particles[wheel_hubs[w]].pos) : Vec3{}; }
+    Vec3 shock_start(int w) const { return valid_wheel(w) ? (solid_axles_active() ? attachment_position(shock_frame_[w]) : particles[w+4].pos) : Vec3{}; }
+    Vec3 shock_end(int w) const { return valid_wheel(w) ? (solid_axles_active() ? attachment_position(shock_axle_[w]) : particles[wheel_hubs[w]].pos) : Vec3{}; }
+    float shock_length(int w) const { return (shock_end(w)-shock_start(w)).length(); }
+    // Compatibility endpoints: the triangulated upper pair provides lateral
+    // location, so the new model does not add an overconstraining Panhard bar.
+    Vec3 panhard_start(int axle) const { return upper_link_start(axle*2); }
+    Vec3 panhard_end(int axle) const { return upper_link_end(axle*2); }
+    Vec3 axle_up(int axle) const {
+        if (axle < 0 || axle > 1 || !solid_axles_active()) return up();
+        Vec3 center = (particles[wheel_hubs[axle*2]].pos + particles[wheel_hubs[axle*2+1]].pos)*.5f;
+        Vec3 lateral = (particles[wheel_hubs[axle*2+1]].pos-particles[wheel_hubs[axle*2]].pos).normalized();
+        Vec3 top = particles[100+axle*2].pos-center;
+        return (top-lateral*top.dot(lateral)).normalized();
+    }
+    Vec3 axle_pinion(int axle) const {
+        if (axle < 0 || axle > 1) return {};
+        Vec3 center = (particles[wheel_hubs[axle*2]].pos+particles[wheel_hubs[axle*2+1]].pos)*.5f;
+        Vec3 lateral = (particles[wheel_hubs[axle*2+1]].pos-particles[wheel_hubs[axle*2]].pos).normalized();
+        Vec3 rearward = lateral.cross(axle_up(axle)).normalized();
+        return center + rearward * (axle==0 ? .24f : -.24f);
+    }
+    Vec3 transfer_case(int axle) const {
+        if(axle<0||axle>1)return {};
+        return attachment_position(frame_mount(0,-.045f,axle==0?-.15f:.15f));
+    }
+    float axle_pitch(int axle) const { Vec3 u=axle_up(axle); return std::atan2(u.dot(forward()),u.dot(up())); }
+    float suspension_link_error() const {
+        float maximum=0; if (solid_axles_active()) for(const auto &c: four_links_)
+            maximum=std::max(maximum,std::abs(constraint_delta(c).length()-c.rest));
+        return maximum;
+    }
     float wheel_unsprung_mass(int w) const {
-        return w >= 0 && w < 4 ? 1 / dynamic_inv_mass(particles[wheel_hubs[w]]) : 0;
+        return w >= 0 && w < 4 ? 1 / dynamic_inv_mass(particles[wheel_hubs[w]]) + (solid_axles_active() ? carrier_mass_[w / 2] : 0) : 0;
     }
     float axle_articulation(int axle) const {
         if (axle < 0 || axle > 1) return 0;
@@ -398,14 +455,14 @@ public:
     float time_dropped() const { return dropped_time_; }
     int contact_count() const { return contact_count_; }
     int wheel_contact_count(int wheel) const { return wheel >= 0 && wheel < 4 ? wheel_contact_counts_[wheel] : 0; }
-    int node_count() const { return int(particles.size()); }
-    int physical_node_count() const { return 20; }
+    int node_count() const { return 100; }
+    int physical_node_count() const { return solid_axles_active() ? 24 : 20; }
     int physical_beam_count() const {
-        int count = solid_axles_active() ? 8 : 0;
+        int count = solid_axles_active() ? 20 : 0;
         for (const auto &b : beams) if (b.kind != TIRE) ++count;
         return count;
     }
-    int render_node_count() const { return int(particles.size()); }
+    int render_node_count() const { return 100; }
     float steering_angle() const { return steering_; }
     Vec3 velocity() const { return linear_velocity(); }
     int beam_count() const { return int(beams.size()); }
@@ -416,6 +473,7 @@ public:
     float wheel_rotation_angle(int wheel) const { return wheel >= 0 && wheel < 4 ? wheel_phase_[wheel] : 0; }
     float suspension_travel(int wheel) const {
         if (wheel < 0 || wheel > 3) return 0;
+        if (solid_axles_active()) return coilovers_[wheel].rest - shock_length(wheel);
         return (particles[wheel_hubs[wheel]].pos - particles[wheel].pos).dot(up()) + cfg_.ride_height;
     }
     void apply_impact(Vec3 impulse) {
@@ -450,7 +508,7 @@ private:
     std::vector<Vec3> skid_friction_;
     std::vector<Vec3> rock_normals_,rock_points_,rock_friction_;
     std::array<float,4> wheel_slip_{};
-    bool solid_axles_active() const { return terrain_mode_ == 3 && cfg_.solid_axles; }
+    bool solid_axles_active() const { return terrain_mode_ >= 3 && cfg_.solid_axles; }
     float tire_stiffness() const { return 300000.f * cfg_.tire_pressure; }
     bool axle_locked(int w) const { return w < 2 ? cfg_.front_locked : cfg_.rear_locked; }
     float tire_mu(float surface) const {return 1.18f*cfg_.tire_grip*surface*std::clamp(1.05f-.1f*(cfg_.tire_pressure-1),.88f,1.12f);}
@@ -478,7 +536,16 @@ private:
     std::vector<float> contact_lambdas_;
     std::vector<Vec3> friction_offsets_, contact_normals_;
     std::array<std::array<float, 3>, 4> suspension_lambdas_{};
-    std::array<std::array<float, 4>, 2> axle_lambdas_{};
+    // Attachment coordinates are affine combinations of real mass nodes.
+    // Every internal constraint therefore applies equal/opposite force and
+    // torque at its actual endpoints, including carrier pitch and frame flex.
+    struct Attachment { std::array<int,8> nodes{}; std::array<float,8> weights{}; int count=0; };
+    struct MountConstraint { std::array<int,12> nodes{}; std::array<float,12> weights{}; int count=0; float rest=0, lambda=0; };
+    std::array<float,2> carrier_mass_{};
+    std::array<Attachment,4> lower_frame_, lower_axle_, upper_frame_, upper_axle_, shock_frame_, shock_axle_;
+    std::array<MountConstraint,8> four_links_;
+    std::array<MountConstraint,4> coilovers_;
+    std::array<MountConstraint,12> carrier_edges_;
     std::array<float, 4> spring_stop_lambdas_{};
     std::vector<float> axle_contact_lambdas_;
     std::vector<Vec3> axle_contact_friction_;
@@ -542,16 +609,30 @@ private:
         if (solid_axles_active()) {
             int left = (wheel / 2) * 2;
             r = (particles[wheel_hubs[left + 1]].pos - particles[wheel_hubs[left]].pos).normalized();
-            f = (f - r * f.dot(r)).normalized();
+            f = axle_up(wheel / 2).cross(r).normalized();
         }
         // Positive steering turns right. Positive axle rotation rolls backward.
         float angle = wheel < 2 ? steering_ : 0;
         return (r * std::cos(angle) - f * std::sin(angle)).normalized();
     }
+    void apply_axle_angular_impulse(int axle, Vec3 angular_impulse) {
+        if(!solid_axles_active())return;
+        const std::array<int,4> ids{wheel_hubs[axle*2],wheel_hubs[axle*2+1],100+axle*2,101+axle*2};
+        Vec3 center; float mass=0;
+        for(int id:ids){float m=1/dynamic_inv_mass(particles[id]);center+=particles[id].pos*m;mass+=m;} center*=1/mass;
+        float xx=0,yy=0,zz=0,xy=0,xz=0,yz=0;
+        for(int id:ids){float m=1/dynamic_inv_mass(particles[id]);Vec3 r=particles[id].pos-center;
+            xx+=m*(r.y*r.y+r.z*r.z);yy+=m*(r.x*r.x+r.z*r.z);zz+=m*(r.x*r.x+r.y*r.y);
+            xy-=m*r.x*r.y;xz-=m*r.x*r.z;yz-=m*r.y*r.z;}
+        const Vec3 row0{xx,xy,xz},row1{xy,yy,yz},row2{xz,yz,zz};
+        const float determinant=row0.dot(row1.cross(row2));if(std::abs(determinant)<1e-8f)return;
+        const Vec3 omega=(row1.cross(row2)*angular_impulse.x+row2.cross(row0)*angular_impulse.y+row0.cross(row1)*angular_impulse.z)/determinant;
+        for(int id:ids)particles[id].velocity+=omega.cross(particles[id].pos-center);
+    }
     void solve_tire_traction(float throttle, bool brake) {
         const float forward_speed = linear_velocity().dot(forward());
-        const float ratio = (cfg_.low_range ? (terrain_mode_==3 ? 22.f : 5.5f) : 3.8f) * cfg_.final_drive;
-        const float top_speed = (terrain_mode_==3 && cfg_.low_range ? (throttle<0?1.5f:2.2f) : (throttle < 0 ? 9.0f : (cfg_.low_range ? 16.5f : 31.0f))) / cfg_.final_drive;
+        const float ratio = (cfg_.low_range ? (terrain_mode_>=3 ? 22.f : 5.5f) : 3.8f) * cfg_.final_drive;
+        const float top_speed = (terrain_mode_>=3 && cfg_.low_range ? (throttle<0?1.5f:2.2f) : (throttle < 0 ? 9.0f : (cfg_.low_range ? 16.5f : 31.0f))) / cfg_.final_drive;
         const float demand_speed = std::abs(forward_speed);
         // Flat low-speed torque, then a smooth power/road-speed falloff.
         const float limiter = std::clamp(1.0f - std::pow(demand_speed / top_speed, 3.0f), 0.0f, 1.0f);
@@ -561,18 +642,21 @@ private:
         for(int w=0;w<4;++w){contacts[w]=tire_contacts(w);for(auto c:contacts[w])capacity[w]+=c.mu*c.lambda/(fixed_dt*fixed_dt);}
         for(int w=0;w<4;++w){
             auto&hub=particles[wheel_hubs[w]];float inv=dynamic_inv_mass(hub),inertia=std::max(1.f,.5f/inv*cfg_.tire_radius*cfg_.tire_radius);
-            if(brake){wheel_spin_[w]*=std::exp(-24*fixed_dt);if(!contacts[w].empty())wheel_spin_[w]=0;wheel_slip_[w]=0;continue;}
+            if(brake){float before=wheel_spin_[w];wheel_spin_[w]*=std::exp(-24*fixed_dt);if(!contacts[w].empty())wheel_spin_[w]=0;
+                apply_axle_angular_impulse(w/2,wheel_axis(w)*(-(wheel_spin_[w]-before)*inertia));wheel_slip_[w]=0;continue;}
             float axle_cap=axle_locked(w)?capacity[w]:std::min(capacity[w],capacity[w^1]);
             float force=std::clamp(engine_force,-axle_cap,axle_cap);
             // Crawl range couples angular tire speed to contact impulses.
             // Zero-speed slip is expressed in m/s, avoiding slip-ratio singularities.
-            if(terrain_mode_==3){
+            if(terrain_mode_>=3){
                 float rotor_speed=std::abs(wheel_spin_[w])*cfg_.tire_radius;
                 float rotor_limiter=std::clamp(1.f-std::pow(rotor_speed/top_speed,3.f),-.5f,1.f);
                 float torque=throttle*cfg_.engine_torque*ratio*.25f*rotor_limiter;
                 if(!axle_locked(w))torque=std::clamp(torque,-axle_cap*cfg_.tire_radius,axle_cap*cfg_.tire_radius);
+                const float before=wheel_spin_[w];
                 wheel_spin_[w]-=torque/inertia*fixed_dt;
                 if(std::abs(throttle)<.001f){float drag=std::min(std::abs(wheel_spin_[w]),35.f*ratio*.25f/inertia*fixed_dt);wheel_spin_[w]-=std::copysign(drag,wheel_spin_[w]);}
+                apply_axle_angular_impulse(w/2,wheel_axis(w)*(-(wheel_spin_[w]-before)*inertia));
             }
             float spin=0,weight=0;wheel_slip_[w]=0;
             for(auto c:contacts[w]){
@@ -585,7 +669,7 @@ private:
                 float longitudinal=force*share*fixed_dt;
                 float resistance=std::min(std::abs(v)*cfg_.mass*.25f, cfg_.mass*.25f*(.10f+.0012f*v*v)*fixed_dt)*share;
                 longitudinal-=std::copysign(resistance,v);
-                if (terrain_mode_ == 3) {
+                if (terrain_mode_ >= 3) {
                     // Implicit finite tire shear compliance. Slip velocity stays
                     // well-defined at rest; the regularized denominator does not
                     // divide by near-zero road speed. Wheel inertia and reaction
@@ -605,11 +689,11 @@ private:
                 float limit=c.mu*c.lambda/fixed_dt,requested=impulse.length();if(requested>limit&&requested>1e-7f)impulse*=limit/requested;
                 hub.velocity+=impulse*inv;
                 if (c.dynamic_body >= 0) dynamic_objects_.apply_impulse(c.dynamic_body, c.point, -impulse);
-                if(terrain_mode_==3)wheel_spin_[w]+=impulse.dot(rolling)*cfg_.tire_radius/inertia;
+                if(terrain_mode_>=3)wheel_spin_[w]+=impulse.dot(rolling)*cfg_.tire_radius/inertia;
                 spin+=(-v/cfg_.tire_radius-std::copysign(std::max(0.f,requested-limit)*cfg_.tire_radius/inertia,throttle))*share;weight+=share;
                 wheel_slip_[w]+=std::abs(v+wheel_spin_[w]*cfg_.tire_radius)*share;
             }
-            if(terrain_mode_==3)continue;
+            if(terrain_mode_>=3)continue;
             if(weight>0)wheel_spin_[w]=spin/weight;
             else{wheel_spin_[w]+=-throttle*cfg_.engine_torque*ratio*.25f/inertia*fixed_dt;wheel_spin_[w]*=std::exp(-.18f*fixed_dt);wheel_spin_[w]=std::clamp(wheel_spin_[w],-top_speed/cfg_.tire_radius,top_speed/cfg_.tire_radius);}
         }
@@ -618,7 +702,7 @@ private:
             // Equal hub masses currently imply equal spin inertia. This angular
             // impulse exchanges wheel momentum internally and locks each axle.
             float mean = (wheel_spin_[axle] + wheel_spin_[axle + 1]) * .5f;
-            const float blend = terrain_mode_ == 3 ? 1.f : std::min(1.f, 14 * fixed_dt);
+            const float blend = terrain_mode_ >= 3 ? 1.f : std::min(1.f, 14 * fixed_dt);
             wheel_spin_[axle] += (mean - wheel_spin_[axle]) * blend;
             wheel_spin_[axle + 1] += (mean - wheel_spin_[axle + 1]) * blend;
         }
@@ -667,66 +751,121 @@ private:
         lambda += dl;
         a.pos -= axis * (dl * ai); b.pos += axis * (dl * bi);
     }
-    void solve_weighted_distance(const std::array<int, 3> &nodes, const std::array<float, 3> &weights,
-                                 float target, float compliance, float &lambda, bool compression_only = false) {
-        Vec3 delta; float inv = 0;
-        for (int i = 0; i < 3; ++i) if (weights[i] != 0) {
-            delta += particles[nodes[i]].pos * weights[i];
-            inv += weights[i] * weights[i] * dynamic_inv_mass(particles[nodes[i]]);
-        }
-        const float length = delta.length();
-        if (length < 1e-7f) return;
-        const float alpha = compliance / (fixed_dt * fixed_dt);
-        float dl = (-(length - target) - alpha * lambda) / (inv + alpha);
-        if (compression_only) dl = std::max(0.f, lambda + dl) - lambda;
-        lambda += dl;
-        const Vec3 impulse = delta * (dl / length);
-        for (int i = 0; i < 3; ++i) if (weights[i] != 0)
-            particles[nodes[i]].pos += impulse * (weights[i] * dynamic_inv_mass(particles[nodes[i]]));
-    }
-    void solve_link(int a, int b, float target, float &lambda) {
-        solve_weighted_distance({a, b, 0}, {1, -1, 0}, target, 1.f / 10000000.f, lambda);
-    }
     float compression_allowance() const {
         return cfg_.compression_travel > 0 ? std::min(cfg_.compression_travel, cfg_.ride_height * .80f) :
             std::min(cfg_.suspension_travel * (.28f / .22f), cfg_.ride_height * .72f);
     }
-    std::array<float, 3> spring_weights() const {
-        // A fixed outboard spring tower on the deforming frame, expressed with
-        // affine attachment weights. No independent massless world-space anchor.
-        const float outboard = (.5f - .38f) / (.76f);
-        return {1, -(1 + outboard), outboard};
+    static bool valid_wheel(int w) { return w >= 0 && w < 4; }
+    Vec3 attachment_position(const Attachment &a) const {
+        Vec3 result; for(int i=0;i<a.count;++i) result+=particles[a.nodes[i]].pos*a.weights[i]; return result;
     }
-    Vec3 spring_delta(int w) const {
-        const auto weights = spring_weights();
-        return particles[wheel_hubs[w]].pos * weights[0] + particles[w].pos * weights[1] + particles[w ^ 1].pos * weights[2];
+    Vec3 constraint_delta(const MountConstraint &c) const {
+        Vec3 result; for(int i=0;i<c.count;++i) result+=particles[c.nodes[i]].pos*c.weights[i]; return result;
+    }
+    Attachment frame_mount(float x, float y, float z) const {
+        Attachment result; result.count=8;
+        const float tx=(x/(cfg_.track_width*.38f)+1)*.5f;
+        const float tz=(z/(cfg_.wheelbase*.5f)+1)*.5f;
+        const float frame_height=cfg_.vehicle_type==1?.34f:(cfg_.vehicle_type==2?.22f:.30f);
+        const float ty=y/frame_height;
+        for(int i=0;i<8;++i) { result.nodes[i]=i;
+            result.weights[i]=(i%2?tx:1-tx)*((i%4)>=2?tz:1-tz)*(i>=4?ty:1-ty); }
+        return result;
+    }
+    Attachment axle_mount(int axle,float x,float y,float z) const {
+        // Carrier tetrahedron: left/right hubs, upper truss point, pinion mass.
+        // Coordinates are local to the axle at its unloaded position.
+        const float direction=axle==0?1.f:-1.f;
+        const float pin=z/(.24f*direction), top=(y+.10f*pin)/.20f;
+        Attachment a; a.count=4; a.nodes={wheel_hubs[axle*2],wheel_hubs[axle*2+1],100+axle*2,101+axle*2};
+        a.weights={(1-top-pin)*.5f-x/cfg_.track_width,(1-top-pin)*.5f+x/cfg_.track_width,top,pin};
+        return a;
+    }
+    MountConstraint mount_constraint(const Attachment &a,const Attachment &b) const {
+        MountConstraint c;
+        for(int endpoint=0;endpoint<2;++endpoint) {
+            const auto &v=endpoint?b:a;
+            for(int i=0;i<v.count;++i) if(std::abs(v.weights[i])>1e-8f) {
+                int j=0; while(j<c.count&&c.nodes[j]!=v.nodes[i])++j;
+                if(j==c.count) c.nodes[c.count++]=v.nodes[i];
+                c.weights[j]+=v.weights[i]*(endpoint?1.f:-1.f);
+            }
+        }
+        c.rest=constraint_delta(c).length(); return c;
+    }
+    void initialize_axle_carriers() {
+        if(particles.size()>100) return;
+        const Vec3 frame_up=up(), rearward=-forward();
+        for(int axle=0;axle<2;++axle) {
+            int left=wheel_hubs[axle*2], right_hub=wheel_hubs[axle*2+1];
+            Vec3 center=(particles[left].pos+particles[right_hub].pos)*.5f;
+            const float wheel_mass=1/dynamic_inv_mass(particles[left]);
+            carrier_mass_[axle]=(wheel_mass-cfg_.wheel_accessory_mass*.25f)*.24f;
+            for(int side=0;side<2;++side) {
+                int hub=wheel_hubs[axle*2+side];
+                const float remaining=1/dynamic_inv_mass(particles[hub])-carrier_mass_[axle];
+                for(int j=0;j<nodes_per_wheel;++j) particles[hub+j].inv_mass=nodes_per_wheel/remaining;
+            }
+            int top=add_particle(center+frame_up*.20f,carrier_mass_[axle],.055f,-1,false);
+            int pin=add_particle(center-frame_up*.10f+rearward*(axle==0?.24f:-.24f),carrier_mass_[axle],.055f,-1,false);
+            particles[top].velocity=particles[pin].velocity=(particles[left].velocity+particles[right_hub].velocity)*.5f;
+            const std::array<int,4> nodes{left,right_hub,top,pin}; int edge=0;
+            for(int i=0;i<4;++i)for(int j=i+1;j<4;++j) {
+                Attachment a,b; a.count=b.count=1; a.nodes[0]=nodes[i]; b.nodes[0]=nodes[j]; a.weights[0]=b.weights[0]=1;
+                carrier_edges_[axle*6+edge++]=mount_constraint(a,b);
+            }
+        }
+        for(int w=0;w<4;++w) {
+            int axle=w/2; const float side=w%2?1.f:-1.f,direction=axle==0?1.f:-1.f;
+            float z=-direction*cfg_.wheelbase*.5f;
+            lower_frame_[w]=frame_mount(side*cfg_.track_width*.30f,-.015f,z+direction*cfg_.wheelbase*.34f);
+            lower_axle_[w]=axle_mount(axle,side*cfg_.track_width*.35f,-.06f,direction*.03f);
+            upper_frame_[w]=frame_mount(side*cfg_.track_width*.32f,.145f,z+direction*cfg_.wheelbase*.29f);
+            upper_axle_[w]=axle_mount(axle,side*cfg_.track_width*.065f,.17f,0);
+            const float tower_height=cfg_.vehicle_type==2?.32f:.40f;
+            shock_frame_[w]=frame_mount(side*cfg_.track_width*.39f,tower_height,z+direction*.10f);
+            shock_axle_[w]=axle_mount(axle,side*cfg_.track_width*.405f,.035f,direction*.02f);
+            four_links_[w]=mount_constraint(lower_frame_[w],lower_axle_[w]);
+            four_links_[w+4]=mount_constraint(upper_frame_[w],upper_axle_[w]);
+            coilovers_[w]=mount_constraint(shock_frame_[w],shock_axle_[w]);
+        }
+        // reset() fills all rest positions afterward; mode transitions append
+        // the four carrier bind positions without changing the skin's first100.
+        if(!rest_positions.empty()) for(int i=100;i<104;++i) rest_positions.push_back(particles[i].pos);
+    }
+    void solve_mount(MountConstraint &c,float target,float compliance,float &lambda,bool compression_only=false) {
+        Vec3 delta=constraint_delta(c); const float length=delta.length(); if(length<1e-7f)return;
+        float inv=0; for(int i=0;i<c.count;++i)inv+=c.weights[i]*c.weights[i]*dynamic_inv_mass(particles[c.nodes[i]]);
+        const float alpha=compliance/(fixed_dt*fixed_dt);
+        float dl=(-(length-target)-alpha*lambda)/(inv+alpha);
+        if(compression_only)dl=std::max(0.f,lambda+dl)-lambda;
+        lambda+=dl; const Vec3 impulse=delta*(dl/length);
+        for(int i=0;i<c.count;++i)particles[c.nodes[i]].pos+=impulse*(c.weights[i]*dynamic_inv_mass(particles[c.nodes[i]]));
+    }
+    void damp_mount(const MountConstraint &c,float damping) {
+        const Vec3 axis=constraint_delta(c).normalized(); Vec3 relative; float inv=0;
+        for(int i=0;i<c.count;++i) { relative+=particles[c.nodes[i]].velocity*c.weights[i]; inv+=c.weights[i]*c.weights[i]*dynamic_inv_mass(particles[c.nodes[i]]); }
+        const float impulse=-relative.dot(axis)*damping*fixed_dt/(1+damping*fixed_dt*inv);
+        for(int i=0;i<c.count;++i)particles[c.nodes[i]].velocity+=axis*(impulse*c.weights[i]*dynamic_inv_mass(particles[c.nodes[i]]));
     }
     void solve_solid_axles() {
-        // Two actual wheel centers define a rigid beam axle. Two long trailing
-        // links and a diagonal Panhard bar leave heave and roll articulation.
-        // All link gradients act on their physical endpoints, so wheel motion
-        // transfers force/torque into the deformable frame without an upright
-        // constraint, chassis position guide, or four independent vertical rails.
-        for (int axle = 0; axle < 2; ++axle) {
-            const int left = axle * 2, right_w = left + 1;
-            solve_link(wheel_hubs[left], wheel_hubs[right_w], cfg_.track_width, axle_lambdas_[axle][0]);
-            for (int side = 0; side < 2; ++side) {
-                const int w = left + side, anchor = w ^ 2;
-                const float rest = (rest_positions[wheel_hubs[w]] - rest_positions[anchor]).length();
-                solve_link(wheel_hubs[w], anchor, rest, axle_lambdas_[axle][1 + side]);
+        // Six finite-stiffness edges make each four-point carrier rigid in all
+        // three axes. Four real links leave heave and articulation free while
+        // controlling lateral location, wheelbase motion and pinion rotation.
+        for(auto &c:carrier_edges_) solve_mount(c,c.rest,1.f/80000000.f,c.lambda);
+        for(auto &c:four_links_) solve_mount(c,c.rest,1.f/18000000.f,c.lambda);
+        for(int w=0;w<4;++w) {
+            auto &c=coilovers_[w];
+            solve_mount(c,c.rest,1.f/cfg_.spring_rate,c.lambda,true);
+            const float length=constraint_delta(c).length(), low=c.rest-compression_allowance(), high=c.rest+cfg_.suspension_travel;
+            if(length<low || length>high) {
+                // Progressive jounce bumper / extension strap, then a firm
+                // mechanical stop. The rest length remains the real shock eye
+                // distance, not the vertical chassis-to-hub approximation.
+                float penetration=length<low?low-length:length-high;
+                float rate=180000.f+4320000.f*smoothstep(0,.045f,penetration);
+                solve_mount(c,std::clamp(length,low,high),1.f/rate,spring_stop_lambdas_[w]);
             }
-            const float bar_rest = (rest_positions[wheel_hubs[left]] - rest_positions[right_w]).length();
-            solve_link(wheel_hubs[left], right_w, bar_rest, axle_lambdas_[axle][3]);
-        }
-        for (int w = 0; w < 4; ++w) {
-            const std::array<int, 3> nodes{wheel_hubs[w], w, w ^ 1};
-            // Coil springs can unload at full articulation; the mechanical
-            // droop stop and damper carry extension, not fictitious coil tension.
-            solve_weighted_distance(nodes, spring_weights(), cfg_.ride_height, 1 / cfg_.spring_rate, suspension_lambdas_[w][2], true);
-            const float length = spring_delta(w).length();
-            const float low = cfg_.ride_height - compression_allowance(), high = cfg_.ride_height + cfg_.suspension_travel;
-            if (length < low || length > high)
-                solve_weighted_distance(nodes, spring_weights(), std::clamp(length, low, high), 1.f / 4500000.f, spring_stop_lambdas_[w]);
         }
     }
     void solve_suspension() {
@@ -795,7 +934,7 @@ private:
     }
     void find_nearby_obstacles() {
         nearby_obstacles_.clear();
-        if (terrain_mode_ == 2) {
+        if (terrain_mode_ == 2 || terrain_mode_ >= 4) {
             const Vec3 c = center();
             float extent = 0;
             for (const auto &p : particles) {
@@ -804,15 +943,16 @@ private:
             }
             // Broad phase runs once per substep, rather than testing the whole
             // forest against every mass node in each constraint iteration.
-            for (const auto &o : exploration_obstacles()) {
+            const auto &obstacles=terrain_mode_>=4?expedition_obstacles(terrain_mode_):exploration_obstacles();
+            for (const auto &o : obstacles) {
                 const float dx = o.x - c.x, dz = o.z - c.z;
                 const float reach = extent + o.radius + 1.5f;
                 if (dx * dx + dz * dz <= reach * reach)
-                    nearby_obstacles_.push_back({{o.x, exploration_height(o.x, o.z), o.z}, o.radius, o.height});
+                    nearby_obstacles_.push_back({{o.x, terrain_height(o.x, o.z), o.z}, o.radius, o.height});
             }
         }
         near_dynamic_.clear();
-        if (terrain_mode_ == 3) for (int id = 0; id < dynamic_objects_.body_count(); ++id) {
+        if (terrain_mode_ >= 3) for (int id = 0; id < dynamic_objects_.body_count(); ++id) {
             const auto &body = dynamic_objects_.bodies()[id];
             if ((body.position - center()).length() < body.shape.reach + 7) near_dynamic_.push_back(id);
         }
@@ -823,8 +963,8 @@ private:
         moving_support_lambdas_.assign(support_pairs, 0); moving_support_normals_.assign(support_pairs, {});
         moving_support_points_.assign(support_pairs, {}); moving_support_friction_.assign(support_pairs, {});
         near_rocks_.clear();
-        const auto& rocks = custom_rocks_ ? test_rocks_ : crawl_course();
-        if(custom_rocks_ || terrain_mode_==3) for(const auto&r:rocks) if((r.center-center()).length()<r.reach+7)near_rocks_.push_back(&r);
+        const auto& rocks = custom_rocks_ ? test_rocks_ : (terrain_mode_>=4?expedition_rocks(terrain_mode_):crawl_course());
+        if(custom_rocks_ || terrain_mode_>=3) for(const auto&r:rocks) if((r.center-center()).length()<r.reach+7)near_rocks_.push_back(&r);
         skid_lambdas_.assign(near_rocks_.size()*9,0);skid_friction_.assign(near_rocks_.size()*9,{});
         axle_contact_lambdas_.assign(solid_axles_active() ? (near_rocks_.size() + 1) * 10 : 0, 0);
         axle_contact_friction_.assign(axle_contact_lambdas_.size(), {});
@@ -1153,18 +1293,16 @@ private:
             const float inv_mass_sum = a.inv_mass + unsprung_inv_mass;
             const float rel = (wheel.velocity - a.velocity).dot(u);
             if (solid_axles_active()) {
-                const std::array<int, 3> nodes{hub, w, w ^ 1}; const auto weights = spring_weights();
-                const Vec3 axis = spring_delta(w).normalized();
-                Vec3 relative; float inv = 0;
-                for (int i = 0; i < 3; ++i) {
-                    relative += particles[nodes[i]].velocity * weights[i];
-                    inv += weights[i] * weights[i] * dynamic_inv_mass(particles[nodes[i]]);
-                }
-                const float axial_speed = relative.dot(axis);
-                const float selected = axial_speed < 0 ? cfg_.compression_damping : cfg_.rebound_damping;
-                const float damper = selected > 0 ? selected : cfg_.damping;
-                const float impulse = -axial_speed * damper * fixed_dt / (1 + damper * fixed_dt * inv);
-                for (int i = 0; i < 3; ++i) particles[nodes[i]].velocity += axis * (impulse * weights[i] * dynamic_inv_mass(particles[nodes[i]]));
+                const auto &c=coilovers_[w]; const Vec3 axis=constraint_delta(c).normalized(); Vec3 relative;
+                for(int i=0;i<c.count;++i)relative+=particles[c.nodes[i]].velocity*c.weights[i];
+                const float axial_speed=relative.dot(axis);
+                const float selected=axial_speed<0?cfg_.compression_damping:cfg_.rebound_damping;
+                float damper=selected>0?selected:cfg_.damping;
+                // Off-road high-speed valving: the slope softens above0.6m/s
+                // while force remains monotone and always opposes eye motion.
+                const float velocity=std::abs(axial_speed);
+                if(velocity>.6f)damper*=.72f+.28f*.6f/velocity;
+                damp_mount(c,damper);
                 continue;
             }
             const float selected = rel > 0 ? cfg_.compression_damping : cfg_.rebound_damping;
@@ -1199,7 +1337,7 @@ private:
         // near walking speed. It must not wait for a reverse speed limiter to
         // coast the vehicle down from forward trail speed.
         const bool braking = brake || throttle * linear_velocity().dot(forward()) < -0.35f;
-        if (terrain_mode_ == 3) dynamic_objects_.begin_step(fixed_dt);
+        if (terrain_mode_ >= 3) dynamic_objects_.begin_step(fixed_dt);
         find_nearby_obstacles();
         const float target = steer * 0.60f / (1.0f + std::pow(speed() / 10.0f, 1.5f));
         steering_ += (target - steering_) * std::min(1.0f, fixed_dt * 8.0f);
@@ -1215,7 +1353,9 @@ private:
         std::fill(contact_lambdas_.begin(), contact_lambdas_.end(), 0);
         std::fill(friction_offsets_.begin(), friction_offsets_.end(), Vec3{});
         for (auto &l : suspension_lambdas_) l.fill(0);
-        for (auto &l : axle_lambdas_) l.fill(0);
+        for(auto &c:carrier_edges_)c.lambda=0;
+        for(auto &c:four_links_)c.lambda=0;
+        for(auto &c:coilovers_)c.lambda=0;
         spring_stop_lambdas_.fill(0);
         constexpr int iterations = 9;
         for (int iteration = 0; iteration < iterations; ++iteration) {
@@ -1225,7 +1365,7 @@ private:
             solve_contacts(braking);
             solve_obstacle_contacts(braking);
             solve_rock_contacts(braking);
-            if (terrain_mode_ == 3) {
+            if (terrain_mode_ >= 3) {
                 dynamic_objects_.solve_world(fixed_dt);
                 solve_dynamic_contacts(braking);
                 solve_moving_support_contacts();
@@ -1275,10 +1415,14 @@ private:
             }
             ++contact_count_;
         }
-        if (terrain_mode_ == 3) {
+        if (terrain_mode_ >= 3) {
             dynamic_objects_.finish_step(fixed_dt);
             solve_dynamic_contact_velocities();
             solve_moving_support_velocities();
+        }
+        if(solid_axles_active()) {
+            for(const auto &c:carrier_edges_)damp_mount(c,650);
+            for(const auto &c:four_links_)damp_mount(c,120);
         }
         material_damping();
         solve_tire_traction(throttle, braking);

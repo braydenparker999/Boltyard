@@ -19,6 +19,7 @@ func run() -> void:
 	var saved = FileAccess.get_file_as_bytes(save_path) if existed else PackedByteArray()
 	var scene = load("res://offroad_main.tscn").instantiate()
 	root.add_child(scene)
+	scene.select_map("legacy")
 	await settle()
 	var discoveries = scene.discovered.duplicate()
 	var environment_id = scene.world._environment.get_instance_id()
@@ -29,6 +30,7 @@ func run() -> void:
 	check(scene.settings.parts.tires == "rock" and scene.settings.parts.gearing == "crawler", "crawl package composes compatible fitted parts")
 	check(scene.world._environment.get_instance_id() == environment_id, "course switching retains the sky and lighting resources")
 	scene.toggle_mode()
+	scene.toggle_rig_controls()
 	for dimensions in [Vector2i(960, 540), Vector2i(720, 1280)]:
 		root.size = dimensions
 		scene.layout_ui()

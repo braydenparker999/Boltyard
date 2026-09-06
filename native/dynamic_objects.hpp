@@ -61,6 +61,9 @@ public:
     int contact_count() const {return contacts_;}
     int awake_count() const {int n=0;for(const auto&b:bodies_)if(!b.sleeping)++n;return n;}
 
+    void set_terrain(int mode) {
+        terrain_mode_=std::clamp(mode,0,5); static_bodies_.clear();
+    }
     void clear(){bodies_.clear();pairs_.clear();ground_.clear();contacts_=0;}
     void reset(){
         clear();
@@ -75,6 +78,13 @@ public:
         add_crate({8.10f,.39f,-31.4f},{.76f,.76f,.76f},55,.22f);
         add_crate({9.18f,.335f,-31.6f},{.64f,.64f,.64f},38,-.13f);
         add_stone({8.66f,.18f,-35.0f},{.56f,.34f,.67f},27,.6f);
+        if(terrain_mode_>=4)for(auto &b:bodies_) {
+            // Initial placement clears every oriented vertex against the real
+            // heightfield, including a log spanning a slope at the trail camp.
+            float clearance=1e20f;
+            for(auto vertex:b.shape.vertices){Vec3 p=b.world_point(vertex);clearance=std::min(clearance,p.y-ground_height(p.x,p.z));}
+            b.position.y+=.012f-clearance;b.previous_position=b.position;
+        }
     }
 
     int add_crate(Vec3 at,Vec3 size,float mass,float yaw=0){
@@ -151,14 +161,16 @@ public:
             auto&b=bodies_[i];if(b.sleeping)continue;
             for(int v=0;v<int(b.shape.vertices.size());++v){
                 auto&c=ground_[i][v];Vec3 p=b.world_point(b.shape.vertices[v]);
-                if(p.y>.01f&&c.lambda<=0)continue;
-                const Vec3 n{0,1,0};const float inv=b.point_inverse_mass(p,n),alpha=ground_compliance_/(dt*dt);
-                const float dl=(-p.y-alpha*c.lambda)/(inv+alpha),next=std::max(0.f,c.lambda+dl);
+                const Vec3 n=ground_normal(p.x,p.z);
+                const float distance=(p.y-ground_height(p.x,p.z))*n.y;
+                if(distance>.01f&&c.lambda<=0)continue;
+                const float inv=b.point_inverse_mass(p,n),alpha=ground_compliance_/(dt*dt);
+                const float dl=(-distance-alpha*c.lambda)/(inv+alpha),next=std::max(0.f,c.lambda+dl);
                 position_impulse(b,p,n*(next-c.lambda),false);c.lambda=next;
                 if(next<=0)continue;
                 p=b.world_point(b.shape.vertices[v]);
                 const Vec3 prev=b.previous_position+b.previous_rotation.rotate(b.shape.vertices[v]);
-                solve_static_friction(b,p,p-prev,n,c.lambda,c.friction,.72f);
+                solve_static_friction(b,p,p-prev,n,c.lambda,c.friction,.72f*ground_surface(p.x,p.z));
             }
         }
         for(auto&pair:pairs_)solve_pair(pair,dt);
@@ -180,7 +192,7 @@ public:
             }
             // Sleep only after sustained physical rest. A contacting awake body
             // or nonzero vehicle impulse wakes this body and its gravity.
-            const bool supported=world_enabled_&&lowest_point(b)<.025f;
+            const bool supported=world_enabled_&&lowest_ground_clearance(b)<.025f;
             if(supported&&b.velocity.length_squared()<.0009f&&b.angular_velocity.length_squared()<.0036f)b.quiet_time+=dt;
             else b.quiet_time=0;
             if(b.quiet_time>.75f){b.sleeping=true;b.velocity={};b.angular_velocity={};}
@@ -203,13 +215,17 @@ private:
     std::vector<CrawlRock>test_rocks_;
     std::vector<DynamicBody>static_bodies_;
     bool world_enabled_=true,custom_rocks_=false;
+    int terrain_mode_=3;
+    float ground_height(float x,float z)const{return terrain_mode_>=4?expedition_height(terrain_mode_,x,z):0;}
+    Vec3 ground_normal(float x,float z)const{if(terrain_mode_<4)return {0,1,0};auto n=expedition_normal(terrain_mode_,x,z);return {n.x,n.y,n.z};}
+    float ground_surface(float x,float z)const{return terrain_mode_>=4?expedition_surface(terrain_mode_,x,z):1.f;}
+    float lowest_ground_clearance(const DynamicBody &b)const{float d=1e20f;for(auto v:b.shape.vertices){Vec3 p=b.world_point(v);d=std::min(d,(p.y-ground_height(p.x,p.z))*ground_normal(p.x,p.z).y);}return d;}
     int contacts_=0;
     static constexpr float ground_compliance_=1.f/8000000.f;
-    const std::vector<CrawlRock>&world_rocks()const{return custom_rocks_?test_rocks_:crawl_course();}
+    const std::vector<CrawlRock>&world_rocks()const{return custom_rocks_?test_rocks_:(terrain_mode_>=4?expedition_rocks(terrain_mode_):crawl_course());}
     static float square(float x){return x*x;}
     static void wake(DynamicBody&b){b.sleeping=false;b.quiet_time=0;}
     static bool near(const DynamicBody&a,const DynamicBody&b,float margin){return (a.position-b.position).length_squared()<square(a.shape.reach+b.shape.reach+margin);}
-    static float lowest_point(const DynamicBody&b){float y=1e20f;for(auto v:b.shape.vertices)y=std::min(y,b.world_point(v).y);return y;}
     static void unique_axis(std::vector<Vec3>&axes,Vec3 v){
         if(v.length_squared()<1e-10f)return;
         v=v.normalized();

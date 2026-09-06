@@ -83,6 +83,7 @@ func run() -> void:
 	check(scene.settings.engine_torque == 625.0, "returning to the pickup restores its independent tune")
 	scene.select_vehicle("scout")
 	check(scene.settings.parts.tires == "rock" and scene.settings.paint == "ede7d6", "switching vehicles restores installed equipment and paint")
+	scene.select_map("legacy")
 	scene.discovered.clear()
 	scene.select_destination("ridge")
 	check(scene.discovered.is_empty(), "choosing a destination does not award exploration progress")

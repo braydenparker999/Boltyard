@@ -69,39 +69,46 @@ done
 timeout 120 "$godot_bin" --headless --path . --script tests/crawling.gd 2>&1 | tee build/crawl-integration-tests.log
 grep -Eq 'CRAWL INTEGRATION: [0-9]+ checks, 0 failures' build/crawl-integration-tests.log
 if grep -Eq 'SCRIPT ERROR|Parse Error|FAIL:' build/crawl-integration-tests.log; then exit 1; fi
-for suite in camera_gestures camera_integration crawlworks_visuals; do
+for suite in camera_gestures camera_integration crawlworks_visuals expedition_ui; do
   timeout 120 "$godot_bin" --headless --path . --script "tests/$suite.gd" 2>&1 | tee "build/$suite-tests.log"
   if grep -Eq 'SCRIPT ERROR|Parse Error|FAIL:' "build/$suite-tests.log"; then exit 1; fi
-  grep -Eq '(CAMERA GESTURES|CAMERA INTEGRATION|CRAWLWORKS VISUALS): [0-9]+ checks, 0 failures' "build/$suite-tests.log"
+  grep -Eq '(CAMERA GESTURES|CAMERA INTEGRATION|CRAWLWORKS VISUALS|EXPEDITION UI): [0-9]+ checks, 0 failures' "build/$suite-tests.log"
 done
 timeout 180 xvfb-run -a "$godot_bin" --path . --audio-driver Dummy --rendering-method gl_compatibility --script tests/capture.gd 2>&1 | tee build/capture.log
 grep -q 'CAPTURE: workshop and driving views saved' build/capture.log
 if grep -Eq 'SCRIPT ERROR|Parse Error|ERROR:' build/capture.log; then exit 1; fi
-timeout 600 xvfb-run -a "$godot_bin" --path . --audio-driver Dummy --rendering-method gl_compatibility --disable-vsync --fixed-fps 30 --write-movie build/driving-review.avi --script tests/driving_video.gd 2>&1 | tee build/driving-review.log
-grep -q 'DRIVING REVIEW:' build/driving-review.log
-if grep -Eq 'SCRIPT ERROR|Parse Error|ERROR:' build/driving-review.log; then exit 1; fi
-ffmpeg -y -i build/driving-review.avi -an -c:v libx264 -preset fast -crf 23 -pix_fmt yuv420p -movflags +faststart build/driving-review.mp4 > build/video-encode.log 2>&1
-rm build/driving-review.avi
-timeout 600 xvfb-run -a "$godot_bin" --path . --audio-driver Dummy --rendering-method gl_compatibility --disable-vsync --fixed-fps 30 --write-movie build/crawling-review.avi --script tests/crawling_video.gd 2>&1 | tee build/crawling-review.log
-grep -q 'CRAWLING REVIEW:' build/crawling-review.log
-if grep -Eq 'SCRIPT ERROR|Parse Error|ERROR:' build/crawling-review.log; then exit 1; fi
-ffmpeg -y -i build/crawling-review.avi -an -c:v libx264 -preset fast -crf 23 -pix_fmt yuv420p -movflags +faststart build/crawling-review.mp4 > build/crawl-video-encode.log 2>&1
-rm build/crawling-review.avi
+# Preserve legacy drive/contact regressions without rendering two obsolete movies.
+# The expedition movie below exercises the current vehicle skin and scenery.
+for suite in driving_video crawling_video; do
+  timeout 180 "$godot_bin" --headless --path . --fixed-fps 30 --script "tests/$suite.gd" 2>&1 | tee "build/$suite.log"
+  grep -Eq '(DRIVING|CRAWLING) REVIEW:' "build/$suite.log"
+  if grep -Eq 'SCRIPT ERROR|Parse Error|ERROR:' "build/$suite.log"; then exit 1; fi
+done
 timeout 240 xvfb-run -a "$godot_bin" --path . --audio-driver Dummy --rendering-method gl_compatibility --fixed-fps 30 --script tests/crawl_views.gd 2>&1 | tee build/crawl-views.log
 grep -q 'CRAWL VIEWS:' build/crawl-views.log
 if grep -Eq 'SCRIPT ERROR|Parse Error|ERROR:' build/crawl-views.log; then exit 1; fi
 timeout 240 xvfb-run -a "$godot_bin" --path . --audio-driver Dummy --rendering-method gl_compatibility --fixed-fps 30 --script tests/camera_views.gd 2>&1 | tee build/camera-views.log
 if grep -Eq 'SCRIPT ERROR|Parse Error|ERROR:' build/camera-views.log; then exit 1; fi
-"$godot_bin" --headless --path . --export-debug Android build/bolt-yard-1.0.0-crawlworks.apk 2>&1 | tee build/export.log
-test -s build/bolt-yard-1.0.0-crawlworks.apk
+for suite in expedition_worlds; do
+  timeout 300 xvfb-run -a "$godot_bin" --path . --audio-driver Dummy --rendering-method gl_compatibility --fixed-fps 30 --script "tests/$suite.gd" 2>&1 | tee "build/$suite.log"
+  grep -Eq 'EXPEDITION WORLD CHECKS: [0-9]+ checks / 0 failures' "build/$suite.log"
+  if grep -Eq 'SCRIPT ERROR|Parse Error|ERROR:' "build/$suite.log"; then exit 1; fi
+done
+timeout 1200 xvfb-run -a "$godot_bin" --path . --audio-driver Dummy --rendering-method gl_compatibility --disable-vsync --fixed-fps 30 --write-movie build/expedition-gameplay.avi --script tests/expedition_video.gd 2>&1 | tee build/expedition-gameplay.log
+grep -q 'EXPEDITION VIDEO:' build/expedition-gameplay.log
+if grep -Eq 'SCRIPT ERROR|Parse Error|ERROR:' build/expedition-gameplay.log; then exit 1; fi
+ffmpeg -y -i build/expedition-gameplay.avi -an -c:v libx264 -preset fast -crf 22 -pix_fmt yuv420p -movflags +faststart build/expedition-gameplay.mp4 > build/expedition-video-encode.log 2>&1
+rm build/expedition-gameplay.avi
+"$godot_bin" --headless --path . --export-debug Android build/bolt-yard-2.0.0-expeditions.apk 2>&1 | tee build/export.log
+test -s build/bolt-yard-2.0.0-expeditions.apk
 python3 - <<'PY'
 import zipfile
-with zipfile.ZipFile('build/bolt-yard-1.0.0-crawlworks.apk') as archive:
+with zipfile.ZipFile('build/bolt-yard-2.0.0-expeditions.apk') as archive:
     assert any(p.startswith('lib/arm64-v8a/') and 'boltyard' in p and p.endswith('.so') for p in archive.namelist()), 'Native softbody solver missing from APK'
     assert 'lib/arm64-v8a/libc++_shared.so' in archive.namelist(), 'C++ runtime missing from APK'
     assert any(p.endswith('boltyard.gdextension') for p in archive.namelist()), 'GDExtension registration missing from APK'
 print('APK includes the native ARM64 soft-body solver.')
 PY
-"$ANDROID_HOME/build-tools/34.0.0/apksigner" verify --verbose build/bolt-yard-1.0.0-crawlworks.apk | tee build/signature.log
-"$ANDROID_HOME/build-tools/34.0.0/aapt" dump badging build/bolt-yard-1.0.0-crawlworks.apk > build/package-info.log
-sha256sum build/bolt-yard-1.0.0-crawlworks.apk > build/SHA256SUMS.txt
+"$ANDROID_HOME/build-tools/34.0.0/apksigner" verify --verbose build/bolt-yard-2.0.0-expeditions.apk | tee build/signature.log
+"$ANDROID_HOME/build-tools/34.0.0/aapt" dump badging build/bolt-yard-2.0.0-expeditions.apk > build/package-info.log
+sha256sum build/bolt-yard-2.0.0-expeditions.apk > build/SHA256SUMS.txt

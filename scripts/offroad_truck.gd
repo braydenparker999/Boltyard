@@ -29,6 +29,7 @@ var _wheel_compression := PackedFloat32Array()
 var _wheel_up := Vector3.UP
 var _link_starts := PackedVector3Array()
 var _link_ends := PackedVector3Array()
+var _axle_ups := PackedVector3Array()
 var _stats: Dictionary = {}
 var _settings: Dictionary = {}
 var _parts: Dictionary = {}
@@ -737,10 +738,10 @@ func _build_wheels() -> void:
 				_wheel_quad(TREAD, hub, Vector3(t, side, 0.78), Vector3(t + 0.012, side, 0.79),
 					Vector3(t + 0.012, side, 0.91), Vector3(t, side, 0.90), Vector3(0, sign_x, 0), Color(0.58, 0.61, 0.60))
 
-func _link_cylinder(material_id: int, binding: int, start: float, end: float, radius: float) -> void:
-	for j in range(10):
-		var a := float(j) * TAU / 10.0
-		var b := float(j + 1) * TAU / 10.0
+func _link_cylinder(material_id: int, binding: int, start: float, end: float, radius: float, sides: int = 8) -> void:
+	for j in range(sides):
+		var a := float(j) * TAU / sides
+		var b := float(j + 1) * TAU / sides
 		var normal := Vector3(0, cos((a + b) * 0.5), sin((a + b) * 0.5))
 		_wheel_quad(material_id, binding, Vector3(start, cos(a) * radius, sin(a) * radius),
 			Vector3(start, cos(b) * radius, sin(b) * radius), Vector3(end, cos(b) * radius, sin(b) * radius),
@@ -748,17 +749,24 @@ func _link_cylinder(material_id: int, binding: int, start: float, end: float, ra
 
 func _build_suspension() -> void:
 	for axle in range(2):
-		_link_cylinder(METAL, 110 + axle, 0.0, 1.0, 0.026)
+		_link_cylinder(DARK, 114 + axle, 0.02, 0.97, 0.042)
+		_link_cylinder(METAL, 114 + axle, 0.73, 0.92, 0.052)
 		_link_cylinder(DARK, 108 + axle, 0.08, 0.92, 0.065)
 		_link_cylinder(METAL, 108 + axle, 0.44, 0.56, 0.13)
 		_link_cylinder(DARK, 108 + axle, 0.40, 0.44, 0.10)
 		_link_cylinder(DARK, 108 + axle, 0.56, 0.60, 0.10)
 	for w in range(4):
-		# Shock bodies, pistons and lower links bind to their actual frame and hub
-		# endpoints; compression changes visible length as the tire moves.
-		_link_cylinder(AMBER, 100 + w, 0.08, 0.66, 0.032)
-		_link_cylinder(METAL, 100 + w, 0.40, 0.97, 0.017)
-		_link_cylinder(DARK, 104 + w, 0.02, 0.98, 0.024)
+		# Four-link rods and coilover eyes terminate at the same chassis and
+		# carrier hardpoints used by the native constraints.
+		_link_cylinder(AMBER, 100 + w, 0.07, 0.57, 0.034)
+		_link_cylinder(METAL, 100 + w, 0.46, 0.96, 0.017)
+		_link_cylinder(METAL, 104 + w, 0.04, 0.96, 0.027)
+		_link_cylinder(DARK, 110 + w, 0.04, 0.96, 0.024)
+		for binding in [100 + w, 104 + w, 110 + w]:
+			_link_cylinder(DARK, binding, 0.0, 0.055, 0.045, 6)
+			_link_cylinder(DARK, binding, 0.945, 1.0, 0.045, 6)
+			_link_cylinder(METAL, binding, 0.007, 0.023, 0.050, 6)
+			_link_cylinder(METAL, binding, 0.977, 0.993, 0.050, 6)
 		for j in range(24):
 			var t := float(j) / 24.0
 			var u := float(j + 1) / 24.0
@@ -793,6 +801,7 @@ func _refresh_visuals() -> void:
 	_wheel_up = wheels.up
 	_link_starts = wheels.link_starts
 	_link_ends = wheels.link_ends
+	_axle_ups = wheels.axle_ups
 	_ring_centers.resize(8)
 	for w in range(4):
 		for side in range(2):
@@ -819,6 +828,7 @@ func _refresh_visuals() -> void:
 		material.set_shader_parameter("wheel_up", _wheel_up)
 		material.set_shader_parameter("link_starts", _link_starts)
 		material.set_shader_parameter("link_ends", _link_ends)
+		material.set_shader_parameter("axle_ups", _axle_ups)
 		material.set_shader_parameter("tire_radius", _tire_padding / 0.12)
 		material.set_shader_parameter("tire_width", _tire_padding / 0.12 * 0.58 * float(_settings.get("tire_width_scale", 1.0)))
 	if body_color != _last_color:
@@ -904,21 +914,26 @@ func _debug_vertex(binding: int, p: Vector3) -> Vector3:
 		return _nodes[_hubs[w]] + axle * ((p.y - 0.5) * radius * 0.58 * float(_settings.get("tire_width_scale", 1.0))) + radial * (radius * 0.88 * p.z)
 	if binding >= 100:
 		var w := (binding - 100) % 4
-		var upper := _nodes[w + (4 if binding < 104 else 0)]
-		var lower := _nodes[16 + w * 21]
-		if binding >= 104 and binding < 108:
-			upper = _link_starts[binding - 104]
-			lower = _link_ends[binding - 104]
+		var upper := _link_starts[8 + w]
+		var lower := _link_ends[8 + w]
+		if binding >= 114:
+			upper = _link_starts[binding - 102]
+			lower = _link_ends[binding - 102]
 		elif binding >= 110:
 			upper = _link_starts[binding - 106]
 			lower = _link_ends[binding - 106]
+		elif binding >= 104 and binding < 108:
+			upper = _link_starts[binding - 104]
+			lower = _link_ends[binding - 104]
 		elif binding >= 108:
 			var axle := binding - 108
 			upper = _nodes[_hubs[axle * 2]]
 			lower = _nodes[_hubs[axle * 2 + 1]]
 		var axis := (lower - upper).normalized()
-		var forward := (_nodes[0] - _nodes[2]).normalized()
-		var side := axis.cross(forward).normalized()
+		var reference := Vector3.UP if absf(axis.y) < 0.90 else Vector3.BACK
+		if binding in [108, 109]:
+			reference = _axle_ups[binding - 108]
+		var side := axis.cross(reference).normalized()
 		var other := axis.cross(side).normalized()
 		return upper.lerp(lower, p.x) + side * p.y + other * p.z
 	var w := int((binding - 16) / 21)

@@ -1,7 +1,12 @@
 extends SceneTree
 
 # Fixed-rate movie capture exercises live controls, suspension and body skins.
-# Run with --fixed-fps 30 --write-movie build/driving-review.avi.
+# Run with --fixed-fps 30; --headless retains the same motion acceptance.
+# A rendered run may additionally use --write-movie build/driving-review.avi.
+const SAVE = "user://offroad_garage_v3.json"
+const SAVE_FILES = [SAVE, SAVE + ".tmp", "user://offroad_setup.json"]
+var save_backups: Dictionary = {}
+var rendered = false
 var scene
 var output_dir: String
 var path = [Vector3(0, 0, -36), Vector3(-43, 0, -74), Vector3(-90, 0, -105), Vector3(-143, 0, -75), Vector3(-176, 0, 8)]
@@ -44,11 +49,44 @@ func steer_along_trail() -> void:
 		Input.action_press("off_brake")
 
 func save_frame(name: String) -> void:
+	if not rendered:
+		return
 	var error = root.get_texture().get_image().save_png(output_dir.path_join(name + ".png"))
 	if error != OK:
 		push_error("Could not save motion review " + name)
 
+func preserve_and_seed_garage() -> void:
+	for save_path in SAVE_FILES:
+		save_backups[save_path] = FileAccess.get_file_as_bytes(save_path) if FileAccess.file_exists(save_path) else null
+	var builds: Dictionary = {}
+	for id in VehicleCatalog.VEHICLES:
+		builds[id] = VehicleCatalog.default_build(id)
+	# This is the established Juniper road regression. New region defaults must
+	# not silently move the route into a different landscape or collision mode.
+	var fixture = {"version": 3, "selected_map": "legacy", "selected_vehicle": "pickup", "builds": builds, "quality": 1, "discovered": [], "destination": "grove", "map_progress": {"legacy": {"discovered": [], "destination": "grove"}}}
+	var file = FileAccess.open(SAVE, FileAccess.WRITE)
+	assert(file != null)
+	file.store_string(JSON.stringify(fixture))
+	file.close()
+
+func restore_garage() -> void:
+	for save_path in SAVE_FILES:
+		if save_backups[save_path] == null:
+			if FileAccess.file_exists(save_path):
+				assert(DirAccess.remove_absolute(save_path) == OK)
+			assert(not FileAccess.file_exists(save_path))
+		else:
+			var file = FileAccess.open(save_path, FileAccess.WRITE)
+			assert(file != null)
+			file.store_buffer(save_backups[save_path])
+			file.flush()
+			assert(file.get_error() == OK)
+			file.close()
+			assert(FileAccess.get_file_as_bytes(save_path) == save_backups[save_path])
+
 func run() -> void:
+	rendered = DisplayServer.get_name() != "headless"
+	preserve_and_seed_garage()
 	root.size = Vector2i(960, 540)
 	output_dir = ProjectSettings.globalize_path("res://").path_join("build")
 	DirAccess.make_dir_recursive_absolute(output_dir)
@@ -58,6 +96,9 @@ func run() -> void:
 	scene.select_vehicle("pickup")
 	scene.change_quality(1)
 	scene.select_destination("grove")
+	# Retain the original full-travel road pedal, independent of the adjustable
+	# crawling throttle cap introduced in the newer driving UI.
+	scene.throttle_limit = 1.0
 	scene.toast_remaining = 0.0
 	for frame in range(630):
 		if frame == 30:
@@ -69,7 +110,8 @@ func run() -> void:
 			release_controls()
 			Input.action_press("off_brake")
 		await process_frame
-		await RenderingServer.frame_post_draw
+		if rendered:
+			await RenderingServer.frame_post_draw
 		if frame >= 30:
 			var stats: Dictionary = scene.truck.get_telemetry()
 			peak_speed = maxf(peak_speed, absf(float(stats.speed)))
@@ -94,4 +136,5 @@ func run() -> void:
 	if not good:
 		push_error("Driving review did not meet acceleration, upright, braking or damage acceptance.")
 	scene.free()
+	restore_garage()
 	quit(0 if good else 1)

@@ -69,7 +69,10 @@ int main() {
             c.rebound_damping=setting?7000.f:1000.f;
             prepare(r,c,{},{0,1.4f,0}); float max_up=0, squared=0; int count=0;
             for(int i=0;i<360;++i) {
-                r.step(1.f/120,0,0,true);
+                // Allow the four-link's longitudinal wheelbase arc to roll.
+                // All-wheel parking friction otherwise binds the linkage and
+                // confounds the rebound coefficient with brake-induced jacking.
+                r.step(1.f/120,0,0,false);
                 if(i>45&&i<180) { max_up=std::max(max_up,r.velocity().y); squared+=r.velocity().y*r.velocity().y; ++count; }
             }
             upward_speed[setting]=max_up; rms[setting]=std::sqrt(squared/count); healthy(r);

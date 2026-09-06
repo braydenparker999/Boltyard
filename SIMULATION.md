@@ -1,3 +1,19 @@
+# Crawlworks 2.0 model
+
+This section supersedes the older suspension and camera descriptions below. Terrain modes3–5 use articulated axle carriers; modes0–2 retain the legacy driving baseline.
+
+Each axle is a finite-stiffness tetrahedral carrier made from its two wheel hubs and two internal mass nodes. Carrier mass is taken from the existing unsprung assembly mass, preserving total mass; signed wheel equipment mass stays with the wheels. Eight frame nodes, eight cab nodes, four hubs and four carrier nodes make24 physical mass nodes. The shader continues to receive exactly100 render positions; the80 rubber guides are derived visual geometry.
+
+Two lower and two triangulated upper links per axle apply position constraints through affine chassis/carrier mounts. This locates the axle laterally without an additional Panhard bar. Coilover spring, independent compression/rebound damping and progressive compression/droop stops act at the moving shock eyes. Upper/lower rods, coilovers, axle orientation and transfer-case-to-pinion driveshafts use those same solved endpoints. Drive/brake impulses apply opposing carrier pitch reaction. This remains a simplified authored linkage model; steering knuckles, joints and a complete driveline are not independent simulated parts.
+
+Modes4/5 share640m-square,2m-grid heightfields with the renderer. Contact heights use the exact triangle split, including nonplanar grid cells; normals and material grip come from the same data. Winding routes blend into graded contour shoulders, with buried convex granite formations along technical sections. Native collidable tree placements are reused by the renderer. Movable props reset and collide against the selected terrain and granite. Surface color variation is shading, not extra collision displacement.
+
+One finger moves the camera in Orbit or Pan mode; two fingers only change span-based zoom. Camera contact ownership is separate from held pedals and GUI touches. New-map camera collision includes convex granite, movable props and trunk cylinders, plus terrain clearance. The atlas and recovery/discovery records are scoped by region.
+
+Meaningful gates include carrier/wheel mass conservation, four-link length error under gravity and cross-axle loading, opposite rotor/carrier torque without injected horizontal momentum, terrain/mesh equality, convex hull closure, graded route traversal and actual raw touch ownership. Damping landing tests release the brakes so wheelbase motion along the four-link arc is not confounded by parking-brake friction. These checks establish internal behavior, not real-world calibration or Samsung A15 performance.
+
+---
+
 # Crawlworks 1.0 model
 
 The following additions supersede the 0.5 crawl suspension and axle limitations below. Mode3 (Copperline) uses coupled solid axles; valley modes retain the independent guide baseline.

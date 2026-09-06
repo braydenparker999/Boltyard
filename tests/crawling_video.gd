@@ -2,8 +2,11 @@ extends SceneTree
 var scene
 var trace: Array = []
 const SAVE = "user://offroad_garage_v3.json"
+const LEGACY_SAVE = "user://offroad_setup.json"
 var backup = null
 var temporary_backup = null
+var legacy_backup = null
+var rendered = DisplayServer.get_name() != "headless"
 
 func _initialize() -> void:
 	call_deferred("run")
@@ -11,6 +14,13 @@ func _initialize() -> void:
 func run() -> void:
 	backup = FileAccess.get_file_as_bytes(SAVE) if FileAccess.file_exists(SAVE) else null
 	temporary_backup = FileAccess.get_file_as_bytes(SAVE + ".tmp") if FileAccess.file_exists(SAVE + ".tmp") else null
+	legacy_backup = FileAccess.get_file_as_bytes(LEGACY_SAVE) if FileAccess.file_exists(LEGACY_SAVE) else null
+	# Keep this legacy course regression independent of the default expedition.
+	var fixture = FileAccess.open(SAVE, FileAccess.WRITE)
+	assert(fixture != null)
+	fixture.store_string(JSON.stringify({"version": 3, "selected_vehicle": "pickup", "selected_map": "legacy"}))
+	fixture.close()
+	DirAccess.make_dir_recursive_absolute("res://build")
 	root.size = Vector2i(960, 540)
 	scene = load("res://offroad_main.tscn").instantiate()
 	root.add_child(scene)
@@ -31,7 +41,8 @@ func run() -> void:
 			Input.action_release("off_go")
 			Input.action_press("off_brake")
 		await process_frame
-		await RenderingServer.frame_post_draw
+		if rendered:
+			await RenderingServer.frame_post_draw
 		var stats: Dictionary = scene.truck.get_telemetry()
 		highest = maxf(highest, stats.position.y)
 		peak_speed = maxf(peak_speed, stats.speed)
@@ -42,7 +53,7 @@ func run() -> void:
 		if frame % 30 == 0:
 			trace.append({"time": frame / 30.0, "position": [stats.position.x, stats.position.y, stats.position.z], "speed": stats.speed, "loads": Array(stats.wheel_loads), "rock_loads": Array(stats.rock_loads), "spin": Array(stats.wheel_spin), "slip": Array(stats.wheel_slip), "suspension": Array(stats.suspension), "up": stats.up.y, "sim_ms": stats.sim_ms})
 		if frame in [30, 210, 320, 440]:
-			root.get_texture().get_image().save_png("res://build/crawl-%03d.png" % frame)
+			capture("crawl-%03d.png" % frame)
 	Input.action_release("off_brake")
 	var stats: Dictionary = scene.truck.get_telemetry()
 	var good: bool = stats.position.z < -4 and stats.position.z > -22 and highest > 1.1 and rock_support > 5000 and peak_speed < 3.0 and stats.up.y > 0.85 and stats.damage < 0.01 and stats.speed < 0.05 and stats.safety_clamps == 0 and stats.rejected_states == 0
@@ -66,13 +77,15 @@ func run() -> void:
 	Input.action_press("off_brake")
 	for frame in range(30):
 		await process_frame
-		await RenderingServer.frame_post_draw
+		if rendered:
+			await RenderingServer.frame_post_draw
 	var before: Array = scene.truck.core.get_dynamic_object_poses()
 	Input.action_release("off_brake")
 	Input.action_press("off_go")
 	for frame in range(180):
 		await process_frame
-		await RenderingServer.frame_post_draw
+		if rendered:
+			await RenderingServer.frame_post_draw
 		if frame % 30 == 0:
 			var current: Dictionary = scene.truck.get_telemetry()
 			trace.append({"stage": "loose_line", "time": 16.0 + frame / 30.0, "position": [current.position.x, current.position.y, current.position.z], "speed": current.speed, "damage": current.damage})
@@ -80,7 +93,8 @@ func run() -> void:
 	Input.action_press("off_brake")
 	for frame in range(30):
 		await process_frame
-		await RenderingServer.frame_post_draw
+		if rendered:
+			await RenderingServer.frame_post_draw
 	var after: Array = scene.truck.core.get_dynamic_object_poses()
 	var moved := 0.0
 	var motion: Array = []
@@ -97,10 +111,10 @@ func run() -> void:
 	print("LOOSE LINE REVIEW: solved movement %.3f m, rig z %.2f, damage %.4f, up %.3f" % [moved, object_stats.position.z, object_stats.damage, object_stats.up.y])
 	if not objects_good:
 		push_error("Loose-object control demonstration did not produce stable physical movement")
-	root.get_texture().get_image().save_png("res://build/crawl-loose-objects.png")
-	# Demonstrate the Android raw-touch route, including frame-coalesced twist,
-	# pinch and pan. No direct camera transform is used for the gesture segment.
-	scene.toast("TWO FINGERS · Pinch, twist and pan around the settled rig.")
+	capture("crawl-loose-objects.png")
+	# Demonstrate the Android raw-touch route: two fingers only zoom, then one
+	# finger orbits/tilts and pans. No direct camera transform drives this segment.
+	scene.toast("CAMERA · One finger to look. Pinch to zoom.")
 	scene.camera_pan_mode = false
 	scene.update_camera_tools()
 	var viewport_size: Vector2 = scene.get_viewport().get_visible_rect().size
@@ -108,37 +122,48 @@ func run() -> void:
 	var first := center - Vector2(80, 0)
 	var second := center + Vector2(80, 0)
 	var original_orbit: float = scene.drive_orbit
+	var original_pitch: float = scene.drive_pitch
 	var original_distance: float = scene.drive_distance
 	touch(4, first, true)
 	touch(7, second, true)
-	for frame in range(60):
-		var t := float(frame + 1) / 60.0
+	for frame in range(30):
+		var t := float(frame + 1) / 30.0
+		# Rotation and translation during a pinch must not move the view angles.
 		var span := Vector2(lerpf(80.0, 125.0, t), 0).rotated(t * .72)
 		drag(4, center + Vector2(0, t * 22.0) - span)
 		drag(7, center + Vector2(0, t * 22.0) + span)
 		await process_frame
-		await RenderingServer.frame_post_draw
+		if rendered:
+			await RenderingServer.frame_post_draw
 	touch(4, first, false)
 	touch(7, second, false)
+	var pinch_only: bool = is_equal_approx(scene.drive_orbit, original_orbit) and is_equal_approx(scene.drive_pitch, original_pitch) and scene.drive_pan == Vector2.ZERO
+	touch(4, first, true)
+	for frame in range(30):
+		var offset := Vector2(64, 24) * float(frame + 1) / 30.0
+		drag(4, first + offset)
+		await process_frame
+		if rendered:
+			await RenderingServer.frame_post_draw
+	touch(4, first + Vector2(64, 24), false)
 	scene.toggle_camera_drag()
 	touch(4, first, true)
-	touch(7, second, true)
 	for frame in range(30):
 		var offset := Vector2(30, 14) * float(frame + 1) / 30.0
 		drag(4, first + offset)
-		drag(7, second + offset)
 		await process_frame
-		await RenderingServer.frame_post_draw
-	touch(4, first, false)
-	touch(7, second, false)
-	var camera_good: bool = absf(scene.drive_orbit - original_orbit) > .2 and absf(scene.drive_distance - original_distance) > .15 and scene.drive_pan.length() > .02
+		if rendered:
+			await RenderingServer.frame_post_draw
+	touch(4, first + Vector2(30, 14), false)
+	var camera_good: bool = pinch_only and absf(scene.drive_orbit - original_orbit) > .2 and scene.drive_pitch > original_pitch and absf(scene.drive_distance - original_distance) > .15 and scene.drive_pan.length() > .02
 	good = good and camera_good
-	print("CAMERA MOVIE REVIEW: raw twist %.3f rad, zoom %.3f m, pan %.3f m" % [scene.drive_orbit - original_orbit, scene.drive_distance - original_distance, scene.drive_pan.length()])
-	trace.append({"stage": "raw_touch_camera", "orbit_delta": scene.drive_orbit - original_orbit, "zoom_delta": scene.drive_distance - original_distance, "pan": [scene.drive_pan.x, scene.drive_pan.y]})
+	print("CAMERA MOVIE REVIEW: one-finger orbit %.3f rad, pinch %.3f m, one-finger pan %.3f m, pinch-only %s" % [scene.drive_orbit - original_orbit, scene.drive_distance - original_distance, scene.drive_pan.length(), pinch_only])
+	trace.append({"stage": "raw_touch_camera", "orbit_delta": scene.drive_orbit - original_orbit, "zoom_delta": scene.drive_distance - original_distance, "pan": [scene.drive_pan.x, scene.drive_pan.y], "pinch_only": pinch_only})
 	for frame in range(30):
 		await process_frame
-		await RenderingServer.frame_post_draw
-	root.get_texture().get_image().save_png("res://build/crawl-two-finger-view.png")
+		if rendered:
+			await RenderingServer.frame_post_draw
+	capture("crawl-two-finger-view.png")
 	Input.action_release("off_brake")
 	FileAccess.open("res://build/crawling-trace.json", FileAccess.WRITE).store_string(JSON.stringify(trace, "\t"))
 	scene.clear_controls()
@@ -147,6 +172,7 @@ func run() -> void:
 	await process_frame
 	restore_file(SAVE, backup)
 	restore_file(SAVE + ".tmp", temporary_backup)
+	restore_file(LEGACY_SAVE, legacy_backup)
 	quit(0 if good else 1)
 
 func touch(index: int, point: Vector2, pressed: bool) -> void:
@@ -162,9 +188,20 @@ func drag(index: int, point: Vector2) -> void:
 	event.position = point
 	scene._input(event)
 
+func capture(filename: String) -> void:
+	if rendered:
+		assert(root.get_texture().get_image().save_png("res://build/" + filename) == OK)
+
 func restore_file(path: String, bytes) -> void:
 	if bytes == null:
-		DirAccess.remove_absolute(path)
+		if FileAccess.file_exists(path):
+			assert(DirAccess.remove_absolute(path) == OK)
+		assert(not FileAccess.file_exists(path))
 	else:
 		var file := FileAccess.open(path, FileAccess.WRITE)
+		assert(file != null)
 		file.store_buffer(bytes)
+		file.flush()
+		assert(file.get_error() == OK)
+		file.close()
+		assert(FileAccess.get_file_as_bytes(path) == bytes)

@@ -1,0 +1,16 @@
+# Expedition generated texture provenance
+
+Generated on 2026-09-06 with the built-in OpenAI image generation tool for the Bolt Yard project. These are original generated raster assets, not scans or copied game assets. The requested size was 2048 × 2048; the tool returned 1254 × 1254 PNGs. Files were copied byte-for-byte without editing or resizing. Granite and forest floor are RGB; birch foliage retains the generated RGBA alpha channel. Seamless edges were requested but not mathematically guaranteed; terrain shaders should use macro variation to reduce visible repetition.
+
+## expedition_granite.png
+
+Use case: photorealistic-natural. Asset type: seamless tileable square 2048 x 2048 diffuse albedo game terrain texture. Create a flat orthographic photographic material scan of a one-metre patch of weathered natural gray granite bedrock. Fine quartz crystals, subtle charcoal and ivory mineral flecks, softly worn grain, tiny hairline irregular natural fractures. Neutral gray with very restrained warm mineral variation. Edge-to-edge continuous surface with uniform scale and gentle variation, seamless matching texture edges in both directions. Perfectly even diffuse illumination for albedo use, no directional highlights or baked shadows. No perspective, horizon, background, border, paving, rectangular blocks, arranged stones, objects, large cracks, text, watermark, or labels.
+
+## expedition_forest_floor.png
+
+Use case: photorealistic-natural. Asset type: seamless tileable square 2048 x 2048 diffuse albedo game terrain texture. Create a flat orthographic photographic material scan of a one-metre patch of boreal forest floor: dark brown loam, scattered fine spruce and pine needles, tiny gray gravel, sparse small curled brown birch leaves, and irregular sparse patches of dark green moss. Authentic small-scale organic detail with natural random coverage, cohesive dark earthy palette, no dominant isolated objects. Edge-to-edge continuous material, seamless matching edges both horizontally and vertically. Perfectly even neutral diffuse illumination, no cast shadows or directional lighting. No perspective, horizon, tree trunks, large stones, branches, woodland scene, border, text, watermark, or labels.
+
+## expedition_birch_branch.png
+
+Use case: photorealistic-natural. Asset type: square 2048 x 2048 transparent RGBA botanical foliage texture for a realistic mobile game tree branch card. One isolated slender late-summer silver birch branch with graceful thin brown twigs supporting irregular loose clusters of small serrated triangular green birch leaves. Natural medium and dark green leaf variation with some restrained fresh green leaves, visible subtle venation, organic asymmetrical silhouette. Branch spreads diagonally across most of the square but every leaf tip stays inside the image with a small transparent margin. Many natural transparent negative gaps between small leaf clusters; foliage should not form an opaque solid mass. Photographically realistic under neutral diffuse illumination with no lighting baked into any backdrop. Genuinely transparent alpha background, transparent gaps between all leaves and twigs. No ground, cast shadow, scene, other plants, white or colored background, checkerboard graphic, text, labels or watermark.
+

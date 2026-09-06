@@ -57,7 +57,7 @@ func seed_garage() -> Dictionary:
 	builds.pickup.paint = "ede7d6"
 	builds.scout.tuning = {"engine_torque": 575.0, "mass": 1425.0}
 	builds.buggy = Catalog.equip_part(builds.buggy, "tires", "rock")
-	return {"version": 3, "selected_vehicle": "scout", "builds": builds, "discovered": ["camp", "lake"], "destination": "ridge", "quality": 0}
+	return {"version": 3, "selected_vehicle": "scout", "builds": builds, "selected_map": "legacy", "map_progress": {"legacy": {"discovered": ["camp", "lake"], "destination": "ridge"}}, "discovered": ["camp", "lake"], "destination": "ridge", "quality": 0}
 
 func settle(scene) -> void:
 	for index in range(8):
@@ -117,27 +117,34 @@ func perform_gesture(scene, movement: Vector2 = Vector2.ZERO, zoom: float = 1.0,
 	touch(scene, 101, center - offset, false)
 	touch(scene, 202, center + offset, false)
 
+func perform_drag(scene, movement: Vector2) -> void:
+	scene.clear_controls()
+	var point = scenery_pair(scene)[0]
+	touch(scene, 101, point)
+	drag(scene, 101, point + movement)
+	scene._process(0.0)
+	touch(scene, 101, point + movement, false)
+
 func test_garage_camera(scene) -> void:
 	scene.reset_camera()
 	scene.camera_pan_mode = false
-	var initial: Dictionary = scene.camera_preferences()
-	var points = scenery_pair(scene)
-	touch(scene, 101, points[0])
-	drag(scene, 101, points[0] + Vector2(60, 36))
-	scene._process(0.0)
-	check(scene.camera_preferences() == initial, "a single scenery finger leaves the garage camera unchanged")
-	touch(scene, 101, points[0], false)
+	var short_axis = minf(scene.get_viewport().get_visible_rect().size.x, scene.get_viewport().get_visible_rect().size.y)
+	perform_drag(scene, Vector2(60, 36))
+	check(near(scene.orbit, wrapf(2.24 - 60.0 / short_axis * TAU, -PI, PI)) and near(scene.orbit_pitch, 0.49 + 36.0 / short_axis * PI), "a single scenery finger orbits and tilts the garage")
+	check(near(scene.orbit_distance, 9.3), "one-finger garage dragging leaves the zoom distance unchanged")
+	scene.reset_camera()
 	perform_gesture(scene, Vector2.ZERO, 1.25)
 	check(near(scene.orbit_distance, 9.3 / 1.25) and near(scene.orbit, 2.24), "batched raw-touch pinch zooms the garage without unintended orbit")
-	var short_axis = minf(scene.get_viewport().get_visible_rect().size.x, scene.get_viewport().get_visible_rect().size.y)
-	perform_gesture(scene, Vector2(0, 36))
-	check(near(scene.orbit_pitch, 0.49 + 36.0 / short_axis * PI), "vertical two-finger drag changes garage tilt")
+	perform_drag(scene, Vector2(0, 36))
+	check(near(scene.orbit_pitch, 0.49 + 36.0 / short_axis * PI), "vertical one-finger drag changes garage tilt")
 	var old_orbit: float = scene.orbit
-	perform_gesture(scene, Vector2(36, 0))
-	check(near(scene.orbit, wrapf(old_orbit - 36.0 / short_axis * TAU, -PI, PI)), "horizontal two-finger drag orbits the garage")
-	old_orbit = scene.orbit
+	perform_drag(scene, Vector2(36, 0))
+	check(near(scene.orbit, wrapf(old_orbit - 36.0 / short_axis * TAU, -PI, PI)), "horizontal one-finger drag orbits the garage")
+	var before: Dictionary = scene.camera_preferences()
+	perform_gesture(scene, Vector2(36, 24))
+	check(scene.camera_preferences() == before, "two-finger translation does not orbit, tilt, or pan the garage")
 	perform_gesture(scene, Vector2.ZERO, 1.0, 0.15)
-	check(near(scene.orbit, wrapf(old_orbit - 0.15, -PI, PI)), "a raw-touch twist orbits the garage")
+	check(scene.camera_preferences() == before, "two-finger twist does not rotate the garage")
 
 	scene.toggle_camera_drag()
 	scene.did_position_camera = false
@@ -145,13 +152,16 @@ func test_garage_camera(scene) -> void:
 	var old_target: Vector3 = scene.camera_target
 	old_orbit = scene.orbit
 	var old_pitch: float = scene.orbit_pitch
-	perform_gesture(scene, Vector2(36, 24))
+	perform_drag(scene, Vector2(36, 24))
 	scene.did_position_camera = false
 	scene.update_camera(0.0)
-	check(scene.garage_pan.x < 0 and scene.garage_pan.y > 0 and scene.camera_target.distance_to(old_target) > 0.1, "pan mode moves the garage camera target with the gesture")
+	check(scene.garage_pan.x < 0 and scene.garage_pan.y > 0 and scene.camera_target.distance_to(old_target) > 0.1, "pan mode moves the garage camera target with one finger")
 	check(near(scene.orbit, old_orbit) and near(scene.orbit_pitch, old_pitch), "garage pan keeps the orbit and tilt angles")
+	before = scene.camera_preferences()
+	perform_gesture(scene, Vector2(36, 24))
+	check(scene.camera_preferences() == before, "two-finger translation is also silent while garage Pan mode is selected")
 	scene.reset_camera()
-	check(near(scene.orbit, 2.24) and near(scene.orbit_distance, 9.3) and near(scene.orbit_pitch, 0.49) and scene.garage_pan == Vector2.ZERO, "garage Reset view restores its center, distance, and tilt")
+	check(near(scene.orbit, 2.24) and near(scene.orbit_distance, 9.3) and near(scene.orbit_pitch, 0.49) and scene.garage_pan == Vector2.ZERO, "garage Center restores its center, distance, and tilt")
 	scene.camera_pan_mode = false
 	scene.update_camera_tools()
 
@@ -162,14 +172,77 @@ func assert_gui_ownership(scene, control: Control, title: String) -> void:
 	var on_gui = control.get_global_rect().get_center()
 	check(scene.camera_touch_blocked(on_gui), title + " is recognized as GUI-owned")
 	touch(scene, 101, on_gui)
-	touch(scene, 202, points[1])
-	# The GUI finger travels onto scenery but must stay ineligible until lifted.
+	# A finger starting on a control stays ineligible after leaving its bounds.
 	drag(scene, 101, points[0] + Vector2(36, 36))
-	drag(scene, 202, points[1] + Vector2(36, 36))
 	scene._process(0.0)
 	check(scene.camera_preferences() == before, title + " retains its touch after dragging onto scenery")
+	# The same held control must not suppress an independent scenery finger.
+	touch(scene, 202, points[1])
+	drag(scene, 202, points[1] + Vector2(36, 24))
+	scene._process(0.0)
+	var after: Dictionary = scene.camera_preferences()
+	check(after != before and near(after.garage_distance, before.garage_distance) and near(after.drive_distance, before.drive_distance), "one scenery finger moves the camera while " + title + " retains its held touch")
 	touch(scene, 101, points[0], false)
 	touch(scene, 202, points[1], false)
+
+func dispatch_touch(id: int, position: Vector2, pressed: bool) -> void:
+	var event = InputEventScreenTouch.new()
+	event.index = id
+	event.position = position
+	event.pressed = pressed
+	Input.parse_input_event(event)
+	Input.flush_buffered_events()
+
+func dispatch_drag(id: int, position: Vector2) -> void:
+	var event = InputEventScreenDrag.new()
+	event.index = id
+	event.position = position
+	Input.parse_input_event(event)
+	Input.flush_buffered_events()
+
+func test_real_touch_dispatch(scene) -> void:
+	# Exercise the viewport dispatcher and native TouchScreenButton together;
+	# direct scene._input calls alone cannot prove that a held pedal survives.
+	scene.clear_controls()
+	scene.reset_camera()
+	scene.camera_pan_mode = false
+	scene.update_camera_tools()
+	var pedal: Vector2 = scene.touch_buttons.off_go.panel.get_global_rect().get_center()
+	var scenery: Vector2 = scenery_pair(scene)[0]
+	dispatch_touch(301, pedal, true)
+	await process_frame
+	check(Input.is_action_pressed("off_go"), "real screen-touch dispatch presses the GO pedal")
+	var old_orbit: float = scene.drive_orbit
+	dispatch_touch(302, scenery, true)
+	dispatch_drag(302, scenery + Vector2(48, 0))
+	await process_frame
+	scene._process(0.0)
+	check(not scene.camera_follow and absf(scene.drive_orbit - old_orbit) > 0.02, "one scenery finger orbits through real input dispatch while GO is held")
+	check(Input.is_action_pressed("off_go"), "camera dragging leaves the independently held GO action pressed")
+	dispatch_touch(302, scenery + Vector2(48, 0), false)
+	await process_frame
+	check(Input.is_action_pressed("off_go"), "lifting the camera finger does not release the GO pedal")
+	dispatch_touch(301, pedal, false)
+	await process_frame
+	check(not Input.is_action_pressed("off_go"), "lifting the pedal finger releases the GO action through real dispatch")
+
+	dispatch_touch(301, pedal, true)
+	dispatch_touch(302, scenery, true)
+	dispatch_drag(302, scenery + Vector2(36, 18))
+	await process_frame
+	var before: Dictionary = scene.camera_preferences()
+	scene.clear_controls()
+	scene._process(0.0)
+	check(not Input.is_action_pressed("off_go") and scene.camera_preferences() == before, "clearing controls releases a real held pedal and discards pending camera movement")
+	dispatch_touch(302, scenery + Vector2(36, 18), false)
+	dispatch_touch(301, pedal, false)
+	await process_frame
+	dispatch_touch(301, pedal, true)
+	await process_frame
+	check(Input.is_action_pressed("off_go"), "a fresh pedal contact works after clearing and releasing old contacts")
+	dispatch_touch(301, pedal, false)
+	await process_frame
+	scene.clear_controls()
 
 func test_drive_camera(scene) -> void:
 	scene.reset_camera()
@@ -177,13 +250,17 @@ func test_drive_camera(scene) -> void:
 	perform_gesture(scene, Vector2.ZERO, 1.25)
 	check(near(scene.drive_distance, 8.2 / 1.25) and scene.camera_follow, "drive pinch changes distance while retaining Follow")
 	var old_pitch: float = scene.drive_pitch
-	perform_gesture(scene, Vector2(0, 30))
-	check(scene.drive_pitch > old_pitch and scene.camera_follow, "drive tilt changes elevation while retaining Follow")
-	perform_gesture(scene, Vector2(36, 0))
-	check(not scene.camera_follow and absf(scene.drive_orbit) > 0.01, "manual drag orbit automatically turns drive Follow off")
+	perform_drag(scene, Vector2(0, 30))
+	check(scene.drive_pitch > old_pitch and scene.camera_follow, "one-finger drive tilt changes elevation while retaining Follow")
+	perform_drag(scene, Vector2(36, 0))
+	check(not scene.camera_follow and absf(scene.drive_orbit) > 0.01, "one-finger manual orbit automatically turns drive Follow off")
 	scene.reset_camera()
-	perform_gesture(scene, Vector2.ZERO, 1.0, 0.15)
-	check(not scene.camera_follow, "manual twist orbit also turns drive Follow off")
+	var before: Dictionary = scene.camera_preferences()
+	perform_gesture(scene, Vector2(36, 24), 1.0, 0.15)
+	check(scene.camera_preferences() == before and scene.camera_follow, "two-finger translation and twist keep drive orientation and Follow unchanged")
+	perform_gesture(scene, Vector2(20, 12), 1.25, 0.15)
+	check(near(scene.drive_distance, 8.2 / 1.25) and near(scene.drive_pitch, 0.30) and scene.camera_follow, "a moving and rotating pinch still only changes drive zoom")
+	perform_drag(scene, Vector2(36, 0))
 	scene.toggle_camera_follow()
 	check(scene.camera_follow and scene.drive_pan == Vector2.ZERO, "Follow returns the camera behind the rig and clears its pan")
 	scene.toggle_camera_drag()
@@ -191,19 +268,23 @@ func test_drive_camera(scene) -> void:
 	scene.update_camera(0.0)
 	var old_target: Vector3 = scene.camera_target
 	old_pitch = scene.drive_pitch
-	perform_gesture(scene, Vector2(30, 24))
+	perform_drag(scene, Vector2(30, 24))
 	scene.did_position_camera = false
 	scene.update_camera(0.0)
-	check(scene.drive_pan.length() > 0.1 and scene.camera_target.distance_to(old_target) > 0.1 and near(scene.drive_pitch, old_pitch), "drive pan shifts the camera target without tilting")
+	check(scene.drive_pan.length() > 0.1 and scene.camera_target.distance_to(old_target) > 0.1 and near(scene.drive_pitch, old_pitch), "one-finger drive pan shifts the camera target without tilting")
+	var old_pan: Vector2 = scene.drive_pan
+	perform_gesture(scene, Vector2(24, 24), 1.1)
+	check(scene.drive_pan == old_pan, "two-finger pinch leaves the camera target unchanged in Pan mode")
 	scene.reset_camera()
-	check(near(scene.drive_distance, 8.2) and near(scene.drive_pitch, 0.30) and near(scene.drive_orbit, 0.0) and scene.drive_pan == Vector2.ZERO and scene.camera_follow, "drive Reset view restores centered follow, distance, and tilt")
+	check(near(scene.drive_distance, 8.2) and near(scene.drive_pitch, 0.30) and near(scene.drive_orbit, 0.0) and scene.drive_pan == Vector2.ZERO and scene.camera_follow, "drive Center restores centered follow, distance, and tilt")
 	scene.camera_pan_mode = false
 	scene.update_camera_tools()
 
 func stage_pending_motion(scene) -> Array[Vector2]:
-	var points = begin_pair(scene)
+	scene.clear_controls()
+	var points = scenery_pair(scene)
+	touch(scene, 101, points[0])
 	drag(scene, 101, points[0] + Vector2(36, 20))
-	drag(scene, 202, points[1] + Vector2(36, 20))
 	return points
 
 func assert_stale_contacts_cleared(scene, points: Array[Vector2], before: Dictionary, description: String) -> void:
@@ -263,7 +344,7 @@ func test_layout(scene, dimensions: Vector2i) -> void:
 	var title = ("drive" if scene.driving else "garage") + " " + str(dimensions)
 	check(bounds.encloses(toolbar), "camera toolbar stays inside the viewport in " + title)
 	var buttons = camera_buttons(scene.camera_toolbar)
-	var usable = buttons.size() >= (3 if scene.driving else 2)
+	var usable = buttons.size() == (3 if scene.driving else 2)
 	for index in range(buttons.size()):
 		var rect: Rect2 = buttons[index].get_global_rect()
 		usable = usable and bounds.encloses(rect) and rect.size.x >= 44 and rect.size.y >= 44
@@ -365,7 +446,7 @@ func test_save_roundtrip(scene, seed: Dictionary):
 	var saved: Variant = JSON.parse_string(FileAccess.get_file_as_string(SAVE_PATH))
 	var preserved = saved is Dictionary
 	if preserved:
-		for key in ["version", "selected_vehicle", "builds", "discovered", "destination", "quality"]:
+		for key in ["version", "selected_vehicle", "builds", "discovered", "destination", "quality", "selected_map", "map_progress"]:
 			preserved = preserved and saved.get(key) == seed[key]
 	check(preserved, "saving camera settings preserves every vehicle build, discovery, destination, and display setting")
 	scene.free()
@@ -405,6 +486,7 @@ func run() -> void:
 	root.size = Vector2i(1280, 720)
 	scene.toggle_mode()
 	await settle(scene)
+	await test_real_touch_dispatch(scene)
 	test_drive_camera(scene)
 	assert_gui_ownership(scene, scene.header, "Drive header")
 	assert_gui_ownership(scene, scene.touch_buttons.off_go.panel, "GO pedal")
@@ -417,6 +499,7 @@ func run() -> void:
 	scene.toggle_mode()
 	scene.toggle_course()
 	scene.toggle_mode()
+	scene.toggle_rig_controls()
 	await settle(scene)
 	for dimensions in [Vector2i(960, 540), Vector2i(720, 1280)]:
 		await test_layout(scene, dimensions)

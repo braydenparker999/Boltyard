@@ -8,6 +8,7 @@
 #include <godot_cpp/variant/packed_int32_array.hpp>
 #include <godot_cpp/variant/packed_byte_array.hpp>
 #include <godot_cpp/variant/packed_float32_array.hpp>
+#include <godot_cpp/variant/packed_color_array.hpp>
 #include <godot_cpp/variant/transform3d.hpp>
 #include <godot_cpp/variant/quaternion.hpp>
 #include <chrono>
@@ -36,6 +37,14 @@ protected:
         ClassDB::bind_method(D_METHOD("reset", "origin"), &SoftBodyRig::reset, DEFVAL(Vector3(0,1.5,8)));
         ClassDB::bind_method(D_METHOD("step", "dt", "throttle", "steer", "brake"), &SoftBodyRig::step);
         ClassDB::bind_method(D_METHOD("set_terrain", "mode"), &SoftBodyRig::set_terrain);
+        ClassDB::bind_method(D_METHOD("get_terrain_mode"), &SoftBodyRig::get_terrain_mode);
+        ClassDB::bind_method(D_METHOD("get_expedition_heightfield", "mode"), &SoftBodyRig::get_expedition_heightfield, DEFVAL(-1));
+        ClassDB::bind_method(D_METHOD("get_expedition_rocks", "mode"), &SoftBodyRig::get_expedition_rocks, DEFVAL(-1));
+        ClassDB::bind_method(D_METHOD("get_expedition_obstacles", "mode"), &SoftBodyRig::get_expedition_obstacles, DEFVAL(-1));
+        ClassDB::bind_method(D_METHOD("get_expedition_landmarks", "mode"), &SoftBodyRig::get_expedition_landmarks, DEFVAL(-1));
+        ClassDB::bind_method(D_METHOD("get_expedition_trails", "mode"), &SoftBodyRig::get_expedition_trails, DEFVAL(-1));
+        ClassDB::bind_method(D_METHOD("get_expedition_routes", "mode"), &SoftBodyRig::get_expedition_routes, DEFVAL(-1));
+        ClassDB::bind_method(D_METHOD("get_expedition_water", "mode"), &SoftBodyRig::get_expedition_water, DEFVAL(-1));
         ClassDB::bind_method(D_METHOD("set_drivetrain", "low_range", "locked_diffs"), &SoftBodyRig::set_drivetrain);
         ClassDB::bind_method(D_METHOD("set_axle_drivetrain", "low_range", "front_locked", "rear_locked"), &SoftBodyRig::set_axle_drivetrain);
         ClassDB::bind_method(D_METHOD("get_wheel_visuals"), &SoftBodyRig::get_wheel_visuals);
@@ -104,7 +113,39 @@ public:
         auto end = std::chrono::steady_clock::now();
         sim_ms = std::chrono::duration<double,std::milli>(end-start).count();
     }
-    void set_terrain(int mode) { rig.set_terrain(std::clamp(mode,0,3)); }
+    void set_terrain(int mode) { rig.set_terrain(std::clamp(mode,0,5)); }
+    int get_terrain_mode() const { return rig.get_terrain_mode(); }
+    int expedition_mode(int mode) const { return (mode < 0 ? get_terrain_mode() : mode) == 5 ? 5 : 4; }
+    Dictionary get_expedition_heightfield(int mode) const {
+        const auto &data=boltyard::expedition_detail::cache(expedition_mode(mode));
+        PackedFloat32Array heights,surfaces;PackedColorArray materials;
+        heights.resize(data.height.size());surfaces.resize(data.height.size());materials.resize(data.height.size());
+        for(int i=0;i<(int)data.height.size();++i){const auto&m=data.material[i];heights.set(i,data.height[i]);surfaces.set(i,data.surface[i]);materials.set(i,Color(m.rock,m.dirt,m.grass,m.wet));}
+        Dictionary out;out["heights"]=heights;out["surfaces"]=surfaces;out["materials"]=materials;
+        out["side"]=321;out["spacing"]=2.0;out["origin"]=-320.0;out["mode"]=expedition_mode(mode);return out;
+    }
+    Array get_expedition_rocks(int mode) const {
+        Array out;for(const auto&r:boltyard::expedition_rocks(expedition_mode(mode))){PackedVector3Array vertices;for(auto t:r.triangles)for(int i:t)vertices.push_back(gv(r.vertices[i]));out.push_back(vertices);}return out;
+    }
+    Array get_expedition_obstacles(int mode) const {
+        Array out;for(const auto&o:boltyard::expedition_obstacles(expedition_mode(mode))){Dictionary d;d["x"]=o.x;d["z"]=o.z;d["radius"]=o.radius;d["height"]=o.height;d["type"]=o.type;out.push_back(d);}return out;
+    }
+    Array get_expedition_landmarks(int mode) const {
+        const int m=expedition_mode(mode);Array out;int i=0;
+        for(const auto&l:boltyard::expedition_landmarks(m)){Dictionary d;d["id"]=String(m==5?"russia_":"rockies_")+String::num_int64(i++);d["name"]=l.name;d["description"]=l.detail;d["position"]=Vector3(l.x,boltyard::expedition_height(m,l.x,l.z),l.z);d["radius"]=18.0;out.push_back(d);}return out;
+    }
+    Array get_expedition_trails(int mode) const {
+        if(mode<0&&get_terrain_mode()<4)return Array();
+        Array out;for(const auto&p:boltyard::expedition_trail_points(expedition_mode(mode))){Dictionary d;d["position"]=Vector3(p.x,p.h,p.z);d["width"]=p.width;d["route"]=p.route;out.push_back(d);}return out;
+    }
+    Array get_expedition_routes(int mode) const {
+        Array out;int route=-1;PackedVector3Array points;
+        for(const auto&p:boltyard::expedition_trail_points(expedition_mode(mode))){if(p.route!=route){if(!points.is_empty())out.push_back(points);points=PackedVector3Array();route=p.route;}points.push_back(Vector3(p.x,p.h,p.z));}
+        if(!points.is_empty())out.push_back(points);return out;
+    }
+    Dictionary get_expedition_water(int mode) const {
+        const auto&w=boltyard::expedition_water(expedition_mode(mode));Dictionary d;d["x"]=w.x;d["z"]=w.z;d["rx"]=w.rx;d["rz"]=w.rz;d["height"]=w.height;return d;
+    }
     void set_drivetrain(bool low, bool locked) { rig.set_drivetrain(low,locked); }
     void set_axle_drivetrain(bool low, bool front, bool rear) { rig.set_drivetrain(low,front,rear); }
     Dictionary get_wheel_visuals() const {
@@ -120,16 +161,20 @@ public:
             link_starts.push_back(gv(rig.suspension_link_start(w)));
             link_ends.push_back(gv(rig.suspension_link_end(w)));
         }
-        for(int a=0;a<2;++a){link_starts.push_back(gv(rig.panhard_start(a)));link_ends.push_back(gv(rig.panhard_end(a)));}
+        for(int w=0;w<4;++w){link_starts.push_back(gv(rig.upper_link_start(w)));link_ends.push_back(gv(rig.upper_link_end(w)));}
+        for(int w=0;w<4;++w){link_starts.push_back(gv(rig.shock_start(w)));link_ends.push_back(gv(rig.shock_end(w)));}
+        for(int a=0;a<2;++a){link_starts.push_back(gv(rig.transfer_case(a)));link_ends.push_back(gv(rig.axle_pinion(a)));}
         d["axes"]=axes;d["normals"]=normals;d["points"]=points;d["phases"]=phases;d["compression"]=compression;
         d["link_starts"]=link_starts;d["link_ends"]=link_ends;
         d["up"]=gv(rig.up());
+        PackedVector3Array axle_ups;for(int a=0;a<2;++a)axle_ups.push_back(gv(rig.axle_up(a)));d["axle_ups"]=axle_ups;
         return d;
     }
     double terrain_height(double x, double z) const { return rig.terrain_height((float)x,(float)z); }
     Vector3 terrain_normal(double x, double z) const { return gv(rig.terrain_normal((float)x,(float)z)); }
     double terrain_surface(double x, double z) const { return rig.terrain_surface((float)x,(float)z); }
     Dictionary get_terrain_samples() const {
+        if(get_terrain_mode()>=4)return get_expedition_heightfield(-1);
         const auto &terrain = boltyard::exploration_detail::cache();
         PackedFloat32Array heights, surfaces;
         heights.resize(terrain.height.size()); surfaces.resize(terrain.surface.size());
@@ -166,6 +211,10 @@ public:
         auto candidate=cv(desired);
         const float padding=std::isfinite(radius)?std::clamp((float)radius,.05f,.5f):.22f;
         constexpr float gap=.012f;
+        const auto &rocks=get_terrain_mode()>=4?boltyard::expedition_rocks(get_terrain_mode()):boltyard::crawl_course();
+        std::vector<const boltyard::CrawlRock*> nearby;
+        const auto initial_delta=candidate-start;const float initial_length=std::max(.00001f,initial_delta.length_squared());
+        for(const auto&r:rocks){const auto closest=start+initial_delta*std::clamp((r.center-start).dot(initial_delta)/initial_length,0.f,1.f);if((closest-r.center).length_squared()<(r.reach+padding+.5f)*(r.reach+padding+.5f))nearby.push_back(&r);}
         auto face_normal=[](const boltyard::CrawlRock &shape,size_t i){
             const auto &t=shape.triangles[i];const auto a=shape.vertices[t[0]];
             return shape.triangle_normals.size()==shape.triangles.size()?shape.triangle_normals[i]:(shape.vertices[t[1]]-a).cross(shape.vertices[t[2]]-a).normalized();
@@ -184,7 +233,7 @@ public:
         };
         for(int pass=0;pass<3;++pass){
             const auto before=candidate;
-            for(const auto&r:boltyard::crawl_course())candidate+=escape(r,start,candidate);
+            for(const auto*r:nearby)candidate+=escape(*r,start,candidate);
             for(const auto&b:rig.dynamic_objects().bodies())
                 candidate+=b.rotation.rotate(escape(b.shape,b.local_point(start),b.local_point(candidate)));
             const auto delta=candidate-start;float fraction=1.f;
@@ -201,7 +250,21 @@ public:
                 }
                 if(!inside&&enter>=0&&enter<fraction)fraction=std::max(0.f,enter-gap/std::max(.01f,delta.length()));
             };
-            for(const auto&r:boltyard::crawl_course())clip(r,start,delta);
+            for(const auto*r:nearby)clip(*r,start,delta);
+            if(get_terrain_mode()>=4){
+                // Camera sphere versus upright collidable tree trunks; leaves
+                // do not trap the camera. Trunk radius matches native contact.
+                for(const auto&o:boltyard::expedition_obstacles(get_terrain_mode())){
+                    const float ox=start.x-o.x,oz=start.z-o.z,radius=o.radius+padding;
+                    const float a=delta.x*delta.x+delta.z*delta.z,b=2*(ox*delta.x+oz*delta.z),c=ox*ox+oz*oz-radius*radius;
+                    if(a<1e-7f||c<=0)continue;
+                    const float disc=b*b-4*a*c;if(disc<0)continue;
+                    const float t=(-b-std::sqrt(disc))/(2*a);
+                    if(t<=0||t>=fraction)continue;
+                    const float y=start.y+delta.y*t,base=rig.terrain_height(o.x,o.z);
+                    if(y>=base-padding&&y<=base+o.height+padding)fraction=std::max(0.f,t-gap/std::max(.01f,delta.length()));
+                }
+            }
             for(const auto&b:rig.dynamic_objects().bodies())
                 clip(b.shape,b.local_point(start),b.rotation.conjugate().rotate(delta));
             candidate=start+delta*fraction;
@@ -222,13 +285,13 @@ public:
         return out;
     }
     PackedVector3Array get_rest_nodes() const {
-        PackedVector3Array a; a.resize(rig.rest_positions.size());
-        for (int i=0;i<(int)rig.rest_positions.size();++i) a.set(i,gv(rig.rest_positions[i]));
+        PackedVector3Array a; a.resize(std::min(100,(int)rig.rest_positions.size()));
+        for (int i=0;i<a.size();++i) a.set(i,gv(rig.rest_positions[i]));
         return a;
     }
     PackedVector3Array get_nodes() const {
-        PackedVector3Array a; a.resize(rig.particles.size());
-        for (int i=0;i<(int)rig.particles.size();++i) a.set(i,gv(rig.particles[i].pos));
+        PackedVector3Array a; a.resize(std::min(100,(int)rig.particles.size()));
+        for (int i=0;i<a.size();++i) a.set(i,gv(rig.particles[i].pos));
         return a;
     }
     PackedInt32Array get_beams() const {
@@ -276,6 +339,7 @@ public:
         for(int a=0;a<2;++a){articulation.push_back(rig.axle_articulation(a));clearance.push_back(rig.axle_clearance(a));}
         d["wheel_compression"]=compression;d["wheel_normal_loads"]=normal_loads;d["wheel_contact_patch"]=patches;
         d["wheel_unsprung_mass"]=unsprung;d["axle_articulation"]=articulation;d["axle_clearance"]=clearance;
+        PackedFloat32Array axle_pitch;for(int a=0;a<2;++a)axle_pitch.push_back(rig.axle_pitch(a));d["axle_pitch"]=axle_pitch;
         d["position"]=gv(rig.center()); d["forward"]=gv(rig.forward()); d["up"]=gv(rig.up());
         d["sim_ms"]=sim_ms;
         d["safety_clamps"]=rig.safety_clamp_count();

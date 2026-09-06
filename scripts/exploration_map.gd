@@ -3,25 +3,41 @@ extends Control
 
 signal destination_selected(id: String)
 
-const EXTENT = 384.0
-const GRID = 28
+var extent = 320.0
+const GRID = 56
 var landmarks: Array = []
 var heights: PackedFloat32Array = []
 var vehicle_position = Vector3.ZERO
 var discovered: Array[String] = []
 var destination = ""
+var trails: Dictionary = {}
+var height_min = 0.0
+var height_max = 60.0
 
 func configure(core, locations: Array) -> void:
 	landmarks = locations.duplicate(true)
 	heights.clear()
+	trails.clear()
+	if core.has_method("get_expedition_trails"):
+		for point in core.get_expedition_trails():
+			var route = int(point.route)
+			if not trails.has(route):
+				trails[route] = PackedVector3Array()
+			trails[route].append(point.position)
 	# Sample the same height function used for tire contact, once for the atlas.
 	for z in GRID:
 		for x in GRID:
-			var px = lerpf(-EXTENT, EXTENT, (float(x) + 0.5) / GRID)
-			var pz = lerpf(-EXTENT, EXTENT, (float(z) + 0.5) / GRID)
+			var px = lerpf(-extent, extent, (float(x) + 0.5) / GRID)
+			var pz = lerpf(-extent, extent, (float(z) + 0.5) / GRID)
 			heights.append(float(core.terrain_height(px, pz)))
 	mouse_filter = Control.MOUSE_FILTER_STOP
-	resized.connect(queue_redraw)
+	height_min = heights[0] if not heights.is_empty() else 0.0
+	height_max = height_min + 1.0
+	for height in heights:
+		height_min = minf(height_min, height)
+		height_max = maxf(height_max, height)
+	if not resized.is_connected(queue_redraw):
+		resized.connect(queue_redraw)
 	queue_redraw()
 
 func update_state(position: Vector3, visited: Array[String], selected: String) -> void:
@@ -36,7 +52,7 @@ func map_rect() -> Rect2:
 
 func project(point: Vector3) -> Vector2:
 	var area = map_rect()
-	return area.position + Vector2((point.x + EXTENT) / (EXTENT * 2.0), (point.z + EXTENT) / (EXTENT * 2.0)) * area.size
+	return area.position + Vector2((point.x + extent) / (extent * 2.0), (point.z + extent) / (extent * 2.0)) * area.size
 
 func _draw() -> void:
 	var area = map_rect()
@@ -46,9 +62,15 @@ func _draw() -> void:
 		for z in GRID:
 			for x in GRID:
 				var height = heights[z * GRID + x]
-				var tone = clampf((height + 4.0) / 40.0, 0.0, 1.0)
+				var tone = clampf((height - height_min) / maxf(1.0, height_max - height_min), 0.0, 1.0)
 				var color = Color("304b48").lerp(Color("9a9478"), tone)
 				draw_rect(Rect2(area.position + Vector2(x, z) * cell, cell + Vector2.ONE), color)
+	for route in trails:
+		var line = PackedVector2Array()
+		for point in trails[route]:
+			line.append(project(point))
+		if line.size() > 1:
+			draw_polyline(line, Color("d9bd8299"), 2.0, true)
 	for i in range(1, 4):
 		var amount = area.size.x * i / 4.0
 		draw_line(area.position + Vector2(amount, 0), area.position + Vector2(amount, area.size.y), Color("bed3cb23"))
@@ -56,7 +78,7 @@ func _draw() -> void:
 	draw_rect(area, Color("99b6ac"), false, 1.0)
 	var font = ThemeDB.fallback_font
 	draw_string(font, area.position + Vector2(8, 19), "N ↑", HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color("f3efdf"))
-	draw_string(font, area.end + Vector2(-76, -9), "768 × 768 m", HORIZONTAL_ALIGNMENT_LEFT, -1, 10, Color("f3efdf"))
+	draw_string(font, area.end + Vector2(-76, -9), "%d × %d m" % [int(extent * 2), int(extent * 2)], HORIZONTAL_ALIGNMENT_LEFT, -1, 10, Color("f3efdf"))
 	for index in landmarks.size():
 		var landmark: Dictionary = landmarks[index]
 		var point = project(landmark.position)

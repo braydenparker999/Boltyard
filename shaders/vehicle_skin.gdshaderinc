@@ -10,8 +10,9 @@ uniform vec3 wheel_points[4];
 uniform float wheel_phases[4];
 uniform float wheel_compression[4];
 uniform vec3 wheel_up = vec3(0.0, 1.0, 0.0);
-uniform vec3 link_starts[6];
-uniform vec3 link_ends[6];
+uniform vec3 link_starts[14];
+uniform vec3 link_ends[14];
+uniform vec3 axle_ups[2];
 uniform float tire_radius = 0.46;
 uniform float tire_width = 0.2668;
 uniform vec3 rig_center = vec3(0.0);
@@ -104,22 +105,26 @@ void vertex() {
         NORMAL = normalize(cross(axle, radial) * NORMAL.x + axle * NORMAL.y + radial * NORMAL.z);
     } else if (binding >= 100) {
         int wheel = (binding - 100) % 4;
-        vec3 upper = node_positions[wheel + (binding < 104 ? 4 : 0)];
-        vec3 lower = node_positions[16 + wheel * 21];
-        if (binding >= 104 && binding < 108) {
-            upper = link_starts[binding - 104];
-            lower = link_ends[binding - 104];
+        vec3 upper = link_starts[8 + wheel];
+        vec3 lower = link_ends[8 + wheel];
+        if (binding >= 114) {
+            upper = link_starts[binding - 102];
+            lower = link_ends[binding - 102];
         } else if (binding >= 110) {
             upper = link_starts[binding - 106];
             lower = link_ends[binding - 106];
+        } else if (binding >= 104 && binding < 108) {
+            upper = link_starts[binding - 104];
+            lower = link_ends[binding - 104];
         } else if (binding >= 108) {
             int axle = binding - 108;
             upper = node_positions[16 + axle * 42];
             lower = node_positions[37 + axle * 42];
         }
         vec3 axis = normalize(lower - upper);
-        vec3 forward = normalize(node_positions[0] - node_positions[2]);
-        vec3 side = normalize(cross(axis, forward));
+        vec3 reference = abs(axis.y) < 0.90 ? vec3(0.0, 1.0, 0.0) : vec3(0.0, 0.0, 1.0);
+        if (binding == 108 || binding == 109) reference = axle_ups[binding - 108];
+        vec3 side = normalize(cross(axis, reference));
         vec3 other = normalize(cross(axis, side));
         point = mix(upper, lower, VERTEX.x) + side * VERTEX.y + other * VERTEX.z;
         NORMAL = normalize(axis * NORMAL.x + side * NORMAL.y + other * NORMAL.z);
