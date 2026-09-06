@@ -1,3 +1,42 @@
+# Crawlworks 2.1 Trailcraft — verified Android release
+
+[Android run 34045707356](https://github.com/braydenparker999/Boltyard/actions/runs/34045707356) completed successfully on 2026-09-06 against [`4dccf62e8293d02109a07d11f011ac796282e7c1`](https://github.com/braydenparker999/Boltyard/commit/4dccf62e8293d02109a07d11f011ac796282e7c1). The 29 changed source/document blobs match the reviewed local files. A later documentation-only commit records this evidence.
+
+## Installable artifact
+
+- File: `bolt-yard-2.1.0-trailcraft.apk`, 43,270,598 bytes.
+- SHA256: `1b53665a9e923a0f3dfbf833d8ba8949fe41be6d0dc9f59739b4c0f4b2bb8852`.
+- Package `games.boltyard.prototype`; version 2.1.0; Android version code 8.
+- Downloaded ZIP CRC, workflow checksum, ARM64 solver, C++ runtime and new contact-patch interfaces verified independently. The packaged tire shader matches the reviewed source byte-for-byte.
+- Android apksigner verified v1/v2/v3 signatures. Certificate SHA256 remains `a882ee66b05eff32ad4629269a96d79bfc3514bcbf0e16e99f42f6046836ea73`, supporting updates over the preceding app without replacing its saves.
+
+## Controls, terrain and tire contact
+
+The exact release passes 797 headless engine checks, 27 rendered world checks, and the loaded-rubber geometry fixture. Camera integration covers 288 actual-input checks; the gesture helper covers 60. Follow and Trail remain locked after scenery drags and steering misses. Explicit Free permits orbit/tilt/pan. Pinch stays zoom-only, even while its center moves and its fingers rotate. Portrait/landscape panels, larger steering hitboxes, guards, save migration, menu ownership and lifecycle cancellation pass.
+
+Native gates pass 78 baseline cases, 2 retained full-road scenarios, 10 crawling scenarios, 8 Crawlworks scenarios, 7 linkage/route scenarios, 190,800 terrain/hull checks, the movable-object suite and 6 causal tire-contact scenarios. The latter independently change pressure, remove a supporting rock face, change surface friction, apply traction shear, climb one convex ledge with two loaded normals and compare moving wood/stone materials. Tests measure effects on motion and support; they do not establish real-tire calibration.
+
+The same static load produces 15.24 mm compression at relative pressure 0.55 and 5.16 mm at 1.65. In actual driven corner captures, a tire loads two planes simultaneously and both planes reach its rendered skin. Sampled tread has no measured penetration; rigid rim radius error is below 1 micrometre. Rubber beads remain fixed to the rim. Six bounded static patches are retained; moving objects still use one tire contact per object pair. There is no independently integrated tire carcass or FEM.
+
+Ground curvature at the 99th percentile drops 79%/77% from the prior Silverpine/Karelia design while preserving the exact 2 m contact grid. Curved routes total 1747/2048 m, with maximum sampled grades 0.308/0.133. Native and visible rocks share closed convex hull geometry, and rounded lighting preserves selected hard ledges. The forests contain 2554/3028 native/render-matched trunks. Surface weights, wetness and loose-ground cues come from the same native material data as grip.
+
+## Rendered gameplay and limits
+
+The final H.264 preview is 960×540, 24.0667 seconds, 722 encoded frames. Its fixture records 720 gameplay frames with actual throttle, braking and raw camera touches. Both trail drives stay upright, undamaged and free of emergency state repairs:
+
+| Map | Displacement | Peak granite support | Final held speed |
+|---|---:|---:|---:|
+| Silverpine | 9.36 m | 6.31 kN | 0.00053 m/s |
+| Karelia | 9.06 m | 6.95 kN | 0.00237 m/s |
+
+Two explicitly labelled trail starts are scene cuts; suspension and wheel poses are solved during the drives. The visual review covers terrain/contact close-ups, garage/map/rig panels and Follow/Trail/Free in both orientations. Final captures confirm the compact driving header, readable gauge and corrected shadow bias. The shadows-on/off pair uses an identical camera to separate shadow acne from material detail.
+
+A first still-only review reached its 180-second capture limit; shorter redundant settling allowed the same views to finish. The first Android pass caught a retained recording fixture that expected implicit camera unlocking; the fixture now selects Free explicitly, with all movement assertions retained. The final successful run includes those corrections.
+
+All maps and materials remain original or previously documented assets; no BeamNG maps were imported. Desktop software rendering verifies appearance and behavior, not sustained Samsung A15 FPS, thermal performance, installation or thumb feel. This is a bounded, uncalibrated game simulation, not BeamNG parity.
+
+---
+
 # Crawlworks 2.0 — verified Android release
 
 [Android run 34010969782](https://github.com/braydenparker999/Boltyard/actions/runs/34010969782) completed successfully on 2026-09-06. Source: [`fcad915d2ef2484fbbc37ed8203225cf3cb42132`](https://github.com/braydenparker999/Boltyard/commit/fcad915d2ef2484fbbc37ed8203225cf3cb42132). All 46 changed source/asset blobs were matched against the local reviewed files before the build.
