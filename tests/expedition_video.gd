@@ -18,6 +18,7 @@ var stage := ""
 var last_position := Vector3.ZERO
 var total_distance := 0.0
 var peak_rock_load := 0.0
+var peak_rock_wheels := 0
 var peak_flex := 0.0
 var peak_speed := 0.0
 var peak_compression := 0.0
@@ -48,6 +49,7 @@ func run() -> void:
 	scene.change_quality(1)
 	for id in ["rockies", "russia"]:
 		await expedition(id)
+	check(peak_or_review("rock_wheels") >= 2, "Actual gameplay must show multiple wheels simultaneously loading rock")
 	check(peak_or_review("rock_load") > 500.0, "At least one real trail must load the tires against native granite contact")
 	check(peak_or_review("articulation") > .025, "Natural trail traversal must produce visible solved axle articulation")
 	var report := {"fps": 30, "frames": frame_number, "seconds": frame_number / 30.0,
@@ -143,7 +145,7 @@ func expedition(id: String) -> void:
 	check(lowest_up > .65 and peak_damage < .02, "%s: the actual trail drive must stay upright without significant damage" % id)
 	check(stats.speed < .08, "%s: the brakes must hold before inspecting the suspension" % id)
 	var review := {"map": id, "displacement": displacement, "travel": total_distance, "peak_speed": peak_speed,
-		"rock_load": peak_rock_load, "articulation": peak_flex, "tire_compression": peak_compression,
+		"rock_load": peak_rock_load, "rock_wheels": peak_rock_wheels, "articulation": peak_flex, "tire_compression": peak_compression,
 		"minimum_up": lowest_up, "damage": peak_damage, "stopped_speed": stats.speed,
 		"final_position": vector_values(stats.position)}
 	stage = id + "_camera"
@@ -203,6 +205,7 @@ func reset_metrics() -> void:
 	last_position = scene.truck.get_telemetry().position
 	total_distance = 0.0
 	peak_rock_load = 0.0
+	peak_rock_wheels = 0
 	peak_flex = 0.0
 	peak_speed = 0.0
 	peak_compression = 0.0
@@ -228,9 +231,12 @@ func advance(count: int, measure := true) -> void:
 		lowest_up = minf(lowest_up, stats.up.y)
 		peak_damage = maxf(peak_damage, stats.damage)
 		var load := 0.0
+		var rock_wheels := 0
 		for value in stats.rock_loads:
 			load += float(value)
+			rock_wheels += int(value > 20.0)
 		peak_rock_load = maxf(peak_rock_load, load)
+		peak_rock_wheels = maxi(peak_rock_wheels, rock_wheels)
 		for value in stats.axle_articulation:
 			peak_flex = maxf(peak_flex, absf(float(value)))
 		for value in stats.wheel_compression:
@@ -238,7 +244,7 @@ func advance(count: int, measure := true) -> void:
 		if frame_number % 30 == 0:
 			trace.append({"frame": frame_number, "stage": stage, "position": vector_values(at),
 				"speed": stats.speed, "up": stats.up.y, "damage": stats.damage,
-				"wheel_loads": Array(stats.wheel_normal_loads), "rock_loads": Array(stats.rock_loads),
+				"rock_wheels": rock_wheels, "wheel_loads": Array(stats.wheel_normal_loads), "rock_loads": Array(stats.rock_loads),
 				"wheel_compression": Array(stats.wheel_compression), "axle_articulation": Array(stats.axle_articulation),
 				"suspension": Array(stats.suspension), "sim_ms": stats.sim_ms,
 				"camera_preset": scene.camera_preset, "camera_position": vector_values(scene.camera.position)})

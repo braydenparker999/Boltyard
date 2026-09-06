@@ -786,7 +786,8 @@ func _build_suspension() -> void:
 		for t in [0.025, 0.915]:
 			_link_cylinder(METAL, 108 + axle, t, t + 0.06, 0.083)
 	for w in range(4):
-		_link_cylinder(DARK, 156 + w, 0.0, 1.0, 0.024)
+		_link_cylinder(DARK, 156 + w, 0.0, 1.0, 0.028)
+		_link_cylinder(DARK, 160 + w, 0.0, 1.0, 0.025, 6)
 		# Body, piston gland and lower shaft have fixed manufactured lengths.
 		# Only their overlap changes as the actual shock-eye separation changes.
 		_link_cylinder(AMBER, 148 + w, 0.0, 1.0, 0.035, 10)
@@ -802,15 +803,15 @@ func _build_suspension() -> void:
 		_link_cylinder(DARK, 110 + w, 0.025, 0.975, 0.024)
 		for binding in [120 + w, 124 + w, 132 + w, 136 + w, 140 + w, 144 + w]:
 			_joint_eye(binding, binding < 128)
-		# Six turns, ten segments per turn. Axial wire thickness is independent
+		# Eight turns, eight segments per turn. Axial wire thickness is independent
 		# of pitch (UV2.y carries a metre offset), matching the CPU debug skin.
 		var spring_material := RED if str(_parts.get("suspension", "stock")) == "long_travel" else AMBER
-		for j in range(60):
+		for j in range(64):
 			for edge in range(3):
 				for corner: Vector2 in [Vector2(j, edge), Vector2(j + 1, edge + 1), Vector2(j, edge + 1),
 					Vector2(j, edge), Vector2(j + 1, edge), Vector2(j + 1, edge + 1)]:
-					var t := corner.x / 60.0
-					var theta := t * TAU * 6.0
+					var t := corner.x / 64.0
+					var theta := t * TAU * 8.0
 					var around := corner.y * TAU / 3.0
 					var radial := 0.053 + sin(around) * 0.008
 					_vertex(spring_material, 128 + w, Vector3(t, cos(theta) * radial, sin(theta) * radial),
@@ -962,8 +963,10 @@ func _debug_vertex(binding: int, p: Vector3, axial_offset: float = 0.0) -> Vecto
 			upper = _link_starts[slot]
 			lower = _link_ends[slot]
 		if binding >= 156:
-			upper = _nodes[w]
+			upper = _nodes[w].lerp(_nodes[w ^ 1], .25)
 			lower = _link_starts[8 + w]
+			if binding >= 160:
+				upper = _nodes[w + 4].lerp(_nodes[(w + 2) % 4 + 4], .22)
 		var eye_length := upper.distance_to(lower)
 		var axis := (lower - upper).normalized()
 		var reference := Vector3.UP if absf(axis.y) < 0.90 else Vector3.BACK

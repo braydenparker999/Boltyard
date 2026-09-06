@@ -9,7 +9,9 @@ void check(bool condition,const char*message){if(!condition)throw std::runtime_e
 void run(SoftRig &rig,int frames,float throttle=0,bool brake=true){for(int i=0;i<frames;++i)rig.step(1.f/120,throttle,0,brake);}
 void prepare(SoftRig &rig,const Config&cfg,const std::vector<CrawlRock>&rocks){rig.configure(cfg);rig.set_terrain(3);rig.set_test_rocks(rocks);rig.reset({0,3.5f,0});rig.dynamic_objects().clear();}
 void healthy(const SoftRig &rig){check(rig.rejected_state_count()==0&&rig.safety_clamp_count()==0&&rig.damage()<.001f,"ordinary contact required numerical intervention or damaged frame");}
-float maximum_width(const SoftRig &r,int wheel){float width=0;Vec3 axis=r.wheel_axle_direction(wheel),hub=r.particles[r.wheel_hubs[wheel]].pos;for(int i=1;i<SoftRig::nodes_per_wheel;++i)width=std::max(width,std::abs((r.particles[r.wheel_hubs[wheel]+i].pos-hub).dot(axis)));return width;}
+// Compare paired sidewalls, so common lateral traction shear cannot be
+// mistaken for width. Absolute hub offset measures both bulge and squirm.
+float maximum_width(const SoftRig &r,int wheel){float width=0;Vec3 axis=r.wheel_axle_direction(wheel);int hub=r.wheel_hubs[wheel];for(int i=0;i<SoftRig::tire_segments;++i){Vec3 span=r.particles[hub+1+SoftRig::tire_segments+i].pos-r.particles[hub+1+i].pos;width=std::max(width,std::abs(span.dot(axis))*.5f);}return width;}
 }
 int main(){int failures=0;auto test=[&](const char*name,auto body){try{body();std::cout<<"PASS "<<name<<'\n';}catch(const std::exception&e){++failures;std::cerr<<"FAIL "<<name<<": "<<e.what()<<'\n';}};
  test("pressure changes loaded footprint and shoulder width without a friction bonus",[]{

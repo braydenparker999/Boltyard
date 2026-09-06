@@ -57,7 +57,7 @@ func run() -> void:
 			var b: Vector3 = truck._debug_vertex(128 + w, Vector3(.5, .053, 0), -.008)
 			maximum_error = maxf(maximum_error, absf(a.distance_to(b) - .016))
 			check(dims.b - dims.g + .06 < dims.a, "%s shaft stroke fits the fixed body" % pose)
-			check((minf(top.distance_to(bottom), dims.r) - .17) / 6.0 > .016, "%s spring has clearance between turns" % pose)
+			check((minf(top.distance_to(bottom), dims.r) - .17) / 8.0 > .016, "%s spring has clearance between turns" % pose)
 		check(maximum_error < .0001, "%s fixed body, shaft, wire and eye attachment" % pose)
 		check(truck.get_visual_validation().live_nonfinite_vertices == 0, "%s uploaded mesh deforms to finite geometry" % pose)
 		var focus: Vector3 = (visual.link_starts[8] + visual.link_ends[8]) * .5

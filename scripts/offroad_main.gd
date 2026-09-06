@@ -812,7 +812,7 @@ func place_ui() -> void:
 	crawl_controls.position = Vector2(margin + 12, 226)
 	drive_panel.get_node("Equipment").position.x = margin + 12
 	drive_panel.get_node("RigBackdrop").position = Vector2(margin, 156)
-	drive_panel.get_node("RigBackdrop").size = Vector2(280, 270)
+	drive_panel.get_node("RigBackdrop").size = Vector2(280, 380)
 	if driving:
 		camera_toolbar.position = Vector2(extent.x - camera_toolbar.size.x - margin, 90)
 	message.position = Vector2(392, 148) if not portrait and not driving else Vector2(margin, 170 if not driving else 160)

@@ -130,7 +130,10 @@ void vertex() {
             int slot = wheel + (binding >= 140 ? 4 : 0);
             upper = link_starts[slot]; lower = link_ends[slot];
         }
-        if (binding >= 156) { upper = node_positions[wheel]; lower = link_starts[8 + wheel]; }
+        if (binding >= 156) {
+            upper = mix(node_positions[wheel], node_positions[wheel ^ 1], 0.25); lower = link_starts[8 + wheel];
+            if (binding >= 160) upper = mix(node_positions[wheel + 4], node_positions[(wheel + 2) % 4 + 4], 0.22);
+        }
         float eye_length = length(lower - upper);
         vec3 axis = normalize(lower - upper);
         vec3 reference = abs(axis.y) < 0.90 ? vec3(0.0, 1.0, 0.0) : vec3(0.0, 0.0, 1.0);
