@@ -60,7 +60,6 @@ var title_label: Label
 var vehicle_description: Label
 var message: Label
 var drive_low: Button
-var drive_diff: Button
 var front_diff: Button
 var rear_diff: Button
 var camera_toolbar: PanelContainer
@@ -81,7 +80,11 @@ var vehicle_buttons: Dictionary = {}
 var paint_buttons: Dictionary = {}
 var part_selectors: Dictionary = {}
 var part_descriptions: Dictionary = {}
-var touch_buttons: Dictionary = {}
+var mobile_controls: Control
+var recovery_panel: PanelContainer
+var safe_spots: Array[Dictionary] = []
+var safe_time := 0.0
+var controls_preferences := {"size": 1.0, "height": 0.0, "sensitivity": 1.0}
 var tuning_content: VBoxContainer
 var tuning_button: Button
 var quality_picker: OptionButton
@@ -499,82 +502,50 @@ func build_driving() -> void:
 	rig_backdrop.add_theme_stylebox_override("panel", box(Color("142127ec"), 12, 10))
 	drive_panel.add_child(rig_backdrop)
 	rig_backdrop.hide()
-	var equipment = row(drive_panel, 6)
-	equipment.name = "Equipment"
-	drive_low = button(equipment, "LOW", toggle_drive_low, 76)
-	drive_diff = button(equipment, "LOCKED", toggle_drive_diff, 90)
-	button(equipment, "Recover", recover, 86)
-	equipment.hide()
+	mobile_controls = preload("res://scripts/mobile_drive_controls.gd").new()
+	mobile_controls.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	drive_panel.add_child(mobile_controls)
+	drive_low = mobile_controls.buttons.low
+	front_diff = mobile_controls.buttons.front
+	rear_diff = mobile_controls.buttons.rear
+	mobile_controls.action_requested.connect(func(action):
+		match action:
+			"low": toggle_drive_low()
+			"front": toggle_axle_diff("front_locked")
+			"rear": toggle_axle_diff("rear_locked")
+			"recover": toggle_recovery_panel()
+	)
 	crawl_controls = column(drive_panel, 5)
 	crawl_controls.name = "CrawlControls"
 	crawl_controls.hide()
-	var throttle_label = label(crawl_controls, "THROTTLE LIMIT  /  35%", 12, ACCENT)
-	var pedal = HSlider.new()
-	pedal.min_value = 0.10
-	pedal.max_value = 1.0
-	pedal.step = 0.05
-	pedal.value = throttle_limit
-	pedal.custom_minimum_size = Vector2(254, 44)
-	pedal.value_changed.connect(func(value):
-		throttle_limit = value
-		throttle_label.text = "THROTTLE LIMIT  /  %d%%" % roundi(value * 100))
-	crawl_controls.add_child(pedal)
-	var axles = row(crawl_controls, 6)
-	front_diff = button(axles, "F / LOCK", toggle_axle_diff.bind("front_locked"), 124)
-	rear_diff = button(axles, "R / LOCK", toggle_axle_diff.bind("rear_locked"), 124)
-	front_diff.add_theme_font_size_override("font_size", 12)
-	rear_diff.add_theme_font_size_override("font_size", 12)
 	crawl_loads = label(crawl_controls, "", 11, MUTED)
-	var copy_report = button(crawl_controls, "Copy performance report", copy_performance_report, 254)
-	copy_report.custom_minimum_size.y = 34
-	make_touch_button("Left", "‹", "off_left", Vector2(92, 80))
-	make_touch_button("Right", "›", "off_right", Vector2(92, 80))
-	make_touch_button("Reverse", "R", "off_reverse", Vector2(62, 64))
-	make_touch_button("Brake", "BRAKE", "off_brake", Vector2(64, 60))
-	make_touch_button("Go", "↑", "off_go", Vector2(82, 90))
+	button(crawl_controls, "Copy performance report", copy_performance_report, 254)
+	recovery_panel = PanelContainer.new()
+	recovery_panel.name = "RecoveryPanel"
+	recovery_panel.add_theme_stylebox_override("panel", box(Color("142127fa"), 18, 16))
+	drive_panel.add_child(recovery_panel)
+	var options = column(recovery_panel, 8)
+	label(options, "TRAIL RECOVERY", 16, ACCENT)
+	button(options, "Right vehicle nearby", recover_nearby, 260)
+	button(options, "Last safe spot", recover_safe, 260)
+	button(options, "Cancel", toggle_recovery_panel, 260)
+	recovery_panel.hide()
 
 func toggle_rig_controls() -> void:
-	if not driving:
-		return
+	if not driving: return
 	clear_controls()
+	recovery_panel.hide()
 	crawl_controls.visible = not crawl_controls.visible
-	drive_panel.get_node("Equipment").visible = crawl_controls.visible
 	drive_panel.get_node("RigBackdrop").visible = crawl_controls.visible
 	rig_button.text = "RIG ×" if crawl_controls.visible else "RIG"
-	if crawl_controls.visible:
-		reveal_panel(crawl_controls)
-		reveal_panel(drive_panel.get_node("Equipment"))
-		reveal_panel(drive_panel.get_node("RigBackdrop"))
 	layout_ui()
 
-func make_touch_button(node_name: String, text: String, action: String, dimensions: Vector2) -> void:
-	var touch_root = Node2D.new()
-	touch_root.name = node_name
-	drive_panel.add_child(touch_root)
-	var panel = Panel.new()
-	panel.size = dimensions
-	panel.position = -dimensions / 2
-	panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	var pedal_style = box(Color("d9bd82ed") if action == "off_go" else Color("102026c9"), 5, 0)
-	pedal_style.set_border_width_all(1)
-	pedal_style.border_color = Color("f2deb7") if action == "off_go" else Color("b8ccc477")
-	pedal_style.border_width_bottom = 3
-	panel.add_theme_stylebox_override("panel", pedal_style)
-	touch_root.add_child(panel)
-	var caption = label(panel, text, 48 if action in ["off_left", "off_right"] else (36 if action == "off_go" else (14 if action == "off_brake" else 22)), INK if action == "off_go" else PAPER)
-	caption.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	caption.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	caption.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	var touch = TouchScreenButton.new()
-	var shape = RectangleShape2D.new()
-	# Steering is forgiving beyond its artwork; separate hitboxes never overlap.
-	shape.size = Vector2(108, 108) if action in ["off_left", "off_right"] else dimensions + Vector2(18, 18)
-	touch.shape = shape
-	touch.passby_press = false
-	touch.action = action
-	touch.visibility_mode = TouchScreenButton.VISIBILITY_ALWAYS
-	touch_root.add_child(touch)
-	touch_buttons[action] = {"root": touch_root, "panel": panel, "touch": touch, "down": false, "pressure": 0.0, "hit_size": shape.size}
+func toggle_recovery_panel() -> void:
+	clear_controls()
+	crawl_controls.hide()
+	drive_panel.get_node("RigBackdrop").hide()
+	recovery_panel.visible = not recovery_panel.visible
+
 
 func reveal_panel(control: Control) -> void:
 	control.modulate.a = 0.0
@@ -667,20 +638,20 @@ func camera_touch_blocked(point: Vector2) -> bool:
 	if not driving:
 		var tools: Control = garage_overlay.get_node("CameraTools")
 		return tools.is_visible_in_tree() and tools.get_global_rect().has_point(point)
-	for name in ["Navigation", "Equipment", "CrawlControls", "RigBackdrop"]:
+	for name in ["Navigation", "CrawlControls", "RigBackdrop", "RecoveryPanel"]:
 		var control: Control = drive_panel.get_node(name)
 		if control.is_visible_in_tree() and control.get_global_rect().has_point(point):
 			return true
-	for action in touch_buttons:
-		var item: Dictionary = touch_buttons[action]
-		var hit = Rect2(item.root.global_position - item.hit_size * 0.5, item.hit_size)
-		if hit.grow(18.0).has_point(point):
-			return true
-	# A missed steering or pedal touch stays a driving touch until it lifts.
-	# The entire thumb strip is excluded, including the gap between controls.
-	return point.y >= get_viewport().get_visible_rect().size.y - 120.0
+	return mobile_controls.blocked(point)
 
 func _input(event: InputEvent) -> void:
+	if driving and not get_tree().paused and not backgrounded and not help_open and not recovery_panel.visible and not crawl_controls.visible:
+		if mobile_controls.handle(event):
+			if event is InputEventScreenTouch:
+				if event.pressed: camera_gestures.touch_down(event.index, event.position, true)
+				else: camera_gestures.touch_up(event.index)
+			get_viewport().set_input_as_handled()
+			return
 	if event is InputEventScreenTouch:
 		if event.canceled or not event.pressed:
 			camera_gestures.touch_up(event.index)
@@ -730,6 +701,19 @@ func build_pause() -> void:
 	label(content, "Your vehicle will be right here.", 14, MUTED)
 	accent_button(button(content, "Keep exploring", toggle_pause, 270))
 	button(content, "Return to garage", pause_to_garage, 270)
+	for spec in [["size", "Control size", .85, 1.15, .05], ["height", "Raise controls", 0, 80, 10], ["sensitivity", "Steering sensitivity", .6, 1.4, .1]]:
+		label(content, spec[1], 14, MUTED)
+		var slider := HSlider.new()
+		slider.min_value = spec[2]
+		slider.max_value = spec[3]
+		slider.step = spec[4]
+		slider.value = controls_preferences[spec[0]]
+		slider.custom_minimum_size.y = 40
+		slider.value_changed.connect(func(value):
+			controls_preferences[spec[0]] = value
+			layout_ui()
+			save_settings())
+		content.add_child(slider)
 	pause_overlay.hide()
 
 func build_map() -> void:
@@ -808,25 +792,26 @@ func place_ui() -> void:
 	var navigation: Control = drive_panel.get_node("Navigation")
 	navigation.position = Vector2(margin, 90)
 	navigation.size = Vector2(minf(348, extent.x - 332), 60)
-	drive_panel.get_node("Equipment").position = Vector2(margin, 168)
-	crawl_controls.position = Vector2(margin + 12, 226)
-	drive_panel.get_node("Equipment").position.x = margin + 12
-	drive_panel.get_node("RigBackdrop").position = Vector2(margin, 156)
-	drive_panel.get_node("RigBackdrop").size = Vector2(280, 380)
+	mobile_controls.control_scale = float(controls_preferences.size)
+	mobile_controls.thumb_offset = float(controls_preferences.height)
+	mobile_controls.sensitivity = float(controls_preferences.sensitivity)
+	mobile_controls.arrange()
+	var bar_y: float = mobile_controls.bar.position.y
+	crawl_controls.position = Vector2(margin + 12, maxf(170, bar_y - 280))
+	drive_panel.get_node("RigBackdrop").position = crawl_controls.position - Vector2(12, 12)
+	drive_panel.get_node("RigBackdrop").size = Vector2(280, 264)
+	recovery_panel.size = Vector2(292, 216)
+	recovery_panel.position = Vector2(extent.x - 310, bar_y - 228)
+	dashboard.position = Vector2(extent.x - margin - 98, 160)
+	dashboard.scale = Vector2(.72, .72)
 	if driving:
 		camera_toolbar.position = Vector2(extent.x - camera_toolbar.size.x - margin, 90)
-	message.position = Vector2(392, 148) if not portrait and not driving else Vector2(margin, 170 if not driving else 160)
-	message.size = Vector2(maxf(220, extent.x - 414), 52) if not portrait and not driving else Vector2(extent.x - margin * 2, 52)
+	message.position = Vector2(margin, 160)
+	message.size = Vector2(extent.x - margin * 2, 52)
 	if driving:
-		message.position = Vector2(extent.x * 0.5 - minf(230.0, extent.x * 0.3), extent.y - 248)
-		message.size = Vector2(minf(460.0, extent.x * 0.6), 52)
-	var bottom = extent.y - 76
-	touch_buttons.off_left.root.position = Vector2(margin + 54, bottom)
-	touch_buttons.off_right.root.position = Vector2(margin + 168, bottom)
-	touch_buttons.off_go.root.position = Vector2(extent.x - margin - 47, bottom - 6)
-	touch_buttons.off_reverse.root.position = Vector2(extent.x - margin - 140, bottom + 4)
-	touch_buttons.off_brake.root.position = Vector2(extent.x - margin - 47, bottom - 104)
-	pause_overlay.size = Vector2(minf(380, extent.x - 40), 276)
+		message.position = Vector2(extent.x * .5 - 210, maxf(280, bar_y - 66))
+		message.size = Vector2(420, 52)
+	pause_overlay.size = Vector2(minf(380, extent.x - 40), 600)
 	pause_overlay.position = (extent - pause_overlay.size) / 2
 	map_overlay.size = Vector2(minf(720, extent.x - 36), minf(860, extent.y - 40))
 	map_overlay.position = (extent - map_overlay.size) / 2
@@ -941,11 +926,9 @@ func update_paint_buttons() -> void:
 
 func update_drive_toggles() -> void:
 	drive_low.text = "LOW" if settings.low_range else "HIGH"
-	drive_diff.text = "MIXED" if settings.front_locked != settings.rear_locked else ("LOCKED" if settings.locked_diffs else "OPEN")
-	drive_diff.visible = false
-	front_diff.text = "F / %s" % ("LOCK" if settings.front_locked else "OPEN")
-	rear_diff.text = "R / %s" % ("LOCK" if settings.rear_locked else "OPEN")
-	for item in [drive_low, drive_diff, front_diff, rear_diff]:
+	front_diff.text = "F · %s" % ("LOCK" if settings.front_locked else "OPEN")
+	rear_diff.text = "R · %s" % ("LOCK" if settings.rear_locked else "OPEN")
+	for item in [drive_low, front_diff, rear_diff]:
 		var enabled = settings.low_range if item == drive_low else (settings.front_locked if item == front_diff else (settings.rear_locked if item == rear_diff else settings.locked_diffs))
 		item.add_theme_stylebox_override("normal", box(Color("56634f") if enabled else Color("2b3c43"), 10))
 
@@ -983,6 +966,8 @@ func apply_tuning() -> void:
 	truck.configure(settings)
 	world.configure(truck.core)
 	truck.reset(recovery_point())
+	safe_spots.clear()
+	safe_time = 0
 	truck.body_color = Color(settings.paint)
 	truck.wireframe = xray
 	did_position_camera = false
@@ -992,11 +977,6 @@ func toggle_drive_low() -> void:
 	change_toggle(not settings.low_range, "low_range")
 	sync_controls()
 	toast("Low range engaged." if settings.low_range else "High range engaged.")
-
-func toggle_drive_diff() -> void:
-	change_toggle(not settings.locked_diffs, "locked_diffs")
-	sync_controls()
-	toast("Differentials locked." if settings.locked_diffs else "Differentials open.")
 
 func toggle_axle_diff(key: String) -> void:
 	change_toggle(not bool(settings[key]), key)
@@ -1033,13 +1013,15 @@ func toggle_mode() -> void:
 		accent_button(mode_button)
 	rig_button.visible = driving
 	if not driving:
+		recovery_panel.hide()
 		crawl_controls.hide()
-		drive_panel.get_node("Equipment").hide()
 		drive_panel.get_node("RigBackdrop").hide()
 		rig_button.text = "RIG"
 	update_camera_tools()
 	if not driving:
 		truck.reset(recovery_point())
+		safe_spots.clear()
+		safe_time = 0
 		pause_overlay.hide()
 		get_tree().paused = false
 		pause_button.text = "Ⅱ"
@@ -1047,11 +1029,37 @@ func toggle_mode() -> void:
 	layout_ui()
 	save_settings()
 	reveal_panel(drive_panel if driving else garage_panel)
-	toast("Hold ↑ to drive. Camera cycles Follow, Trail and Free. RIG opens traction controls." if driving else "Choose a trail, fit equipment or adjust your setup.")
+	toast("Slide to steer · Slide GAS for power · FWD / REV changes direction" if driving else "Choose a trail, fit equipment or adjust your setup.")
+
+func recover_nearby() -> void:
+	var stats: Dictionary = truck.get_telemetry()
+	perform_local_recovery(stats.position, stats.forward)
+
+func perform_local_recovery(at: Vector3, heading: Vector3) -> bool:
+	clear_controls()
+	recovery_panel.hide()
+	recovery_cooldown = 3.0
+	if not truck.core.recover_near(at, heading):
+		toast("No clear ground nearby. Try Last safe spot.")
+		return false
+	truck._refresh_visuals()
+	current_telemetry = truck.get_telemetry()
+	did_position_camera = false
+	toast("Back on your wheels. Vehicle damage and setup kept.")
+	return true
+
+func recover_safe() -> void:
+	for index in range(safe_spots.size() - 1, -1, -1):
+		var spot: Dictionary = safe_spots[index]
+		if perform_local_recovery(spot.position, spot.forward): return
+	if safe_spots.is_empty():
+		perform_local_recovery(recovery_point(), Vector3.FORWARD)
 
 func recover() -> void:
 	clear_controls()
 	truck.reset(recovery_point())
+	safe_spots.clear()
+	safe_time = 0
 	recovery_cooldown = 1.0
 	did_position_camera = false
 	toast("Repaired at the last cleared section." if crawl_mode else "Vehicle repaired at base camp. Your discoveries are saved.")
@@ -1075,6 +1083,7 @@ func zoom_by(amount: float) -> void:
 	camera_save_delay = 0.8
 
 func clear_controls() -> void:
+	if is_instance_valid(mobile_controls): mobile_controls.cancel()
 	camera_gestures.cancel()
 	for action in ACTIONS:
 		Input.action_release(action)
@@ -1175,7 +1184,7 @@ func show_help() -> void:
 	var dialog = AcceptDialog.new()
 	dialog.title = "Crawlworks · Field guide"
 	dialog.process_mode = Node.PROCESS_MODE_ALWAYS
-	dialog.dialog_text = "BUILD YOUR RIG\nPickup, Scout and Buggy each keep a separate build.\nEquipment changes compatible parts and their matching settings.\nFine tuning overrides those settings. Reset tuning restores installed parts.\n\nEXPLORE\nSelect a destination on the map, then follow the compass.\nPlaces are discovered when you actually drive close to them.\nCamp repairs the vehicle and returns you to the workshop.\nHold the up arrow plus a steering arrow. R reverses; BRAKE stops the rig.\nLow range and locked differentials help with slow climbs.\nRig opens throttle and independent front / rear differential controls.\nKeyboard: WASD / arrows, Space brake, R camp, M map, Tab garage.\n\nCAMERA · FOLLOW / TRAIL / FREE\nThe camera button cycles locked Follow, closer Trail and Free.\nFollow and Trail ignore scenery drags. Two fingers pinch to zoom only.\nChoose Free to orbit and tilt with one finger; Pan moves the view sideways or up/down.\nCenter returns to locked Follow.\nButtons and pedals keep their touches. Lift fingers before changing modes.\n\nDISPLAY & SAVES\nBoth portrait and landscape layouts work; rotate at any time.\nPerformance, Balanced and High adjust scenery and shadows.\nAll builds and discoveries save on this device. The old setup is retained.\n\nPHYSICS\nThe frame and cabin deform. Loaded tires compress and flex against the ground and rocks.\nLower pressure softens the tire and widens its footprint; higher pressure reduces flex.\nPressure values are relative settings, not bar or PSI.\nTire, suspension and drivetrain models remain simplified."
+	dialog.dialog_text = "BUILD YOUR RIG\nPickup, Scout and Buggy each keep a separate build.\nEquipment changes compatible parts and their matching settings.\nFine tuning overrides those settings. Reset tuning restores installed parts.\n\nEXPLORE\nSelect a destination on the map, then follow the compass.\nPlaces are discovered when you actually drive close to them.\nCamp repairs the vehicle and returns you to the workshop.\nSlide the left pad to steer. Slide GAS upward for more power. FWD / REV selects direction; BRAKE stops the rig.\nLow range and locked differentials help with slow climbs.\nRange, axle locks and local recovery sit above your thumbs. Pause adjusts control size, height and sensitivity. RIG opens diagnostics.\nKeyboard: WASD / arrows, Space brake, R camp, M map, Tab garage.\n\nCAMERA · FOLLOW / TRAIL / FREE\nThe camera button cycles locked Follow, closer Trail and Free.\nFollow and Trail ignore scenery drags. Two fingers pinch to zoom only.\nChoose Free to orbit and tilt with one finger; Pan moves the view sideways or up/down.\nCenter returns to locked Follow.\nButtons and pedals keep their touches. Lift fingers before changing modes.\n\nDISPLAY & SAVES\nBoth portrait and landscape layouts work; rotate at any time.\nPerformance, Balanced and High adjust scenery and shadows.\nAll builds and discoveries save on this device. The old setup is retained.\n\nPHYSICS\nThe frame and cabin deform. Loaded tires compress and flex against the ground and rocks.\nLower pressure softens the tire and widens its footprint; higher pressure reduces flex.\nPressure values are relative settings, not bar or PSI.\nTire, suspension and drivetrain models remain simplified."
 	ui.add_child(dialog)
 	dialog.confirmed.connect(dialog.queue_free)
 	dialog.canceled.connect(dialog.queue_free)
@@ -1227,6 +1236,9 @@ func load_settings() -> void:
 		if raw_quality is float or raw_quality is int:
 			quality = clampi(int(raw_quality), 0, 2)
 		load_camera_preferences(parsed.get("camera", {}))
+		var prefs = parsed.get("controls", {})
+		if prefs is Dictionary:
+			controls_preferences = {"size": camera_number(prefs, "size", 1, .85, 1.15), "height": camera_number(prefs, "height", 0, 0, 80), "sensitivity": camera_number(prefs, "sensitivity", 1, .6, 1.4)}
 		return
 	if not FileAccess.file_exists(LEGACY_PATH):
 		return
@@ -1284,7 +1296,7 @@ func save_settings() -> bool:
 	var file = FileAccess.open(temporary, FileAccess.WRITE)
 	if file == null:
 		return false
-	file.store_string(JSON.stringify({"version": 3, "selected_vehicle": selected_vehicle, "builds": builds, "discovered": discovered, "destination": destination, "quality": quality, "selected_map": selected_map if not crawl_mode else "legacy", "map_progress": exploration_progress, "camera": camera_preferences()}, "\t"))
+	file.store_string(JSON.stringify({"version": 3, "selected_vehicle": selected_vehicle, "builds": builds, "discovered": discovered, "destination": destination, "quality": quality, "selected_map": selected_map if not crawl_mode else "legacy", "map_progress": exploration_progress, "camera": camera_preferences(), "controls": controls_preferences}, "\t"))
 	file.flush()
 	var error = file.get_error()
 	file.close()
@@ -1305,9 +1317,9 @@ func toast(text: String) -> void:
 func _physics_process(_delta: float) -> void:
 	if not is_instance_valid(truck) or get_tree().paused:
 		return
-	truck.throttle = Input.get_axis("off_reverse", "off_go") * (throttle_limit if settings.low_range else 1.0) if driving else 0.0
-	truck.steering = Input.get_axis("off_left", "off_right") if driving else 0.0
-	truck.brake = Input.is_action_pressed("off_brake") if driving else true
+	truck.throttle = (mobile_controls.throttle * (-1.0 if mobile_controls.reverse else 1.0) if mobile_controls.throttle > 0 else Input.get_axis("off_reverse", "off_go") * (throttle_limit if settings.low_range else 1.0)) if driving and not recovery_panel.visible and not crawl_controls.visible else 0.0
+	truck.steering = (mobile_controls.steering if absf(mobile_controls.steering) > 0 else Input.get_axis("off_left", "off_right")) if driving else 0.0
+	truck.brake = mobile_controls.braking or Input.is_action_pressed("off_brake") or recovery_panel.visible or crawl_controls.visible if driving else true
 
 func _process(delta: float) -> void:
 	if not is_instance_valid(truck) or not is_instance_valid(ui):
@@ -1341,18 +1353,16 @@ func _process(delta: float) -> void:
 		world.update_focus(position)
 		if not crawl_mode:
 			check_discoveries(position)
-	for action in touch_buttons:
-		var pressed = Input.is_action_pressed(action)
-		var item: Dictionary = touch_buttons[action]
-		item.down = pressed
-		item.pressure = move_toward(float(item.pressure), 1.0 if pressed else 0.0, delta * 12.0)
-		item.panel.modulate = Color.WHITE.lerp(Color("ffdb9f"), float(item.pressure) * 0.85)
-		item.panel.scale = Vector2.ONE * (1.0 - float(item.pressure) * 0.035)
-		item.panel.pivot_offset = item.panel.size * 0.5
-	if recovery_cooldown <= 0.0:
-		if position.y < -50.0 or (driving and (absf(position.x) > (365.0 if selected_map == "legacy" else 316.0) or absf(position.z) > (365.0 if selected_map == "legacy" else 316.0))):
-			recover()
-			toast("Region edge reached. Recovered at camp with discoveries saved.")
+	if driving:
+		var stable: bool = current_telemetry.get("wheels_grounded", 0) == 4 and current_telemetry.get("up", Vector3.UP).y > .92 and absf(float(current_telemetry.get("speed", 0))) < 2.0 and absf(float(current_telemetry.get("velocity", Vector3.ZERO).y)) < .3
+		safe_time = safe_time + delta if stable else 0.0
+		if safe_time >= 2.0:
+			safe_time = 0
+			if safe_spots.is_empty() or position.distance_to(safe_spots.back().position) > 5:
+				safe_spots.append({"position": position, "forward": current_telemetry.get("forward", Vector3.FORWARD)})
+				if safe_spots.size() > 20: safe_spots.pop_front()
+	if recovery_cooldown <= 0 and driving and (position.y < -50 or absf(position.x) > (365 if selected_map == "legacy" else 316) or absf(position.z) > (365 if selected_map == "legacy" else 316)):
+		recover_safe()
 
 func update_camera(delta: float) -> void:
 	var position: Vector3 = current_telemetry.get("position", CAMP)
@@ -1421,7 +1431,7 @@ func update_camera(delta: float) -> void:
 		camera.look_at(camera_target, Vector3.UP)
 
 func copy_performance_report() -> void:
-	var report := {"version": "2.2.0", "device": OS.get_model_name(), "os": OS.get_name(),
+	var report := {"version": "2.3.0", "device": OS.get_model_name(), "os": OS.get_name(),
 		"renderer": RenderingServer.get_current_rendering_method(), "quality": quality,
 		"render_scale": get_viewport().scaling_3d_scale, "viewport": str(get_viewport().get_visible_rect().size),
 		"map": selected_map, "settings": settings, "telemetry": truck.get_telemetry(),
@@ -1639,12 +1649,13 @@ func select_map(id: String) -> void:
 	restore_exploration_progress()
 	map_button.disabled = crawl_mode
 	crawl_controls.hide()
-	drive_panel.get_node("Equipment").hide()
 	drive_panel.get_node("RigBackdrop").hide()
 	update_map_selection()
 	refresh_map_destinations()
 	sync_controls()
 	truck.reset(recovery_point())
+	safe_spots.clear()
+	safe_time = 0
 	current_telemetry = truck.get_telemetry()
 	did_position_camera = false
 	save_settings()

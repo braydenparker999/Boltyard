@@ -129,9 +129,9 @@ func run() -> void:
 		var navigation: Control = scene.drive_panel.get_node("Navigation")
 		check(inside_view(navigation, extent) and navigation.size.y <= 82.0, "navigation stays compact after rotating to the %s viewport" % str(dimensions))
 		var controls_inside = true
-		for action in scene.touch_buttons:
-			controls_inside = controls_inside and inside_view(scene.touch_buttons[action].panel, extent)
-		check(controls_inside, "all five driving touch targets fit the %s viewport" % str(dimensions))
+		for rect in scene.mobile_controls.rects.values():
+			controls_inside = controls_inside and Rect2(Vector2.ZERO, extent).encloses(rect)
+		check(controls_inside, "all analog driving touch targets fit the %s viewport" % str(dimensions))
 		Input.action_press("off_go")
 		Input.action_press("off_right")
 		scene.layout_ui()

@@ -1,3 +1,11 @@
+## 2.3 Thumbdrive
+
+Portrait-first analog steering and progressive throttle replace the digital driving pedals. Range, front/rear axle locks and local recovery sit in a permanent thumb-height row. FWD/REV selects direction; changing direction releases a held throttle. Pause offers control size, vertical position and steering sensitivity, saved with the garage.
+
+Recovery offers **Right vehicle nearby** and **Last safe spot**. It searches within 12 metres for gently sloped ground with conservative clearance from rocks, trees and movable objects; if no site fits, the rig stays put. Repositioning retains heading, damage, broken beams, tuning and world objects. Stable trail positions are kept for the current drive; before any are recorded, Last safe spot uses the trail start. Return to garage and garage repairs remain separate.
+
+The A15 2.2 report supplied by the user covered 240 frames / 9.75 seconds at Performance quality, portrait 720×1560, scale .75: 24.6 FPS average, frame p95 48.06 ms and worst 54.19 ms, with no discarded simulation time or safety corrections. This is the device baseline, not a claim about 2.3 speed.
+
 # Crawlworks 2.2: Articulation
 
 This update targets the severe multi-wheel rock-contact stalls reported on the Samsung A15. Exact convex queries now use a triangle bounding-volume tree, preserving the original rounded collision/render hulls, 240 Hz physics, nine iterations, secondary tire support, grip and mass. Host profiling and measurements are in `PERFORMANCE.md`; on-device acceptance remains pending.

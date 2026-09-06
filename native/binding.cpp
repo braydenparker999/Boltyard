@@ -35,6 +35,7 @@ protected:
     static void _bind_methods() {
         ClassDB::bind_method(D_METHOD("configure", "settings"), &SoftBodyRig::configure);
         ClassDB::bind_method(D_METHOD("reset", "origin"), &SoftBodyRig::reset, DEFVAL(Vector3(0,1.5,8)));
+        ClassDB::bind_method(D_METHOD("recover_near", "origin", "heading"), &SoftBodyRig::recover_near);
         ClassDB::bind_method(D_METHOD("step", "dt", "throttle", "steer", "brake"), &SoftBodyRig::step);
         ClassDB::bind_method(D_METHOD("set_terrain", "mode"), &SoftBodyRig::set_terrain);
         ClassDB::bind_method(D_METHOD("get_terrain_mode"), &SoftBodyRig::get_terrain_mode);
@@ -105,6 +106,7 @@ public:
         rig.configure(c);
     }
     void reset(const Vector3 &origin) { rig.reset(cv(origin)); }
+    bool recover_near(const Vector3 &origin, const Vector3 &heading) { return rig.recover_near(cv(origin), cv(heading)); }
     void step(double dt, double throttle, double steer, bool brake) {
         if (!std::isfinite(dt) || dt <= 0.0) return;
         auto start = std::chrono::steady_clock::now();

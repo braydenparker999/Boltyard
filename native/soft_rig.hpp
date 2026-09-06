@@ -258,6 +258,66 @@ public:
         beam_contact_lambdas_.clear(); beam_contact_t_.clear(); beam_contact_normals_.clear();
     }
 
+    // Recovery is a rigid relocation of the existing damaged rig, never reset().
+    // Search clear, gently sloped ground near the request; reject occupied sites.
+    bool recover_near(Vec3 requested, Vec3 heading) {
+        if (!requested.finite() || !heading.finite() || particles.size()<8) return false;
+        Vec3 old_center=center(), old_f=forward(), old_r=right_raw().normalized();
+        Vec3 old_u=old_r.cross(old_f).normalized(); old_r=old_f.cross(old_u).normalized();
+        heading.y=0; if(heading.length_squared()<.01f)heading={0,0,-1};
+        Vec3 f=heading.normalized(), u{0,1,0}, r=f.cross(u);
+        std::vector<Vec3> offsets; CrawlRock::Bounds local;
+        for(const auto&p:particles){Vec3 d=p.pos-old_center;Vec3 q=r*d.dot(old_r)+u*d.dot(old_u)+f*d.dot(old_f);offsets.push_back(q);local.add(q);}
+        const float pad=cfg_.tire_radius+.18f;
+        const auto& rocks=custom_rocks_?test_rocks_:(terrain_mode_>=4?expedition_rocks(terrain_mode_):crawl_course());
+        auto overlaps=[](const CrawlRock::Bounds&a,const CrawlRock::Bounds&b){return a.low.x<=b.high.x&&a.high.x>=b.low.x&&a.low.y<=b.high.y&&a.high.y>=b.low.y&&a.low.z<=b.high.z&&a.high.z>=b.low.z;};
+        for(int ring=0;ring<=4;++ring)for(int direction=0;direction<(ring?12:1);++direction){
+            float angle=direction*6.2831853f/12;
+            Vec3 at=requested+Vec3(std::sin(angle)*ring*3,0,std::cos(angle)*ring*3);
+            float limit=terrain_mode_>=4?310.f:360.f;
+            if(std::abs(at.x)>limit||std::abs(at.z)>limit)continue;
+            float lo=1e9f,hi=-1e9f;
+            // Sample the full footprint, including the spaces between the wheels.
+            for(int z=0;z<=6;++z)for(int x=0;x<=4;++x){
+                float px=at.x+local.low.x-pad+(local.high.x-local.low.x+2*pad)*x/4;
+                float pz=at.z+local.low.z-pad+(local.high.z-local.low.z+2*pad)*z/6;
+                float h=terrain_height(px,pz);lo=std::min(lo,h);hi=std::max(hi,h);
+            }
+            if(!std::isfinite(hi)||hi-lo>.65f)continue;
+            at.y=-1e9f;
+            for(size_t i=0;i<particles.size();++i){
+                float radius=particles[i].wheel>=0?cfg_.tire_radius:particles[i].radius;
+                at.y=std::max(at.y,terrain_height(at.x+offsets[i].x,at.z+offsets[i].z)+radius+.12f-offsets[i].y);
+            }
+            CrawlRock::Bounds box;
+            box.low=at+local.low-Vec3(pad,pad,pad);box.high=at+local.high+Vec3(pad,pad,pad);
+            bool occupied=false;
+            if(custom_rocks_||terrain_mode_>=3)for(const auto&rock:rocks){
+                CrawlRock::Bounds bounds;
+                if(!rock.query_nodes.empty())bounds=rock.query_nodes[0].bounds;
+                else for(const auto&v:rock.vertices)bounds.add(v);
+                if(overlaps(box,bounds)){occupied=true;break;}
+            }
+            if(occupied)continue;
+            if(terrain_mode_==2||terrain_mode_>=4){
+                const auto&obs=terrain_mode_>=4?expedition_obstacles(terrain_mode_):exploration_obstacles();
+                for(const auto&o:obs){float h=terrain_height(o.x,o.z);CrawlRock::Bounds b;b.low={o.x-o.radius,h,o.z-o.radius};b.high={o.x+o.radius,h+o.height,o.z+o.radius};if(overlaps(box,b)){occupied=true;break;}}
+            }
+            if(occupied)continue;
+            for(const auto&body:dynamic_objects_.bodies()){
+                CrawlRock::Bounds b;Vec3 extent{body.shape.reach,body.shape.reach,body.shape.reach};b.low=body.position-extent;b.high=body.position+extent;
+                if(overlaps(box,b)){occupied=true;break;}
+            }
+            if(occupied)continue;
+            for(size_t i=0;i<particles.size();++i){particles[i].pos=particles[i].prev=at+offsets[i];particles[i].velocity={};}
+            accumulator_=0; wheel_spin_.fill(0);wheel_slip_.fill(0);wheel_shear_.fill({});wheel_contact_counts_.fill(0);contact_count_=0;
+            for(auto&c:wheel_manifolds_)c.clear();
+            find_nearby_obstacles();
+            return true;
+        }
+        return false;
+    }
+
     void step(float dt, float throttle, float steer, bool brake) {
         if (!std::isfinite(dt) || dt <= 0) return;
         throttle = safe_clamp(throttle, -1, 1, 0);

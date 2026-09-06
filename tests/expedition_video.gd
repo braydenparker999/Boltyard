@@ -102,9 +102,8 @@ func expedition(id: String) -> void:
 	await advance(12, false)
 	var viewport_size: Vector2 = scene.get_viewport().get_visible_rect().size
 	var center := Vector2(viewport_size.x * .56, viewport_size.y * .48)
-	var steering: Dictionary = scene.touch_buttons.off_left
-	var hit := Rect2(steering.root.global_position - steering.hit_size * .5, steering.hit_size)
-	var miss: Vector2 = steering.root.global_position + Vector2(64, -62)
+	var hit: Rect2 = scene.mobile_controls.rects.steer
+	var miss: Vector2 = hit.position + Vector2(32, -12)
 	check(not hit.has_point(miss) and scene.camera_touch_blocked(miss),
 		"%s: a touch just outside steering must belong to its guard band" % id)
 	var locked_before: Dictionary = scene.camera_preferences()

@@ -203,126 +203,50 @@ func dispatch_drag(id: int, position: Vector2) -> void:
 	Input.flush_buffered_events()
 
 func test_real_touch_dispatch(scene) -> void:
-	# Exercise the viewport dispatcher and native TouchScreenButton together;
-	# direct scene._input calls alone cannot prove native pedal ownership.
 	scene.clear_controls()
-	scene.reset_camera()
 	scene.set_camera_preset("free")
-	scene.camera_pan_mode = false
-	scene.update_camera_tools()
-	var pedal: Vector2 = scene.touch_buttons.off_go.panel.get_global_rect().get_center()
-	var points = scenery_pair(scene)
-	var scenery: Vector2 = points[0]
-	for action in ["off_left", "off_right"]:
-		var item: Dictionary = scene.touch_buttons[action]
-		var visual: Rect2 = item.panel.get_global_rect()
-		var expanded_corner: Vector2 = item.touch.global_position + Vector2(50, -50)
-		check(not visual.has_point(expanded_corner) and scene.camera_touch_blocked(expanded_corner), action + " expanded corner is outside its visual and excluded from camera gestures")
-		dispatch_touch(301, expanded_corner, true)
-		await process_frame
-		check(Input.is_action_pressed(action), action + " rectangular expanded corner activates through real touch dispatch")
-		var before: Dictionary = scene.camera_preferences()
-		dispatch_drag(301, scenery)
-		await process_frame
-		scene._process(0.0)
-		check(scene.camera_preferences() == before, action + " owns an expanded-hit contact after it drags onto scenery")
-		dispatch_touch(301, scenery, false)
-		await process_frame
-		check(not Input.is_action_pressed(action), action + " releases its expanded-hit contact normally")
-
-	# A near miss beyond the 108px hit box still belongs to the drive-control
-	# guard. Dragging away cannot silently become Free-camera movement.
-	var steer_rect: Rect2 = scene.touch_buttons.off_left.panel.get_global_rect()
-	var missed_steer = Vector2(steer_rect.get_center().x, steer_rect.position.y - 16)
-	check(scene.camera_touch_blocked(missed_steer), "the 18px steering guard excludes a touchdown beyond the expanded hit box")
-	var before: Dictionary = scene.camera_preferences()
-	dispatch_touch(301, missed_steer, true)
-	dispatch_drag(301, scenery + Vector2(48, 24))
+	var original_builds: Dictionary = scene.builds.duplicate(true)
+	var m = scene.mobile_controls
+	var steer: Vector2 = m.rects.steer.get_center() + Vector2(44, 0)
+	var pedal: Vector2 = m.rects.throttle.get_center()
+	var scenery: Vector2 = scenery_pair(scene)[0]
+	dispatch_touch(300, steer, true)
+	dispatch_touch(301, pedal, true)
 	await process_frame
-	scene._process(0.0)
-	check(not Input.is_action_pressed("off_left") and scene.camera_preferences() == before, "a missed steering press activates neither steering nor Free-camera movement")
-	dispatch_touch(302, points[1], true)
-	dispatch_drag(302, points[1] + Vector2(36, 18))
+	check(m.steering > .1 and m.steering < .9 and m.throttle > .1 and m.throttle < .9, "simultaneous real touches produce partial steering and throttle")
+	var old: Dictionary = scene.camera_preferences()
+	dispatch_drag(300, scenery)
 	await process_frame
-	scene._process(0.0)
-	check(scene.camera_preferences() != before, "a separate scenery finger still moves Free camera while the steering near miss remains held")
-	dispatch_touch(302, points[1] + Vector2(36, 18), false)
-	dispatch_touch(301, scenery + Vector2(48, 24), false)
+	scene._process(0)
+	check(scene.camera_preferences() == old and absf(m.steering) > 0, "steering owns its finger outside the pad")
+	dispatch_touch(300, scenery, false)
 	await process_frame
-
-	var extent: Vector2 = scene.get_viewport().get_visible_rect().size
-	var bottom_clear = Vector2(extent.x * 0.32, extent.y - 60)
-	before = scene.camera_preferences()
-	dispatch_touch(301, bottom_clear, true)
-	dispatch_drag(301, scenery + Vector2(32, 16))
+	check(m.steering == 0 and m.throttle > 0, "steering release leaves the accelerator held")
+	var locked: bool = scene.settings.front_locked
+	var front: Vector2 = m.buttons.front.get_global_rect().get_center()
+	dispatch_touch(302, front, true)
+	dispatch_touch(302, front, false)
 	await process_frame
-	scene._process(0.0)
-	check(scene.camera_preferences() == before, "the empty bottom control strip cannot start a camera gesture")
-	dispatch_touch(301, scenery + Vector2(32, 16), false)
+	check(scene.settings.front_locked != locked and m.throttle > 0, "third finger toggles a diff once without releasing throttle")
+	dispatch_touch(301, pedal, false)
 	await process_frame
-
-	# Passby must stay disabled: a camera finger crossing GO cannot become a
-	# throttle press, even though touchdown at that same point does press GO.
+	check(m.throttle == 0, "pedal release returns throttle to zero")
 	dispatch_touch(302, scenery, true)
 	dispatch_drag(302, pedal)
 	await process_frame
-	scene._process(0.0)
-	check(not Input.is_action_pressed("off_go"), "a scenery contact crossing GO cannot activate the pedal")
+	check(m.throttle == 0, "scenery finger cannot turn into an accelerator press")
 	dispatch_touch(302, pedal, false)
-	await process_frame
-
-	var steering: Vector2 = steer_rect.get_center()
-	dispatch_touch(300, steering, true)
 	dispatch_touch(301, pedal, true)
-	await process_frame
-	check(Input.is_action_pressed("off_left") and Input.is_action_pressed("off_go"), "real screen-touch dispatch holds steering and GO independently")
-	var old_orbit: float = scene.drive_orbit
-	dispatch_touch(302, scenery, true)
-	dispatch_drag(302, scenery + Vector2(48, 0))
-	await process_frame
-	scene._process(0.0)
-	check(scene.camera_preset == "free" and absf(scene.drive_orbit - old_orbit) > 0.02, "one scenery finger orbits Free camera while steering and GO are held")
-	check(Input.is_action_pressed("off_left") and Input.is_action_pressed("off_go"), "camera dragging leaves both independent drive actions pressed")
-	dispatch_touch(302, scenery + Vector2(48, 0), false)
-	await process_frame
-	check(Input.is_action_pressed("off_left") and Input.is_action_pressed("off_go"), "lifting the camera finger does not release either drive action")
-
-	var old_distance: float = scene.drive_distance
-	var center: Vector2 = (points[0] + points[1]) * 0.5
-	var offset: Vector2 = (points[1] - points[0]) * 0.6
-	dispatch_touch(302, points[0], true)
-	dispatch_touch(303, points[1], true)
-	dispatch_drag(302, center - offset)
-	dispatch_drag(303, center + offset)
-	await process_frame
-	scene._process(0.0)
-	check(near(scene.drive_distance, old_distance / 1.2) and Input.is_action_pressed("off_left") and Input.is_action_pressed("off_go"), "two scenery fingers pinch while two drive-control fingers retain their actions")
-	dispatch_touch(302, center - offset, false)
-	dispatch_touch(303, center + offset, false)
-	dispatch_touch(300, steering, false)
-	await process_frame
-	check(not Input.is_action_pressed("off_left") and Input.is_action_pressed("off_go"), "releasing steering leaves the independently held GO action pressed")
-	dispatch_touch(301, pedal, false)
-	await process_frame
-	check(not Input.is_action_pressed("off_go"), "lifting the pedal finger releases GO through real dispatch")
-
-	dispatch_touch(301, pedal, true)
-	dispatch_touch(302, scenery, true)
-	dispatch_drag(302, scenery + Vector2(36, 18))
-	await process_frame
-	before = scene.camera_preferences()
-	scene.clear_controls()
-	scene._process(0.0)
-	check(not Input.is_action_pressed("off_go") and scene.camera_preferences() == before, "clearing controls releases a real held pedal and discards pending camera movement")
-	dispatch_touch(302, scenery + Vector2(36, 18), false)
-	dispatch_touch(301, pedal, false)
-	await process_frame
-	dispatch_touch(301, pedal, true)
-	await process_frame
-	check(Input.is_action_pressed("off_go"), "a fresh pedal contact works after clearing and releasing old contacts")
-	dispatch_touch(301, pedal, false)
 	await process_frame
 	scene.clear_controls()
+	check(m.throttle == 0 and m.steering == 0 and m.owners.is_empty(), "pause/rotation clearing releases all owned controls")
+	dispatch_touch(301, pedal, false)
+	await process_frame
+
+	scene.builds = original_builds
+	scene.settings = Catalog.compose(scene.active_build())
+	scene.sync_controls()
+	scene.save_settings()
 
 func test_drive_camera(scene) -> void:
 	scene.reset_camera()
@@ -456,10 +380,9 @@ func test_layout(scene, dimensions: Vector2i) -> void:
 	check(usable, "camera buttons provide separate visible touch targets in " + title)
 	var panels: Array[Control] = [scene.header]
 	if scene.driving:
-		for name in ["Dashboard", "Navigation", "Equipment", "CrawlControls"]:
+		for name in ["Dashboard", "Navigation", "CrawlControls"]:
 			panels.append(scene.drive_panel.get_node(name))
-		for action in scene.touch_buttons:
-			panels.append(scene.touch_buttons[action].panel)
+		panels.append(scene.mobile_controls.bar)
 	else:
 		panels.append(scene.garage_panel)
 		panels.append(scene.garage_overlay.get_node("CameraTools"))
@@ -469,13 +392,8 @@ func test_layout(scene, dimensions: Vector2i) -> void:
 			separate = separate and not toolbar.intersects(panel.get_global_rect())
 	check(separate, "camera toolbar does not overlap other controls in " + title)
 	if scene.driving:
-		for action in ["off_left", "off_right"]:
-			var item: Dictionary = scene.touch_buttons[action]
-			var style: StyleBoxFlat = item.panel.get_theme_stylebox("panel")
-			check(item.panel.size == Vector2(92, 80) and style.corner_radius_top_left > 0 and style.corner_radius_top_left < 40, action + " uses a rounded 92×80 rectangular visual in " + title)
-			check(item.touch.shape is RectangleShape2D and item.touch.shape.size == Vector2(108, 108), action + " provides its expanded rectangular 108×108 hit target in " + title)
-		for action in scene.touch_buttons:
-			check(not scene.touch_buttons[action].touch.passby_press, action + " requires touchdown and cannot steal a passing camera finger in " + title)
+		for id in scene.mobile_controls.rects:
+			check(bounds.encloses(scene.mobile_controls.rects[id]), id + " fits the viewport in " + title)
 		var bottom_reserved = true
 		for x in range(0, int(extent.x), 24):
 			bottom_reserved = bottom_reserved and scene.camera_touch_blocked(Vector2(x, extent.y - 119)) and scene.camera_touch_blocked(Vector2(x, extent.y - 1))
@@ -613,8 +531,8 @@ func run() -> void:
 	await test_real_touch_dispatch(scene)
 	test_drive_camera(scene)
 	assert_gui_ownership(scene, scene.header, "Drive header")
-	assert_gui_ownership(scene, scene.touch_buttons.off_go.panel, "GO pedal")
-	assert_gui_ownership(scene, scene.touch_buttons.off_left.panel, "Steering pedal")
+	assert_gui_ownership(scene, scene.mobile_controls.buttons.low, "Range button")
+	assert_gui_ownership(scene, scene.mobile_controls.buttons.front, "Front differential")
 	test_lifecycle(scene)
 	for dimensions in [Vector2i(960, 540), Vector2i(720, 1280)]:
 		for preset in ["follow", "trail", "free"]:

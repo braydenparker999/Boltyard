@@ -90,7 +90,7 @@ func run() -> void:
 		check(bounds.encloses(scene.header.get_global_rect()) and bounds.encloses(scene.garage_panel.get_global_rect()), "garage panels fit " + str(dimensions))
 		scene.toggle_mode()
 		await settle(8)
-		check(not scene.crawl_controls.visible and not scene.drive_panel.get_node("Equipment").visible, "driving starts with clear scenery and the rig drawer closed")
+		check(not scene.crawl_controls.visible and scene.mobile_controls.is_visible_in_tree(), "driving starts with clear scenery and the rig drawer closed")
 		scene.toggle_rig_controls()
 		await settle(8)
 		check(scene.crawl_controls.visible and bounds.encloses(scene.drive_panel.get_node("RigBackdrop").get_global_rect()), "the rig drawer opens within " + str(dimensions))
