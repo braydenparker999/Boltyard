@@ -96,6 +96,7 @@ inline CrawlRock expedition_granite(int mode,float x,float z,float width,float d
     rock.surface=1.10f-expedition_material(mode,x,z).wet*.54f;
     rock.rebuild_queries();return rock;
 }
+#include "generated/canyon_rocks.hpp"
 inline const std::vector<CrawlRock>& canyon_rocks() {
     static const auto rocks=[] {
         using namespace expedition_detail;std::vector<CrawlRock> out;unsigned seed=821;
@@ -167,6 +168,13 @@ inline const std::vector<CrawlRock>& canyon_rocks() {
         block(ax-10,az,10,13,18,.06f,base);
         block(ax+10,az,10,13,18,-.08f,base);
         block(ax,az,29,12,5,.02f,base+15,false);
+        // Remove legacy obstacles throughout the authored Blender section.
+        // Overlap testing also removes outside-centred walls that intrude into it.
+        out.erase(std::remove_if(out.begin(),out.end(),[](const CrawlRock&r){
+            const auto& b=r.query_nodes[0].bounds;
+            return b.high.x>-32 && b.low.x<32 && b.high.z>-144 && b.low.z<-16;
+        }),out.end());
+        append_blender_canyon_rocks(out);
         return out;
     }();return rocks;
 }

@@ -73,6 +73,8 @@ render_suite() {
   printf 'RENDER SUITE: %s completed in %s seconds\n' "$suite" "$((SECONDS-started))"
 }
 
+timeout 90 "$godot_bin" --headless --path . --script tests/bedrock_contract.gd 2>&1 | tee build/bedrock-contract.log
+render_suite bedrock_review "BEDROCK REVIEW: arch" 180
 render_suite redstone_review "REDSTONE REVIEW:" 240
 render_suite suspension_visuals "SUSPENSION VISUALS: 40 checks, 0 failures" 120
 render_suite camera_views 'CAMERA VIEW: camera-rig-portrait.png' 300

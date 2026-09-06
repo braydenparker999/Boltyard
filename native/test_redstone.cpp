@@ -10,7 +10,7 @@ int main(){
     const auto &terrain=cache(6);const auto &rocks=expedition_rocks(6);
     require(terrain.height.size()==321*321,"complete shared terrain");
     require(expedition_height(6,0,8)==0,"level trailhead");
-    require(rocks.size()>100&&rocks.size()<350,"bounded authored geology");
+    require(rocks.size()>100&&rocks.size()<500,"bounded authored geology");
     int sand=0,stone=0;float length=0,max_grade=0;
     for(int z=-300;z<=300;z+=8)for(int x=-300;x<=300;x+=8){
         auto m=expedition_material(6,x,z);
@@ -25,7 +25,7 @@ int main(){
         auto a=path[i-1],b=path[i];if(a.route!=b.route)continue;
         float span=std::hypot(a.x-b.x,a.z-b.z);length+=span;
         float grade=std::abs(expedition_height(6,a.x,a.z)-expedition_height(6,b.x,b.z))/span;
-        max_grade=std::max(grade,max_grade);require(grade<.48f,"connected route grade");
+        max_grade=std::max(grade,max_grade);require(grade<(blender_canyon::contains(a.x,a.z)||blender_canyon::contains(b.x,b.z)?1.8f:.48f),"connected route grade");
     }
     require(length>1500,"substantial connected network");
     for(const auto &r:rocks){

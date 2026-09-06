@@ -1,0 +1,20 @@
+{
+  "authoring": "Blender 4.2.0",
+  "length_m": 128,
+  "width_m": 64,
+  "floor_spacing_m": 0.5,
+  "floor_triangles": 65536,
+  "collision_hulls": 213,
+  "rock_triangles": 29766,
+  "floor_sha256": "0efa1d4a7621ff099a87a5ea8705226b1844e7bd866bee35b7a10e472ba02a08",
+  "entry": [
+    5,
+    -28
+  ],
+  "arch": [
+    4.024314386347228,
+    -93
+  ],
+  "coordinates": "Godot X,Y up,Z; Blender X,-Z,Y up",
+  "textures": "Existing Poly Haven CC0 rock surface; no new third-party meshes"
+}

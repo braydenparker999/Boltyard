@@ -3,6 +3,7 @@ render_mode diffuse_burley, specular_schlick_ggx;
 uniform sampler2D rock_texture : source_color, repeat_enable, filter_linear_mipmap_anisotropic;
 uniform sampler2D rock_normal : hint_normal, repeat_enable, filter_linear_mipmap;
 uniform bool ground_surface = false;
+uniform bool authored_floor = false;
 uniform bool detailed_surface = true;
 varying vec3 world_position;
 varying vec3 world_normal;
@@ -23,15 +24,16 @@ void fragment() {
     float band=.97+.03*sin(strata*6.28318);
     float distance_filter=1.-smoothstep(.3,1.1,fwidth(strata));
     band=mix(1.,band,distance_filter*(1.-abs(n.y)));
-    vec3 warm=vec3(.36,.215,.14)*(.43+grain*2.35);
+    vec3 warm=vec3(.42,.245,.145)*(.26+grain*2.65);
     warm*=band*mix(.88,1.12,macro);
     // Top surfaces carry paler dust; mineral photographs retain their own
     // fractures. Broad subtle bedding avoids zebra stripes and distant aliasing.
     warm=mix(warm,warm*vec3(1.12,1.10,1.06),smoothstep(.6,.98,n.y)*.36);
-    vec3 sand=vec3(.31,.215,.145)*(.52+grain*1.9);
+    vec3 sand=vec3(.39,.275,.175)*(.83+grain*.45);
     float stone=ground_surface?clamp(COLOR.r,0.,1.):1.;
+    if(authored_floor) stone=COLOR.r;
     ALBEDO=mix(sand,warm,stone)*(ground_surface?1.:mix(.82,1.,COLOR.a));
-    ROUGHNESS=.94;SPECULAR=.16;
+    ROUGHNESS=.96;SPECULAR=.12;
     if(detailed_surface) {
         vec2 uv=p.xz;vec3 tangent=vec3(1,0,0),bitangent=vec3(0,0,-1);
         if(w.x>w.y&&w.x>w.z){uv=p.zy;tangent=vec3(0,0,1);bitangent=vec3(0,-1,0);}
