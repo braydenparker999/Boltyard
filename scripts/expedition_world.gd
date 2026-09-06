@@ -7,8 +7,10 @@ const MAP_EXTENT := 320.0
 const MAP_SIDE := 321
 const MAP_CHUNKS := 10
 const CELL_SIZE := 64.0
+const ROCK_CREASE_COS := 0.743145 # 42 degrees: weathered crowns blend, cut ledges stay legible.
 var map_mode := 4
 var _weights := PackedColorArray()
+var _gravel_weights := PackedFloat32Array()
 var _forest_cells: Array[Dictionary] = []
 var _rock_cells: Array[MeshInstance3D] = []
 var _expedition_rock: ShaderMaterial
@@ -48,8 +50,8 @@ func _make_lighting() -> void:
 	_sun.rotation_degrees = Vector3(-43, -39, 0) if not taiga else Vector3(-32, -58, 0)
 	_sun.light_color = Color("fff5e5") if not taiga else Color("f0f1e8")
 	_sun.light_energy = 1.05 if not taiga else 0.86
-	_sun.shadow_bias = 0.65
-	_sun.shadow_normal_bias = 1.3
+	# Retain OffroadWorld's GLES shadow bias (.9 / 2.4). Reducing it caused
+	# self-shadow interference rings on level dirt and bands on vehicle panels.
 	var settings := _environment.environment
 	settings.ambient_light_color = Color("bccbd1") if not taiga else Color("c0cad0")
 	settings.ambient_light_energy = .32 if not taiga else .39
@@ -91,6 +93,7 @@ func _make_materials() -> void:
 	_ground_material.set_shader_parameter("granite", granite)
 	_ground_material.set_shader_parameter("trail_gravel", load("res://assets/world/terrain_dirt.png"))
 	_ground_material.set_shader_parameter("detail_normal", load("res://assets/world/terrain_rock_normal.png"))
+	_ground_material.set_shader_parameter("soil_normal", load("res://assets/world/terrain_dirt_normal.png"))
 	_ground_material.set_shader_parameter("taiga", 1.0 if map_mode == 5 else 0.0)
 	_expedition_rock = ShaderMaterial.new()
 	_expedition_rock.shader = load("res://shaders/expedition_granite.gdshader")
@@ -119,7 +122,11 @@ func _make_materials() -> void:
 func _cache_terrain() -> void:
 	var samples: Dictionary = _core.get_expedition_heightfield(map_mode)
 	_heights = samples.heights
+	_surfaces = samples.surfaces
 	_weights = samples.materials
+	_gravel_weights = samples.get("gravel", PackedFloat32Array())
+	if _gravel_weights.is_empty():
+		_gravel_weights.resize(_heights.size())
 	assert(_heights.size() == MAP_SIDE * MAP_SIDE, "Expedition terrain must match the native 2 m grid")
 	_normals.resize(_heights.size())
 	for iz in range(MAP_SIDE):
@@ -128,7 +135,9 @@ func _cache_terrain() -> void:
 			var right: float = _heights[iz * MAP_SIDE + mini(MAP_SIDE - 1, ix + 1)]
 			var north: float = _heights[maxi(0, iz - 1) * MAP_SIDE + ix]
 			var south: float = _heights[mini(MAP_SIDE - 1, iz + 1) * MAP_SIDE + ix]
-			_normals[iz * MAP_SIDE + ix] = Vector3(left - right, 4.0, north - south).normalized()
+			var dx := float(mini(MAP_SIDE - 1, ix + 1) - maxi(0, ix - 1)) * 2.0
+			var dz := float(mini(MAP_SIDE - 1, iz + 1) - maxi(0, iz - 1)) * 2.0
+			_normals[iz * MAP_SIDE + ix] = Vector3((left - right) / dx, 1.0, (north - south) / dz).normalized()
 
 func _build_course() -> void:
 	if _course != null:
@@ -163,7 +172,8 @@ func _build_course() -> void:
 	_world_metrics = {"map_mode": map_mode, "terrain_chunks": _chunks.size(),
 		"tree_count": _tree_count, "forest_batches": _forest_cells.size(),
 		"rock_batches": _rock_cells.size(), "terrain_grid_spacing": 2.0,
-		"map_width_m": MAP_EXTENT * 2.0}
+		"map_width_m": MAP_EXTENT * 2.0, "rock_crease_degrees": 42.0,
+		"surface_weights_from_native": true}
 
 func get_world_metrics() -> Dictionary:
 	return _world_metrics.duplicate()
@@ -173,6 +183,7 @@ func _terrain_chunk(x0: float, z0: float, step: int) -> ArrayMesh:
 	var vertices := PackedVector3Array()
 	var normals := PackedVector3Array()
 	var colors := PackedColorArray()
+	var surface_detail := PackedVector2Array()
 	var indices := PackedInt32Array()
 	for iz in range(side):
 		for ix in range(side):
@@ -182,6 +193,7 @@ func _terrain_chunk(x0: float, z0: float, step: int) -> ArrayMesh:
 			vertices.append(Vector3(x, _heights[sample_index], z))
 			normals.append(_normals[sample_index])
 			colors.append(_weights[sample_index])
+			surface_detail.append(Vector2(_gravel_weights[sample_index], 0))
 	for iz in range(side - 1):
 		for ix in range(side - 1):
 			var a := iz * side + ix
@@ -205,16 +217,62 @@ func _terrain_chunk(x0: float, z0: float, step: int) -> ArrayMesh:
 			normals.append(normals[b])
 			colors.append(colors[a])
 			colors.append(colors[b])
+			surface_detail.append(surface_detail[a])
+			surface_detail.append(surface_detail[b])
 			indices.append_array(PackedInt32Array([a, b, c, b, c + 1, c, b, a, c, c + 1, b, c]))
 	var arrays := []
 	arrays.resize(Mesh.ARRAY_MAX)
 	arrays[Mesh.ARRAY_VERTEX] = vertices
 	arrays[Mesh.ARRAY_NORMAL] = normals
 	arrays[Mesh.ARRAY_COLOR] = colors
+	arrays[Mesh.ARRAY_TEX_UV] = surface_detail
 	arrays[Mesh.ARRAY_INDEX] = indices
 	var mesh := ArrayMesh.new()
 	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
 	return mesh
+
+func _rock_smooth_normals(vertices: PackedVector3Array) -> PackedVector3Array:
+	# The native triangle soup is kept verbatim. Weld only the lighting normals
+	# within each hull, and never across a ledge or between overlapping rocks.
+	# Corner-angle weighting avoids the diagonal bands caused by a triangle's
+	# area or by the number of triangles meeting at the crown.
+	var adjacent: Dictionary = {}
+	var face_normals := PackedVector3Array()
+	for i in range(0, vertices.size(), 3):
+		var normal := (vertices[i + 1] - vertices[i]).cross(vertices[i + 2] - vertices[i]).normalized()
+		face_normals.append(normal)
+		for corner in range(3):
+			var vertex := vertices[i + corner]
+			var first := (vertices[i + (corner + 1) % 3] - vertex).normalized()
+			var second := (vertices[i + (corner + 2) % 3] - vertex).normalized()
+			var angle := acos(clampf(first.dot(second), -1.0, 1.0))
+			if not adjacent.has(vertex):
+				adjacent[vertex] = []
+			adjacent[vertex].append(Vector4(normal.x, normal.y, normal.z, angle))
+	var result := PackedVector3Array()
+	result.resize(vertices.size())
+	for i in range(vertices.size()):
+		var face := face_normals[i / 3]
+		var weighted := Vector3.ZERO
+		for contribution: Vector4 in adjacent[vertices[i]]:
+			var normal := Vector3(contribution.x, contribution.y, contribution.z)
+			if face.dot(normal) >= ROCK_CREASE_COS:
+				weighted += normal * contribution.w
+		result[i] = weighted.normalized() if weighted.length_squared() > .00001 else face
+	return result
+
+func _native_wetness(at: Vector3) -> float:
+	# Use the same two triangles as native material sampling and the ground mesh.
+	var gx := clampf((at.x + MAP_EXTENT) * .5, 0, MAP_SIDE - 1)
+	var gz := clampf((at.z + MAP_EXTENT) * .5, 0, MAP_SIDE - 1)
+	var ix := mini(MAP_SIDE - 2, int(gx))
+	var iz := mini(MAP_SIDE - 2, int(gz))
+	var tx := gx - float(ix)
+	var tz := gz - float(iz)
+	var i := iz * MAP_SIDE + ix
+	if tx + tz <= 1.0:
+		return _weights[i].a * (1.0 - tx - tz) + _weights[i + 1].a * tx + _weights[i + MAP_SIDE].a * tz
+	return _weights[i + MAP_SIDE + 1].a * (tx + tz - 1.0) + _weights[i + MAP_SIDE].a * (1.0 - tx) + _weights[i + 1].a * (1.0 - tz)
 
 func _build_expedition_rocks() -> void:
 	var cells: Dictionary = {}
@@ -234,16 +292,15 @@ func _build_expedition_rocks() -> void:
 			surface.begin(Mesh.PRIMITIVE_TRIANGLES)
 			cells[cell] = surface
 		var surface: SurfaceTool = cells[cell]
-		var tint := .93 + .07 * sin(float(rock_index) * 12.13)
+		var tint := .96 + .04 * sin(float(rock_index) * 12.13)
+		var smooth_normals := _rock_smooth_normals(vertices)
 		for i in range(0, vertices.size(), 3):
-			var a := vertices[i]
-			var b := vertices[i + 1]
-			var c := vertices[i + 2]
-			var normal := (b - a).cross(c - a).normalized()
-			for vertex in [a, c, b]:
+			for corner in [0, 2, 1]:
+				var vertex := vertices[i + corner]
 				var floor_height: float = _core.terrain_height(vertex.x, vertex.z)
-				surface.set_normal(normal)
+				surface.set_normal(smooth_normals[i + corner])
 				surface.set_color(Color(tint, tint, tint, smoothstep(-.04, .9, vertex.y - floor_height)))
+				surface.set_uv(Vector2(_native_wetness(vertex), 0))
 				surface.add_vertex(vertex)
 		rock_index += 1
 	for key in cells:

@@ -4,7 +4,7 @@ const LEGACY_PATH = "user://offroad_setup.json"
 const GARAGE_PATH = "user://offroad_garage_v3.json"
 const PAINTS = ["c96c38", "c9b78e", "647263", "537781", "ede7d6", "383f47"]
 const INK = Color("111a1d")
-const PANEL = Color("142127ec")
+const PANEL = Color("111d22eb")
 const MUTED = Color("a1b4b3")
 const PAPER = Color("edf1e9")
 const ACCENT = Color("d9bd82")
@@ -67,6 +67,8 @@ var camera_toolbar: PanelContainer
 var camera_drag_button: Button
 var camera_follow_button: Button
 var camera_hint: Label
+var camera_center_button: Button
+var modal_scrim: ColorRect
 var pause_overlay: PanelContainer
 var map_overlay: PanelContainer
 var map_canvas: Control
@@ -102,6 +104,8 @@ var drive_distance = 8.2
 var drive_pitch = 0.30
 var drive_orbit = 0.0
 var camera_follow = true
+# Only a deliberate preset selection can enable one-finger driving camera motion.
+var camera_preset = "follow"
 var camera_pan_mode = false
 var garage_pan = Vector2.ZERO
 var drive_pan = Vector2.ZERO
@@ -165,10 +169,10 @@ func setup_input() -> void:
 			event.physical_keycode = key
 			InputMap.action_add_event(action, event)
 
-func box(color: Color, radius: int = 14, padding: int = 12) -> StyleBoxFlat:
+func box(color: Color, radius: int = 4, padding: int = 12) -> StyleBoxFlat:
 	var result = StyleBoxFlat.new()
 	result.bg_color = color
-	result.set_corner_radius_all(radius)
+	result.set_corner_radius_all(mini(radius, 5))
 	result.content_margin_left = padding
 	result.content_margin_right = padding
 	result.content_margin_top = padding
@@ -187,9 +191,14 @@ func label(parent: Node, text: String, font_size: int = 17, color: Color = PAPER
 func button(parent: Node, text: String, callback: Callable, minimum: float = 64.0) -> Button:
 	var result = Button.new()
 	result.text = text
-	result.custom_minimum_size = Vector2(minimum, 46)
+	result.custom_minimum_size = Vector2(minimum, 44)
 	result.focus_mode = Control.FOCUS_NONE
 	result.pressed.connect(callback)
+	result.button_down.connect(func(): result.modulate = Color("d9bd82"))
+	result.button_up.connect(func():
+		var release = result.create_tween()
+		release.set_pause_mode(Tween.TWEEN_PAUSE_PROCESS)
+		release.tween_property(result, "modulate", Color.WHITE, 0.14))
 	parent.add_child(result)
 	return result
 
@@ -221,11 +230,11 @@ func build_ui() -> void:
 	ui.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	canvas.add_child(ui)
 	var theme = Theme.new()
-	theme.default_font_size = 16
+	theme.default_font_size = 14
 	for kind in ["Button", "OptionButton"]:
-		theme.set_stylebox("normal", kind, box(Color("2b3c43"), 10))
-		theme.set_stylebox("hover", kind, box(Color("40565c"), 10))
-		theme.set_stylebox("pressed", kind, box(Color("6e7c70"), 10))
+		theme.set_stylebox("normal", kind, box(Color("233138e8"), 3))
+		theme.set_stylebox("hover", kind, box(Color("35494de8"), 3))
+		theme.set_stylebox("pressed", kind, box(Color("657162"), 3))
 		theme.set_color("font_color", kind, PAPER)
 	theme.set_stylebox("panel", "PopupMenu", box(Color("18232a"), 12, 12))
 	theme.set_color("font_color", "PopupMenu", PAPER)
@@ -237,30 +246,41 @@ func build_ui() -> void:
 		theme.set_stylebox(part, "HSlider", rail)
 	ui.theme = theme
 	header = PanelContainer.new()
-	header.add_theme_stylebox_override("panel", box(PANEL, 14, 10))
+	header.add_theme_stylebox_override("panel", box(Color("101b20b8"), 0, 8))
 	ui.add_child(header)
 	var header_row = row(header, 8)
 	var brand = column(header_row, 0)
 	brand.name = "Brand"
-	label(brand, "BOLT YARD", 20)
+	var wordmark = label(brand, "CRAWLWORKS", 19)
 	expedition_label = label(brand, "EXPEDITIONS", 10, ACCENT)
+	for item in [wordmark, expedition_label]:
+		item.add_theme_color_override("font_shadow_color", Color("071114e8"))
+		item.add_theme_constant_override("shadow_offset_x", 1)
+		item.add_theme_constant_override("shadow_offset_y", 2)
 	var spacer = Control.new()
 	spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	header_row.add_child(spacer)
-	map_button = button(header_row, "Map", toggle_map, 65)
-	rig_button = button(header_row, "Rig", toggle_rig_controls, 56)
+	map_button = button(header_row, "MAP", toggle_map, 58)
+	rig_button = button(header_row, "RIG", toggle_rig_controls, 54)
 	rig_button.hide()
 	xray_button = button(header_row, "Structure", toggle_xray, 78)
 	xray_button.hide()
-	pause_button = button(header_row, "Pause", toggle_pause, 74)
+	pause_button = button(header_row, "Ⅱ", toggle_pause, 44)
 	pause_button.visible = false
-	mode_button = button(header_row, "EXPLORE  ›", toggle_mode, 118)
+	mode_button = button(header_row, "DRIVE  ›", toggle_mode, 104)
 	accent_button(mode_button)
 	build_garage()
 	build_driving()
+	build_camera_tools()
+	modal_scrim = ColorRect.new()
+	modal_scrim.color = Color("040c1270")
+	modal_scrim.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	modal_scrim.mouse_filter = Control.MOUSE_FILTER_STOP
+	modal_scrim.z_index = 19
+	ui.add_child(modal_scrim)
+	modal_scrim.hide()
 	build_pause()
 	build_map()
-	build_camera_tools()
 	message = label(ui, "", 14)
 	message.add_theme_stylebox_override("normal", box(Color("172126ef"), 10, 12))
 	message.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -268,12 +288,15 @@ func build_ui() -> void:
 
 func build_garage() -> void:
 	garage_panel = PanelContainer.new()
-	garage_panel.add_theme_stylebox_override("panel", box(PANEL, 16, 14))
+	var garage_style = box(PANEL, 3, 16)
+	garage_style.border_width_top = 2
+	garage_style.border_color = ACCENT
+	garage_panel.add_theme_stylebox_override("panel", garage_style)
 	ui.add_child(garage_panel)
 	var content = column(garage_panel, 8)
 	var heading = row(content)
-	label(heading, "YOUR EXPEDITION", 12, ACCENT).size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	label(heading, "3 rigs / saved builds", 11, MUTED)
+	label(heading, "BASE CAMP  /  GARAGE", 12, ACCENT).size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	label(heading, "AUTO-SAVED", 10, MUTED)
 	var vehicles = row(content, 6)
 	for id in VehicleCatalog.VEHICLES:
 		var descriptor: Dictionary = VehicleCatalog.VEHICLES[id]
@@ -301,16 +324,16 @@ func build_garage() -> void:
 	garage_pages.trails = trails
 	for id in EXPEDITIONS:
 		var descriptor: Dictionary = EXPEDITIONS[id]
-		var item = button(trails, descriptor.region + "\n" + descriptor.name, select_map.bind(id), 0)
-		item.custom_minimum_size.y = 76
+		var item = button(trails, descriptor.region + "  ↗\n" + descriptor.name, select_map.bind(id), 0)
+		item.custom_minimum_size.y = 82
 		item.alignment = HORIZONTAL_ALIGNMENT_LEFT
 		item.add_theme_font_size_override("font_size", 16)
 		map_buttons[id] = item
 	var details = label(trails, "", 13, MUTED)
 	details.name = "MapDetails"
 	details.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	course_button = button(trails, "Fit a crawling setup", fit_crawl_setup, 0)
-	label(trails, "640 m regions / open exploration", 12, ACCENT)
+	course_button = button(trails, "EQUIP CRAWLER SETUP", fit_crawl_setup, 0)
+	label(trails, "OPEN EXPLORATION  /  640 m REGIONS", 11, ACCENT)
 	var equipment_page = column(options, 7)
 	garage_pages.rig = equipment_page
 	section(equipment_page, "PAINT")
@@ -375,13 +398,15 @@ func build_garage() -> void:
 	var quality_note = label(setup_page, "Performance uses a lighter 3D resolution with sharp controls. Balanced and High add detail. Rotate your phone at any time.", 12, MUTED)
 	quality_note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	garage_footer = row(content, 7)
-	button(garage_footer, "Save build", save_with_toast, 90).size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	button(garage_footer, "Repair rig", recover, 110).size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	button(garage_footer, "SAVE BUILD", save_with_toast, 90).size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	button(garage_footer, "REPAIR RIG", recover, 110).size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	garage_overlay = Control.new()
 	garage_overlay.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	ui.add_child(garage_overlay)
-	title_label = label(garage_overlay, "", 20)
-	title_label.add_theme_stylebox_override("normal", box(PANEL, 10, 10))
+	title_label = label(garage_overlay, "", 24)
+	title_label.add_theme_color_override("font_shadow_color", Color("071114cc"))
+	title_label.add_theme_constant_override("shadow_offset_x", 1)
+	title_label.add_theme_constant_override("shadow_offset_y", 2)
 	var camera_tools = row(garage_overlay, 6)
 	camera_tools.name = "CameraTools"
 	button(camera_tools, "Impact test", impact_test, 112)
@@ -437,31 +462,34 @@ func build_driving() -> void:
 	var dashboard = Control.new()
 	dashboard.name = "Dashboard"
 	dashboard.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	dashboard.custom_minimum_size = Vector2(160, 164)
+	dashboard.custom_minimum_size = Vector2(136, 136)
 	drive_panel.add_child(dashboard)
 	speed_dial = preload("res://scripts/trail_dashboard.gd").new()
-	speed_dial.size = Vector2(140, 140)
-	speed_dial.position = Vector2(10, 0)
+	speed_dial.size = Vector2(128, 128)
+	speed_dial.position = Vector2(4, 0)
 	dashboard.add_child(speed_dial)
-	speed_label = label(dashboard, "0.0", 30)
-	speed_label.position = Vector2(0, 43)
-	speed_label.size = Vector2(160, 40)
+	speed_label = label(dashboard, "0.0", 31)
+	speed_label.position = Vector2(0, 36)
+	speed_label.size = Vector2(136, 40)
 	speed_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	var units = label(dashboard, "km/h", 11, MUTED)
-	units.position = Vector2(0, 82)
-	units.size.x = 160
+	units.position = Vector2(0, 73)
+	units.size.x = 136
 	units.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	drive_status = label(dashboard, "LOW / 4WD", 10, ACCENT)
-	drive_status.position = Vector2(0, 104)
-	drive_status.size.x = 160
+	drive_status.position = Vector2(0, 98)
+	drive_status.size.x = 136
 	drive_status.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	drive_damage = label(dashboard, "RIG 100%", 10, MUTED)
-	drive_damage.position = Vector2(0, 144)
-	drive_damage.size.x = 160
+	drive_damage.position = Vector2(0, 120)
+	drive_damage.size.x = 136
 	drive_damage.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	var navigation = PanelContainer.new()
 	navigation.name = "Navigation"
-	navigation.add_theme_stylebox_override("panel", box(Color("142127ba"), 10, 10))
+	var nav_style = box(Color("101b20b8"), 0, 9)
+	nav_style.border_width_left = 2
+	nav_style.border_color = ACCENT
+	navigation.add_theme_stylebox_override("panel", nav_style)
 	drive_panel.add_child(navigation)
 	navigation_label = label(navigation, "", 12)
 	navigation_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -497,11 +525,11 @@ func build_driving() -> void:
 	front_diff.add_theme_font_size_override("font_size", 12)
 	rear_diff.add_theme_font_size_override("font_size", 12)
 	crawl_loads = label(crawl_controls, "", 11, MUTED)
-	make_touch_button("Left", "‹", "off_left", Vector2(84, 84))
-	make_touch_button("Right", "›", "off_right", Vector2(84, 84))
-	make_touch_button("Reverse", "R", "off_reverse", Vector2(78, 78))
-	make_touch_button("Brake", "BRAKE", "off_brake", Vector2(72, 72))
-	make_touch_button("Go", "↑", "off_go", Vector2(98, 98))
+	make_touch_button("Left", "‹", "off_left", Vector2(92, 80))
+	make_touch_button("Right", "›", "off_right", Vector2(92, 80))
+	make_touch_button("Reverse", "R", "off_reverse", Vector2(62, 64))
+	make_touch_button("Brake", "BRAKE", "off_brake", Vector2(64, 60))
+	make_touch_button("Go", "↑", "off_go", Vector2(82, 90))
 
 func toggle_rig_controls() -> void:
 	if not driving:
@@ -510,7 +538,11 @@ func toggle_rig_controls() -> void:
 	crawl_controls.visible = not crawl_controls.visible
 	drive_panel.get_node("Equipment").visible = crawl_controls.visible
 	drive_panel.get_node("RigBackdrop").visible = crawl_controls.visible
-	rig_button.text = "Rig ×" if crawl_controls.visible else "Rig"
+	rig_button.text = "RIG ×" if crawl_controls.visible else "RIG"
+	if crawl_controls.visible:
+		reveal_panel(crawl_controls)
+		reveal_panel(drive_panel.get_node("Equipment"))
+		reveal_panel(drive_panel.get_node("RigBackdrop"))
 	layout_ui()
 
 func make_touch_button(node_name: String, text: String, action: String, dimensions: Vector2) -> void:
@@ -521,73 +553,98 @@ func make_touch_button(node_name: String, text: String, action: String, dimensio
 	panel.size = dimensions
 	panel.position = -dimensions / 2
 	panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	panel.add_theme_stylebox_override("panel", box(Color("d9bd82e8") if action == "off_go" else Color("142127bb"), 100, 0))
+	var pedal_style = box(Color("d9bd82ed") if action == "off_go" else Color("102026c9"), 5, 0)
+	pedal_style.set_border_width_all(1)
+	pedal_style.border_color = Color("f2deb7") if action == "off_go" else Color("b8ccc477")
+	pedal_style.border_width_bottom = 3
+	panel.add_theme_stylebox_override("panel", pedal_style)
 	touch_root.add_child(panel)
 	var caption = label(panel, text, 48 if action in ["off_left", "off_right"] else (36 if action == "off_go" else (14 if action == "off_brake" else 22)), INK if action == "off_go" else PAPER)
 	caption.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	caption.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	caption.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	var touch = TouchScreenButton.new()
-	var shape = CircleShape2D.new()
-	shape.radius = minf(dimensions.x, dimensions.y) * 0.5
+	var shape = RectangleShape2D.new()
+	# Steering is forgiving beyond its artwork; separate hitboxes never overlap.
+	shape.size = Vector2(108, 108) if action in ["off_left", "off_right"] else dimensions + Vector2(18, 18)
 	touch.shape = shape
+	touch.passby_press = false
 	touch.action = action
 	touch.visibility_mode = TouchScreenButton.VISIBILITY_ALWAYS
 	touch_root.add_child(touch)
-	touch_buttons[action] = {"root": touch_root, "panel": panel, "touch": touch, "down": false}
+	touch_buttons[action] = {"root": touch_root, "panel": panel, "touch": touch, "down": false, "pressure": 0.0, "hit_size": shape.size}
+
+func reveal_panel(control: Control) -> void:
+	control.modulate.a = 0.0
+	var motion = control.create_tween()
+	motion.set_pause_mode(Tween.TWEEN_PAUSE_PROCESS)
+	motion.tween_property(control, "modulate:a", 1.0, 0.18).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
 
 func build_camera_tools() -> void:
 	camera_toolbar = PanelContainer.new()
 	camera_toolbar.name = "CameraToolbar"
-	camera_toolbar.add_theme_stylebox_override("panel", box(Color("142127b8"), 12, 6))
+	camera_toolbar.add_theme_stylebox_override("panel", box(Color("101b20b8"), 3, 5))
 	ui.add_child(camera_toolbar)
-	var content = column(camera_toolbar, 3)
-	var controls = row(content, 6)
-	camera_drag_button = button(controls, "Orbit", toggle_camera_drag, 76)
-	camera_follow_button = button(controls, "Follow", toggle_camera_follow, 76)
-	camera_follow_button.tooltip_text = "Follow turns behind the rig. Off keeps your viewing angle while traveling with it."
-	button(controls, "Center", reset_camera, 76)
-	camera_hint = label(content, "1 finger to look · pinch to zoom", 11, MUTED)
+	var content = column(camera_toolbar, 2)
+	var controls = row(content, 4)
+	camera_follow_button = button(controls, "FOLLOW  ›", toggle_camera_follow, 124)
+	camera_follow_button.tooltip_text = "Cycle camera: locked Follow, closer Trail, then Free."
+	camera_drag_button = button(controls, "ORBIT", toggle_camera_drag, 64)
+	camera_center_button = button(controls, "CENTER", reset_camera, 68)
+	for item in [camera_follow_button, camera_drag_button, camera_center_button]:
+		item.add_theme_font_size_override("font_size", 12)
+		item.custom_minimum_size.y = 38
+	camera_hint = label(content, "DRAG TO LOOK  /  PINCH ZOOM", 9, MUTED)
+	camera_hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	update_camera_tools()
 
 func update_camera_tools() -> void:
 	if not is_instance_valid(camera_toolbar):
 		return
-	camera_drag_button.text = "Pan" if camera_pan_mode else "Orbit"
+	camera_drag_button.text = "PAN" if camera_pan_mode else "ORBIT"
+	camera_drag_button.visible = not driving or camera_preset == "free"
+	camera_center_button.visible = not driving or camera_preset == "free"
 	camera_follow_button.visible = driving
-	camera_follow_button.text = "Follow ✓" if camera_follow else "Follow"
-	camera_hint.text = "1 finger %s · pinch zoom" % ("pan" if camera_pan_mode else "look")
+	camera_follow_button.text = {"follow": "FOLLOW  ›", "trail": "TRAIL  ›", "free": "FREE  ›"}[camera_preset]
+	camera_hint.text = "LOCKED  /  PINCH ZOOM" if driving and camera_preset != "free" else ("DRAG TO PAN  /  PINCH ZOOM" if camera_pan_mode else "DRAG TO LOOK  /  PINCH ZOOM")
 	camera_toolbar.reset_size()
+	layout_frames_pending = maxi(layout_frames_pending, 2)
 
 func toggle_camera_drag() -> void:
+	if driving and camera_preset != "free":
+		return
 	camera_gestures.cancel()
 	camera_pan_mode = not camera_pan_mode
 	update_camera_tools()
 	camera_save_delay = 0.6
-	toast("Drag one finger to pan. Pinch to zoom." if camera_pan_mode else "Drag one finger to orbit and tilt. Pinch to zoom.")
 
-func toggle_camera_follow() -> void:
-	camera_gestures.cancel()
-	if not driving:
+func set_camera_preset(id: String, notify_change: bool = false) -> void:
+	if not id in ["follow", "trail", "free"]:
 		return
-	if camera_follow:
+	camera_gestures.cancel()
+	if id == "free" and camera_follow:
 		drive_orbit = atan2(follow_direction.x, follow_direction.z)
-	camera_follow = not camera_follow
+	camera_preset = id
+	camera_follow = id != "free"
 	if camera_follow:
 		drive_orbit = 0.0
 		drive_pan = Vector2.ZERO
+		drive_distance = 6.0 if id == "trail" else 8.2
+		drive_pitch = 0.48 if id == "trail" else 0.30
+	camera_pan_mode = false
 	update_camera_tools()
 	camera_save_delay = 0.6
-	toast("Camera follows the rig's heading." if camera_follow else "Viewing angle held. The camera still travels with your rig.")
+	if notify_change:
+		toast({"follow": "Follow locked. Pinch to zoom; scenery touches keep your driving view.", "trail": "Trail view locked. A closer, higher view of the front tires and your line.", "free": "Free camera. Drag to orbit or choose Pan. Pinch to zoom."}[id])
+
+func toggle_camera_follow() -> void:
+	if driving:
+		set_camera_preset({"follow": "trail", "trail": "free", "free": "follow"}[camera_preset], true)
 
 func reset_camera() -> void:
 	camera_gestures.cancel()
 	if driving:
-		drive_distance = 8.2
-		drive_pitch = 0.30
-		drive_orbit = 0.0
-		drive_pan = Vector2.ZERO
-		camera_follow = true
+		set_camera_preset("follow")
 	else:
 		orbit = 2.24
 		orbit_distance = 9.3
@@ -595,7 +652,7 @@ func reset_camera() -> void:
 		garage_pan = Vector2.ZERO
 	update_camera_tools()
 	camera_save_delay = 0.6
-	toast("Camera centered. Follow is on." if driving else "Garage camera centered.")
+	toast("Follow camera locked." if driving else "Garage camera centered.")
 
 func camera_touch_blocked(point: Vector2) -> bool:
 	# _input runs before GUI dispatch. Test actual controls on finger-down and
@@ -613,9 +670,13 @@ func camera_touch_blocked(point: Vector2) -> bool:
 		if control.is_visible_in_tree() and control.get_global_rect().has_point(point):
 			return true
 	for action in touch_buttons:
-		if touch_buttons[action].panel.get_global_rect().has_point(point):
+		var item: Dictionary = touch_buttons[action]
+		var hit = Rect2(item.root.global_position - item.hit_size * 0.5, item.hit_size)
+		if hit.grow(18.0).has_point(point):
 			return true
-	return false
+	# A missed steering or pedal touch stays a driving touch until it lifts.
+	# The entire thumb strip is excluded, including the gap between controls.
+	return point.y >= get_viewport().get_visible_rect().size.y - 120.0
 
 func _input(event: InputEvent) -> void:
 	if event is InputEventScreenTouch:
@@ -630,6 +691,10 @@ func apply_camera_gesture(gesture: Dictionary) -> void:
 	if gesture.is_empty():
 		return
 	var drag: Vector2 = gesture.drag
+	if driving and camera_preset != "free":
+		drag = Vector2.ZERO
+	if drag.is_zero_approx() and is_equal_approx(float(gesture.zoom), 1.0):
+		return
 	var yaw_delta = -drag.x * TAU if not camera_pan_mode else 0.0
 	var distance = drive_distance if driving else orbit_distance
 	# Panning moves the scene with your fingers in the camera's horizontal / up
@@ -645,16 +710,12 @@ func apply_camera_gesture(gesture: Dictionary) -> void:
 		if not camera_pan_mode:
 			drive_pitch = clampf(drive_pitch + drag.y * PI, 0.10, 1.28)
 		if absf(yaw_delta) > 0.0001:
-			if camera_follow:
-				drive_orbit = atan2(follow_direction.x, follow_direction.z)
-				camera_follow = false
 			drive_orbit = wrapf(drive_orbit + yaw_delta, -PI, PI)
 	else:
 		orbit_distance = clampf(orbit_distance / float(gesture.zoom), 3.2, 20.0)
 		if not camera_pan_mode:
 			orbit_pitch = clampf(orbit_pitch + drag.y * PI, 0.10, 1.28)
 		orbit = wrapf(orbit + yaw_delta, -PI, PI)
-	update_camera_tools()
 	camera_save_delay = 0.8
 
 func build_pause() -> void:
@@ -723,9 +784,11 @@ func place_ui() -> void:
 	header.size = Vector2(extent.x - margin * 2, 62)
 	var brand = header.get_child(0).get_node("Brand")
 	brand.visible = true
-	mode_button.custom_minimum_size.x = 98 if portrait else 118
+	brand.get_child(0).add_theme_font_size_override("font_size", 16 if driving else 19)
+	expedition_label.add_theme_font_size_override("font_size", 9 if driving else 10)
+	mode_button.custom_minimum_size.x = 96 if portrait else 104
 	if portrait:
-		var sheet_y = maxf(420.0, extent.y * 0.53)
+		var sheet_y = maxf(430.0, extent.y * 0.50)
 		garage_panel.position = Vector2(margin, sheet_y)
 		garage_panel.size = Vector2(extent.x - margin * 2, extent.y - sheet_y - 18)
 		garage_overlay.position = Vector2(margin, 92)
@@ -738,8 +801,8 @@ func place_ui() -> void:
 		garage_overlay.size = Vector2(maxf(280, extent.x - 412), extent.y - 120)
 		camera_toolbar.position = Vector2(extent.x - camera_toolbar.size.x - margin, extent.y - 98)
 	var dashboard: Control = drive_panel.get_node("Dashboard")
-	dashboard.position = Vector2(extent.x * 0.5 - 80, extent.y - 184)
-	dashboard.size = Vector2(160, 164)
+	dashboard.position = Vector2(extent.x * 0.5 - 68, extent.y - 161)
+	dashboard.size = Vector2(136, 136)
 	var navigation: Control = drive_panel.get_node("Navigation")
 	navigation.position = Vector2(margin, 90)
 	navigation.size = Vector2(minf(348, extent.x - 332), 60)
@@ -755,12 +818,12 @@ func place_ui() -> void:
 	if driving:
 		message.position = Vector2(extent.x * 0.5 - minf(230.0, extent.x * 0.3), extent.y - 248)
 		message.size = Vector2(minf(460.0, extent.x * 0.6), 52)
-	var bottom = extent.y - 72
-	touch_buttons.off_left.root.position = Vector2(margin + 42, bottom)
-	touch_buttons.off_right.root.position = Vector2(margin + 138, bottom)
-	touch_buttons.off_go.root.position = Vector2(extent.x - margin - 49, bottom - 9)
-	touch_buttons.off_reverse.root.position = Vector2(extent.x - margin - 148, bottom + 1)
-	touch_buttons.off_brake.root.position = Vector2(extent.x - margin - 49, bottom - 111)
+	var bottom = extent.y - 76
+	touch_buttons.off_left.root.position = Vector2(margin + 54, bottom)
+	touch_buttons.off_right.root.position = Vector2(margin + 168, bottom)
+	touch_buttons.off_go.root.position = Vector2(extent.x - margin - 47, bottom - 6)
+	touch_buttons.off_reverse.root.position = Vector2(extent.x - margin - 140, bottom + 4)
+	touch_buttons.off_brake.root.position = Vector2(extent.x - margin - 47, bottom - 104)
 	pause_overlay.size = Vector2(minf(380, extent.x - 40), 276)
 	pause_overlay.position = (extent - pause_overlay.size) / 2
 	map_overlay.size = Vector2(minf(720, extent.x - 36), minf(860, extent.y - 40))
@@ -956,23 +1019,33 @@ func toggle_mode() -> void:
 	garage_overlay.visible = not driving
 	drive_panel.visible = driving
 	pause_button.visible = driving
-	mode_button.text = "Garage" if driving else "EXPLORE  ›"
+	mode_button.text = "GARAGE" if driving else "DRIVE  ›"
+	# Driving actions form a small corner cluster; the view has no navbar slab.
+	header.add_theme_stylebox_override("panel", box(Color.TRANSPARENT if driving else Color("101b20b8"), 0, 8))
+	if driving:
+		for state in ["normal", "hover", "pressed"]:
+			mode_button.remove_theme_stylebox_override(state)
+		for color in ["font_color", "font_hover_color", "font_pressed_color"]:
+			mode_button.remove_theme_color_override(color)
+	else:
+		accent_button(mode_button)
 	rig_button.visible = driving
 	if not driving:
 		crawl_controls.hide()
 		drive_panel.get_node("Equipment").hide()
 		drive_panel.get_node("RigBackdrop").hide()
-		rig_button.text = "Rig"
+		rig_button.text = "RIG"
 	update_camera_tools()
 	if not driving:
 		truck.reset(recovery_point())
 		pause_overlay.hide()
 		get_tree().paused = false
-		pause_button.text = "Pause"
+		pause_button.text = "Ⅱ"
 	did_position_camera = false
 	layout_ui()
 	save_settings()
-	toast("Hold ↑ to drive. Drag one finger on the scenery to look around. Rig opens trail controls." if driving else "Choose a trail, fit equipment or adjust your setup.")
+	reveal_panel(drive_panel if driving else garage_panel)
+	toast("Hold ↑ to drive. Camera cycles Follow, Trail and Free. RIG opens traction controls." if driving else "Choose a trail, fit equipment or adjust your setup.")
 
 func recover() -> void:
 	clear_controls()
@@ -1013,15 +1086,19 @@ func toggle_pause() -> void:
 		return
 	clear_controls()
 	pause_overlay.visible = not pause_overlay.visible
+	modal_scrim.visible = pause_overlay.visible
 	get_tree().paused = pause_overlay.visible
-	pause_button.text = "Resume" if pause_overlay.visible else "Pause"
+	pause_button.text = "▶" if pause_overlay.visible else "Ⅱ"
 	if pause_overlay.visible:
+		reveal_panel(modal_scrim)
+		reveal_panel(pause_overlay)
 		save_settings()
 
 func pause_to_garage() -> void:
 	pause_overlay.hide()
+	modal_scrim.hide()
 	get_tree().paused = false
-	pause_button.text = "Pause"
+	pause_button.text = "Ⅱ"
 	if driving:
 		toggle_mode()
 
@@ -1030,8 +1107,11 @@ func toggle_map() -> void:
 		return
 	clear_controls()
 	map_overlay.visible = not map_overlay.visible
+	modal_scrim.visible = map_overlay.visible or pause_overlay.visible
 	get_tree().paused = map_overlay.visible or pause_overlay.visible
 	if map_overlay.visible:
+		reveal_panel(modal_scrim)
+		reveal_panel(map_overlay)
 		update_map()
 		save_settings()
 
@@ -1091,9 +1171,9 @@ func show_help() -> void:
 	help_open = true
 	get_tree().paused = true
 	var dialog = AcceptDialog.new()
-	dialog.title = "Bolt Yard · Field guide"
+	dialog.title = "Crawlworks · Field guide"
 	dialog.process_mode = Node.PROCESS_MODE_ALWAYS
-	dialog.dialog_text = "BUILD YOUR RIG\nPickup, Scout and Buggy each keep a separate build.\nEquipment changes compatible parts and their matching settings.\nFine tuning overrides those settings. Reset tuning restores installed parts.\n\nEXPLORE\nSelect a destination on the map, then follow the compass.\nPlaces are discovered when you actually drive close to them.\nCamp repairs the vehicle and returns you to the workshop.\nHold the up arrow plus a steering arrow. R reverses; the pause-shaped pedal brakes.\nLow range and locked differentials help with slow climbs.\nRig opens throttle and independent front / rear differential controls.\nKeyboard: WASD / arrows, Space brake, R camp, M map, Tab garage.\n\nCAMERA · ONE FINGER ON THE SCENERY\nDrag to orbit and tilt. Two fingers pinch to zoom only.\nTap Pan to move the view sideways or up/down with one finger.\nOrbit turns Follow off; Follow returns behind the rig. Center resets the view.\nButtons and pedals keep their touches. Lift fingers before changing modes.\n\nDISPLAY & SAVES\nBoth portrait and landscape layouts work; rotate at any time.\nPerformance, Balanced and High adjust scenery and shadows.\nAll builds and discoveries save on this device. The old setup is retained.\n\nPHYSICS\nThe frame and cabin deform; tires use round contacts and visual squash. Parts change the simulated build.\nRelative tire pressure is a stiffness/grip multiplier, not calibrated bar.\nTire, suspension and drivetrain models remain simplified."
+	dialog.dialog_text = "BUILD YOUR RIG\nPickup, Scout and Buggy each keep a separate build.\nEquipment changes compatible parts and their matching settings.\nFine tuning overrides those settings. Reset tuning restores installed parts.\n\nEXPLORE\nSelect a destination on the map, then follow the compass.\nPlaces are discovered when you actually drive close to them.\nCamp repairs the vehicle and returns you to the workshop.\nHold the up arrow plus a steering arrow. R reverses; BRAKE stops the rig.\nLow range and locked differentials help with slow climbs.\nRig opens throttle and independent front / rear differential controls.\nKeyboard: WASD / arrows, Space brake, R camp, M map, Tab garage.\n\nCAMERA · FOLLOW / TRAIL / FREE\nThe camera button cycles locked Follow, closer Trail and Free.\nFollow and Trail ignore scenery drags. Two fingers pinch to zoom only.\nChoose Free to orbit and tilt with one finger; Pan moves the view sideways or up/down.\nCenter returns to locked Follow.\nButtons and pedals keep their touches. Lift fingers before changing modes.\n\nDISPLAY & SAVES\nBoth portrait and landscape layouts work; rotate at any time.\nPerformance, Balanced and High adjust scenery and shadows.\nAll builds and discoveries save on this device. The old setup is retained.\n\nPHYSICS\nThe frame and cabin deform. Loaded tires compress and flex against the ground and rocks.\nLower pressure softens the tire and widens its footprint; higher pressure reduces flex.\nPressure values are relative settings, not bar or PSI.\nTire, suspension and drivetrain models remain simplified."
 	ui.add_child(dialog)
 	dialog.confirmed.connect(dialog.queue_free)
 	dialog.canceled.connect(dialog.queue_free)
@@ -1179,13 +1259,20 @@ func load_camera_preferences(raw) -> void:
 	drive_orbit = camera_number(raw, "drive_orbit", 0.0, -PI, PI)
 	if raw.get("pan_mode") is bool:
 		camera_pan_mode = raw.pan_mode
-	if raw.get("follow") is bool:
-		camera_follow = raw.follow
+	# Version 2.0 could persist accidental scenery drags as follow=false.
+	# Only a 2.1 explicit preset may restore Free; all old saves start locked.
+	camera_preset = raw.get("preset", "follow") if raw.get("preset", "follow") in ["follow", "trail", "free"] else "follow"
+	camera_follow = camera_preset != "free"
 	garage_pan = Vector2(camera_number(raw, "garage_pan_x", 0.0, -4.0, 4.0), camera_number(raw, "garage_pan_y", 0.0, -4.0, 4.0)).limit_length(4.0)
 	drive_pan = Vector2(camera_number(raw, "drive_pan_x", 0.0, -5.0, 5.0), camera_number(raw, "drive_pan_y", 0.0, -5.0, 5.0)).limit_length(5.0)
+	if not raw.has("preset") and raw.get("follow") is bool and not raw.follow:
+		drive_distance = 8.2
+		drive_pitch = 0.30
+		drive_orbit = 0.0
+		drive_pan = Vector2.ZERO
 
 func camera_preferences() -> Dictionary:
-	return {"orbit": orbit, "garage_distance": orbit_distance, "garage_pitch": orbit_pitch, "drive_distance": drive_distance, "drive_pitch": drive_pitch, "drive_orbit": drive_orbit, "pan_mode": camera_pan_mode, "follow": camera_follow, "garage_pan_x": garage_pan.x, "garage_pan_y": garage_pan.y, "drive_pan_x": drive_pan.x, "drive_pan_y": drive_pan.y}
+	return {"orbit": orbit, "garage_distance": orbit_distance, "garage_pitch": orbit_pitch, "drive_distance": drive_distance, "drive_pitch": drive_pitch, "drive_orbit": drive_orbit, "pan_mode": camera_pan_mode, "follow": camera_follow, "preset": camera_preset, "garage_pan_x": garage_pan.x, "garage_pan_y": garage_pan.y, "drive_pan_x": drive_pan.x, "drive_pan_y": drive_pan.y}
 
 func save_settings() -> bool:
 	if builds.is_empty():
@@ -1255,9 +1342,11 @@ func _process(delta: float) -> void:
 	for action in touch_buttons:
 		var pressed = Input.is_action_pressed(action)
 		var item: Dictionary = touch_buttons[action]
-		if pressed != item.down:
-			item.down = pressed
-			item.panel.modulate = Color("ffe0a5") if pressed else Color.WHITE
+		item.down = pressed
+		item.pressure = move_toward(float(item.pressure), 1.0 if pressed else 0.0, delta * 12.0)
+		item.panel.modulate = Color.WHITE.lerp(Color("ffdb9f"), float(item.pressure) * 0.85)
+		item.panel.scale = Vector2.ONE * (1.0 - float(item.pressure) * 0.035)
+		item.panel.pivot_offset = item.panel.size * 0.5
 	if recovery_cooldown <= 0.0:
 		if position.y < -50.0 or (driving and (absf(position.x) > (365.0 if selected_map == "legacy" else 316.0) or absf(position.z) > (365.0 if selected_map == "legacy" else 316.0))):
 			recover()
@@ -1283,8 +1372,10 @@ func update_camera(delta: float) -> void:
 		target += pan
 		desired = target + direction * distance * cos(pitch) + Vector3.UP * distance * sin(pitch)
 		if camera_follow:
-			# Preserve the useful trail look-ahead without changing manual zoom.
-			target -= follow_direction * minf(3.0 + speed * 0.07, distance * 0.48)
+			# The close preset must keep the tires in frame. Its shorter aim still
+			# exposes the chosen line without pushing the rig under the dashboard.
+			var look_ahead = minf(1.4 + speed * 0.035, distance * 0.24) if camera_preset == "trail" else minf(3.0 + speed * 0.07, distance * 0.48)
+			target -= follow_direction * look_ahead
 		target.y = maxf(target.y, float(truck.core.terrain_height(target.x, target.z)) + 0.35)
 		camera.fov = lerpf(camera.fov, 60.0, 1.0 - exp(-2.0 * delta))
 	else:
@@ -1335,10 +1426,12 @@ func update_telemetry() -> void:
 	speed_label.text = "%.1f" % speed if speed < 10.0 else "%02d" % roundi(speed)
 	speed_dial.speed = speed
 	speed_dial.queue_redraw()
-	drive_status.text = "%s / %d CONTACT" % ["LOW" if settings.low_range else "HIGH", grounded]
+	drive_status.text = "%s · %d/4" % ["LOW" if settings.low_range else "HIGH", grounded]
+	speed_dial.grounded = grounded
+	speed_dial.damage = damage
 	drive_damage.text = "RIG %d%%" % roundi((1.0 - damage) * 100.0)
 	drive_damage.add_theme_color_override("font_color", Color("f09375") if damage > 0.25 or broken > 0 else ACCENT)
-	garage_status.text = "%d%% chassis · %d broken beams · %d fps\n%d / %d places discovered" % [roundi((1.0 - damage) * 100.0), broken, Engine.get_frames_per_second(), discovered.size(), landmarks.size()]
+	garage_status.text = "%d%% chassis · %d broken beams\n%d / %d places discovered" % [roundi((1.0 - damage) * 100.0), broken, discovered.size(), landmarks.size()]
 	if crawl_controls.visible or crawl_mode:
 		var loads = current_telemetry.get("wheel_normal_loads", current_telemetry.get("wheel_loads", PackedFloat32Array([0, 0, 0, 0])))
 		var squash = current_telemetry.get("wheel_compression", PackedFloat32Array([0, 0, 0, 0]))
@@ -1357,7 +1450,7 @@ func update_telemetry() -> void:
 	var forward: Vector3 = current_telemetry.get("forward", Vector3.FORWARD)
 	var heading = fposmod(rad_to_deg(atan2(forward.x, -forward.z)), 360.0)
 	var compass = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"][roundi(heading / 45.0) % 8]
-	navigation_label.text = "%s  %03d°  ·  %d / %d discovered\nChoose your next destination on the map." % [compass, roundi(heading) % 360, discovered.size(), landmarks.size()]
+	navigation_label.text = "%s  %03d°  ·  %d / %d FOUND\nOpen MAP to choose a destination." % [compass, roundi(heading) % 360, discovered.size(), landmarks.size()]
 	for landmark in landmarks:
 		if str(landmark.id) != destination:
 			continue
@@ -1371,7 +1464,7 @@ func update_telemetry() -> void:
 			direction = "BEHIND"
 		if distance < float(landmark.get("radius", 18)):
 			direction = "HERE"
-		navigation_label.text = "%s  %03d°  ·  %d / %d discovered\n%s  ·  %d m  ·  %s" % [compass, roundi(heading) % 360, discovered.size(), landmarks.size(), landmark.name, roundi(distance), direction]
+		navigation_label.text = "%s  %03d°  ·  %d / %d FOUND\n%s  ·  %d m  ·  %s" % [compass, roundi(heading) % 360, discovered.size(), landmarks.size(), landmark.name, roundi(distance), direction]
 		break
 
 func _unhandled_key_input(event: InputEvent) -> void:
@@ -1437,15 +1530,17 @@ func show_garage_tab(id: String) -> void:
 	for key in garage_pages:
 		garage_pages[key].visible = key == id
 	for key in garage_tabs:
-		var style = box(Color("3b4e4b") if key == id else Color("202f35"), 8, 8)
+		var style = box(Color("31413d") if key == id else Color("18262c"), 0, 8)
 		if key == id:
 			style.border_width_bottom = 2
 			style.border_color = ACCENT
 		garage_tabs[key].add_theme_stylebox_override("normal", style)
+	if garage_pages.has(id) and is_inside_tree():
+		reveal_panel(garage_pages[id])
 
 func update_map_selection() -> void:
 	for id in map_buttons:
-		var style = box(Color("324641") if selected_map == id else Color("203039"), 12, 12)
+		var style = box(Color("304139") if selected_map == id else Color("18282f"), 3, 12)
 		style.border_width_left = 4
 		style.border_color = Color(EXPEDITIONS[id].color)
 		if selected_map == id:

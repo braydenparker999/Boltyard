@@ -121,6 +121,17 @@ public:
         const auto&b=bodies_[body_id];auto d=rock_distance(b.shape,b.local_point(p));
         d.normal=b.rotation.rotate(d.normal);d.point=b.world_point(d.point);return d;
     }
+    int surface_material(int id,Vec3 point) const {
+        if(id<0||id>=body_count())return 0;
+        if(bodies_[id].kind!=0)return 5;
+        return terrain_mode_>=4&&expedition_material(terrain_mode_,point.x,point.z).wet>.30f?2:1;
+    }
+    float tire_surface(int id,Vec3 point) const {
+        if(id<0||id>=body_count())return 1.f;
+        const float wet=terrain_mode_>=4?expedition_material(terrain_mode_,point.x,point.z).wet:0.f;
+        // The contacted body's actual timber/stone surface determines traction.
+        return bodies_[id].kind==0?1.10f-.54f*wet:.82f-.24f*wet;
+    }
     float point_inverse_mass(int id,Vec3 p,Vec3 n) const {return bodies_[id].point_inverse_mass(p,n);}
     Vec3 point_velocity(int id,Vec3 p) const {return bodies_[id].point_velocity(p);}
     void apply_position_impulse(int id,Vec3 p,Vec3 impulse){position_impulse(bodies_[id],p,impulse);}

@@ -1,49 +1,99 @@
 #pragma once
 // Include inside boltyard after CrawlRock and expedition_terrain.hpp. These
 // rounded, buried granite hulls are exported verbatim for visible rock meshes.
-inline CrawlRock expedition_granite(int mode,float x,float z,float width,float depth,float exposure,float yaw,unsigned seed) {
+inline CrawlRock expedition_granite(int mode,float x,float z,float width,float depth,float exposure,float yaw,unsigned seed,int fracture_attempt=0) {
     using namespace expedition_detail;
     CrawlRock rock;std::vector<Vec3> points;
-    const float cy=expedition_height(mode,x,z),burial=std::max(1.1f,std::max(width,depth)*.24f);
+    const float cy=expedition_height(mode,x,z),burial=std::max(1.1f,std::max(width,depth)*.27f);
     auto normal=expedition_normal(mode,x,z);
     const float gx=clamp(-normal.x/std::max(.3f,normal.y),-.55f,.55f);
     const float gz=clamp(-normal.z/std::max(.3f,normal.y),-.55f,.55f);
     const float middle=(exposure-burial)*.5f,radius=(exposure+burial)*.5f;
+    constexpr int sectors=20,rings=8;
+    const float variant=hash(int(seed)+17,39);
+    // Convex superellipsoid sections vary from long whalebacks to broad slabs
+    // and rounded joint blocks. Affine crown drift makes the abraded approach
+    // longer than the lee shoulder without non-convex contact approximations.
+    const float cross_power=2.0f+(seed%3)*.36f;
+    const float crown_power=seed%5<2?2.0f:(seed%5==2?3.4f:2.65f);
+    const float drift=(seed%2?.16f:-.10f)*depth;
     auto point=[&](float a,float level,float radial) {
-        float phase=hash(int(seed)+17,39)*6.28318530718f;
-        float stretch=.96f+.035f*std::sin(a*3+phase)+.010f*std::sin(a*5-phase);
-        float px=std::cos(a)*width*.5f*radial*stretch,pz=std::sin(a)*depth*.5f*radial*stretch;
-        float dx=px*std::cos(yaw)+pz*std::sin(yaw),dz=-px*std::sin(yaw)+pz*std::cos(yaw);
-        // A low ellipsoidal crown produces scoured bedrock with a gradual entry.
-        // Terrain gradient carries through the entire formation. Preserve a
-        // slight crown rather than creating numerically coplanar top points.
-        float py=middle+radius*level;
-        points.push_back({x+dx,cy+py+gx*dx+gz*dz,z+dz});
+        auto signed_power=[](float value,float exponent){return std::copysign(std::pow(std::abs(value),exponent),value);};
+        float px=signed_power(std::cos(a),2/cross_power)*width*.5f*radial;
+        float pz=signed_power(std::sin(a),2/cross_power)*depth*.5f*radial+level*drift;
+        points.push_back({px,middle+radius*level,pz});
     };
     point(0,-1,0);
-    const float levels[4]={-.73f,-.20f,.43f,.80f};
-    for(unsigned l=0;l<4;++l)for(unsigned j=0;j<12;++j)
-        point(j*6.28318530718f/12.f,levels[l],std::sqrt(1-levels[l]*levels[l]));
+    const float levels[rings]={-.88f,-.62f,-.28f,.10f,.45f,.70f,.88f,.97f};
+    for(int l=0;l<rings;++l)for(int j=0;j<sectors;++j)
+        point(j*6.28318530718f/sectors,levels[l],std::pow(1-std::pow(std::abs(levels[l]),crown_power),1/crown_power));
     point(0,1,0);
-    // Homothetic convex rings guarantee a closed hull with no numerical
-    // coplanar-face discovery. A low-frequency irregular cross section is
-    // shared through the crown; affine terrain tilt preserves convexity.
-    std::vector<std::array<int,3>> faces;
-    auto face=[&](int a,int b,int c){
-        const Vec3 center{x,cy+middle,z};
-        if((points[b]-points[a]).cross(points[c]-points[a]).dot(points[a]-center)<0)std::swap(b,c);
-        faces.push_back({a,b,c});
+    using Polygon=std::vector<Vec3>;
+    std::vector<Polygon> polygons;
+    auto polygon=[&](std::initializer_list<int> indices){
+        Polygon face;for(int i:indices)face.push_back(points[i]);polygons.push_back(std::move(face));
     };
-    for(int j=0;j<12;++j){
-        int k=(j+1)%12;face(0,1+k,1+j);face(49,37+j,37+k);
-        for(int ring=0;ring<3;++ring){int a=1+ring*12+j,b=1+ring*12+k,c=a+12,d=b+12;face(a,b,c);face(b,d,c);}
+    for(int j=0;j<sectors;++j){
+        int k=(j+1)%sectors;
+        polygon({0,1+k,1+j});polygon({1+rings*sectors,1+(rings-1)*sectors+j,1+(rings-1)*sectors+k});
+        for(int ring=0;ring<rings-1;++ring){int a=1+ring*sectors+j,b=1+ring*sectors+k;polygon({a,b,b+sectors,a+sectors});}
     }
-    rock.vertices=std::move(points);rock.triangles=std::move(faces);
-    for(auto p:rock.vertices)rock.center+=p;
+    // Selected outcrops expose a plucked joint face. This is a true convex
+    // clipping plane, so the abrupt technical edge is both drawn and collided.
+    // Low traversable slabs keep the fracture short; larger shoulder blocks
+    // can carry the more prominent broken face seen in glaciated bedrock.
+    const bool fractured=fracture_attempt<6&&(seed%5==2||seed%7==0);
+    if(fractured) {
+        Vec3 plane{.10f,exposure<.6f?.24f:.12f,seed%2?1.f:-1.f};plane=plane.normalized();
+        const float offset=depth*(.22f+variant*.08f+fracture_attempt*.007f);
+        std::vector<Polygon> clipped;Polygon cap;
+        auto cap_vertex=[&](Vec3 p){for(auto q:cap)if((p-q).length_squared()<1e-9f)return;cap.push_back(p);};
+        for(const auto&poly:polygons) {
+            Polygon cut;
+            for(size_t i=0;i<poly.size();++i) {
+                Vec3 a=poly[i],b=poly[(i+1)%poly.size()];float da=plane.dot(a)-offset,db=plane.dot(b)-offset;
+                if(da<=0)cut.push_back(a);
+                if((da<=0)!=(db<=0)){Vec3 q=a+(b-a)*(da/(da-db));cut.push_back(q);cap_vertex(q);}
+            }
+            if(cut.size()>=3)clipped.push_back(std::move(cut));
+        }
+        if(cap.size()>=3) {
+            Vec3 center;for(auto p:cap)center+=p;center*=1.f/cap.size();
+            Vec3 axis=plane.cross(Vec3{1,0,0}).normalized(),other=plane.cross(axis);
+            std::sort(cap.begin(),cap.end(),[&](Vec3 a,Vec3 b){a-=center;b-=center;return std::atan2(a.dot(other),a.dot(axis))<std::atan2(b.dot(other),b.dot(axis));});
+            // A center fan retains collinear edge subdivisions shared with the
+            // curved shell. Removing them would open microscopic T-junctions.
+            for(size_t i=0;i<cap.size();++i)clipped.push_back({center,cap[i],cap[(i+1)%cap.size()]});
+        }
+        polygons=std::move(clipped);
+    }
+    auto vertex=[&](Vec3 p){
+        for(size_t i=0;i<rock.vertices.size();++i)if((p-rock.vertices[i]).length_squared()<1e-9f)return int(i);
+        rock.vertices.push_back(p);return int(rock.vertices.size()-1);
+    };
+    for(const auto&poly:polygons) {
+        int first=vertex(poly[0]);
+        for(size_t i=1;i+1<poly.size();++i)if((poly[i]-poly[0]).cross(poly[i+1]-poly[0]).length_squared()>1e-12f)
+            rock.triangles.push_back({first,vertex(poly[i]),vertex(poly[i+1])});
+    }
+    for(auto&p:rock.vertices) {
+        float dx=p.x*std::cos(yaw)+p.z*std::sin(yaw),dz=-p.x*std::sin(yaw)+p.z*std::cos(yaw);
+        p={x+dx,cy+p.y+gx*dx+gz*dz,z+dz};rock.center+=p;
+    }
     rock.center*=1.f/rock.vertices.size();
-    for(auto t:rock.triangles)rock.triangle_normals.push_back((rock.vertices[t[1]]-rock.vertices[t[0]]).cross(rock.vertices[t[2]]-rock.vertices[t[0]]).normalized());
+    for(auto&t:rock.triangles) {
+        Vec3 normal=(rock.vertices[t[1]]-rock.vertices[t[0]]).cross(rock.vertices[t[2]]-rock.vertices[t[0]]).normalized();
+        if(normal.dot(rock.vertices[t[0]]-rock.center)<0){std::swap(t[1],t[2]);normal=-normal;}
+        rock.triangle_normals.push_back(normal);
+    }
     for(auto p:rock.vertices)rock.reach=std::max(rock.reach,(p-rock.center).length());
-    rock.surface=mode==5?.98f:1.13f;
+    // Near-coincident cuts can make tiny triangles lose their supporting plane
+    // after float world translation. Move the geological joint slightly and
+    // rebuild rather than shipping a numerically non-convex collision shell.
+    if(fractured)for(size_t f=0;f<rock.triangles.size();++f)for(auto p:rock.vertices)
+        if(rock.triangle_normals[f].dot(p-rock.vertices[rock.triangles[f][0]])>.00045f)
+            return expedition_granite(mode,x,z,width,depth,exposure,yaw,seed,fracture_attempt+1);
+    rock.surface=1.10f-expedition_material(mode,x,z).wet*.54f;
     return rock;
 }
 inline const std::vector<CrawlRock>& expedition_rocks(int mode) {
@@ -56,25 +106,27 @@ inline const std::vector<CrawlRock>& expedition_rocks(int mode) {
         // Technical trails cross the exposed top of a broad bedrock spine.
         // Low, overlapping pieces share a geological orientation and extend
         // into the shoulders. The centre remains passable with a stock crawler.
-        const auto &route=trails(m);
+        const auto &route=trails(m);float along=0,next_rock=8;int placement=0;
         for(size_t i=1;i<route.size();++i){
-            auto a=route[i-1],b=route[i];if(a.route!=b.route)continue;
-            float dx=b.x-a.x,dz=b.z-a.z,length=std::sqrt(dx*dx+dz*dz),nx=-dz/length,nz=dx/length;
-            int count=int(length/(a.route>=2?11.f:22.f));
-            for(int k=0;k<count;++k){
-                float t=(k+.58f)/std::max(1,count),cx=a.x+dx*t,cz=a.z+dz*t;
-                float v=hash(int(i)*19,k*37+m),side=(k+int(i))%2?1.f:-1.f;
+            auto a=route[i-1],b=route[i];
+            if(a.route!=b.route){along=0;next_rock=8;placement=0;continue;}
+            float dx=b.x-a.x,dz=b.z-a.z,length=std::hypot(dx,dz),nx=-dz/length,nz=dx/length;
+            while(next_rock<=along+length){
+                float t=clamp((next_rock-along)/length,0,1),cx=a.x+dx*t,cz=a.z+dz*t;
+                float v=hash(a.route*191+placement*19,m*37),side=placement%2?1.f:-1.f;
                 float yaw=std::atan2(dx,dz)+(m==5?.15f:-.12f);
                 if(a.route>=2){
-                    // The low inner shoulder crosses one wheel track; its
-                    // broad rounded entry avoids vertical box-shaped steps.
-                    add(cx+nx*side*1.25f,cz+nz*side*1.25f,4.2f+v*2,5.5f+v*2,.24f+v*.23f,yaw);
-                    add(cx+nx*side*5.4f,cz+nz*side*5.4f,8.0f+v*3,10+v*3,1.1f+v*1.7f,yaw+.13f);
+                    // Unevenly spaced slabs meet one wheel first, with a clear
+                    // smooth approach between formations and a passable exit.
+                    add(cx+nx*side*1.35f,cz+nz*side*1.35f,4.5f+v*2,6.2f+v*2.4f,.22f+v*.27f,yaw);
+                    if(placement%3!=1)add(cx+nx*side*5.9f,cz+nz*side*5.9f,8.0f+v*3,10+v*3,1.0f+v*1.6f,yaw+.13f);
                 }else{
-                    float offset=a.width+3.6f+v*1.4f;
-                    add(cx+nx*side*offset,cz+nz*side*offset,4.5f+v*4,6+v*5,.6f+v*1.9f,yaw);
+                    float offset=a.width+4.1f+v*2.0f;
+                    add(cx+nx*side*offset,cz+nz*side*offset,4.5f+v*4,6+v*5,.55f+v*1.7f,yaw);
                 }
+                next_rock+=(a.route>=2?11.5f:24.f)*(0.78f+v*.55f);++placement;
             }
+            along+=length;
         }
         // Weathered granite pavement around the immediate side lines is the
         // first view leaving camp, not a distant test obstacle area.

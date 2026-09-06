@@ -5,10 +5,9 @@ uniform vec3 node_positions[100];
 uniform vec3 body_coefficients[16];
 uniform vec3 ring_centers[8];
 uniform vec3 wheel_axes[4];
-uniform vec3 wheel_normals[4];
-uniform vec3 wheel_points[4];
+uniform vec4 patch_planes[24];
+uniform vec4 patch_centers[24];
 uniform float wheel_phases[4];
-uniform float wheel_compression[4];
 uniform vec3 wheel_up = vec3(0.0, 1.0, 0.0);
 uniform vec3 link_starts[14];
 uniform vec3 link_ends[14];
@@ -76,12 +75,31 @@ vec3 wheel_skin(int hub, vec3 p) {
     vec3 radial = ring - center;
     float pad = tire_padding * clamp((p.z - 0.50) * 2.0, 0.0, 1.0);
     vec3 point = center + radial * p.z + normalize(radial + vec3(0.000001)) * pad;
-    if (wheel_compression[w] > 0.0001 && p.z > 0.55) {
-        float depth = dot(point - wheel_points[w], wheel_normals[w]);
-        point += wheel_normals[w] * max(0.0, 0.002 - depth);
-        float patch = clamp(1.0 - max(depth, 0.0) / max(tire_padding * 3.0, 0.01), 0.0, 1.0);
-        float sidewall = clamp(abs(p.y - 0.5) * 2.0, 0.0, 1.0) * clamp((p.z - 0.55) * 3.0, 0.0, 1.0);
-        point += wheel_axes[w] * sign(p.y - 0.5) * wheel_compression[w] * 0.30 * patch * sidewall;
+    // The bead is clamped to a rigid rim; carcass deflection grows through
+    // the sidewall instead of opening a seam at the metal interface.
+    if (p.z < 0.85) {
+        vec3 axle = wheel_axes[w];
+        vec3 up = normalize(wheel_up - axle * dot(wheel_up, axle));
+        float angle = p.x * 6.28318530718 + wheel_phases[w];
+        vec3 rigid_radial = up * cos(angle) + normalize(cross(axle, up)) * sin(angle);
+        vec3 rigid_point = node_positions[hub] + axle * ((p.y - 0.5) * tire_width) + rigid_radial * (tire_radius * 0.88 * p.z);
+        point = mix(rigid_point, point, smoothstep(0.51, 0.85, p.z));
+    }
+    // Native ring guides already carry pressure/load squash, shoulder bulge
+    // and traction shear. Clip only the padded rubber against nearby patches.
+    if (p.z > 0.55) {
+        for (int pass = 0; pass < 2; pass++) {
+            for (int j = 0; j < 6; j++) {
+                vec4 plane = patch_planes[w * 6 + j];
+                vec4 patch = patch_centers[w * 6 + j];
+                if (dot(plane.xyz, plane.xyz) < 0.5 || patch.w <= 0.0) continue;
+                vec3 delta = point - patch.xyz;
+                vec3 tangent = delta - plane.xyz * dot(delta, plane.xyz);
+                if (dot(tangent, tangent) <= patch.w * patch.w) {
+                    point += plane.xyz * max(0.0, 0.002 - (dot(point, plane.xyz) - plane.w));
+                }
+            }
+        }
     }
     return point;
 }
@@ -134,6 +152,20 @@ void vertex() {
         vec3 center = mix(ring_centers[wheel * 2], ring_centers[wheel * 2 + 1], VERTEX.y);
         point = wheel_skin(binding, VERTEX);
         vec3 radial = normalize(point - center + vec3(0.000001));
+        // A loaded footprint has a flattened surface normal as well as a
+        // flattened silhouette; preserve sidewall and individual lug normals.
+        for (int j = 0; j < 6; j++) {
+            vec4 plane = patch_planes[wheel * 6 + j];
+            vec4 patch = patch_centers[wheel * 6 + j];
+            if (dot(plane.xyz, plane.xyz) < 0.5 || patch.w <= 0.0) continue;
+            vec3 delta = point - patch.xyz;
+            vec3 along = delta - plane.xyz * dot(delta, plane.xyz);
+            float depth = dot(point, plane.xyz) - plane.w;
+            if (dot(along, along) < patch.w * patch.w && dot(radial, -plane.xyz) > 0.65) {
+                float flatten_weight = (1.0 - smoothstep(0.002, 0.045, depth)) * 0.85;
+                radial = normalize(mix(radial, -plane.xyz, flatten_weight));
+            }
+        }
         vec3 tangent = normalize(cross(axle, radial));
         NORMAL = normalize(tangent * NORMAL.x + axle * NORMAL.y + radial * NORMAL.z);
     }

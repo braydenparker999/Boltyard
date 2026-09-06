@@ -1,6 +1,6 @@
 extends SceneTree
 
-## Thirty-second, deterministic in-game review. Two explicitly labelled trail
+## Twenty-four-second, deterministic in-game review. Two explicitly labelled trail
 ## starts, followed by actual throttle/brake simulation and raw camera touches.
 ## Run at --fixed-fps 30, optionally --write-movie validation/expedition-gameplay.avi.
 ## --headless also runs the same control/stability gates without captures.
@@ -80,15 +80,10 @@ func expedition(id: String) -> void:
 		scene.toggle_mode()
 	scene.select_map(id)
 	scene.show_garage_tab("trails")
-	scene.camera_pan_mode = false
-	scene.camera_follow = false
-	scene.drive_distance = 9.2
-	scene.drive_pitch = .36
-	scene.drive_orbit = -.95 if id == "rockies" else .95
-	scene.drive_pan = Vector2.ZERO
-	scene.update_camera_tools()
+	# Camera state goes through the same deliberate preset action as the HUD.
+	scene.set_camera_preset("follow")
 	stage = id + "_region_selection"
-	await advance(27, false)
+	await advance(18, false)
 	capture("expedition-%s-garage.png" % id)
 	scene.toggle_mode()
 	# These are declared scene cuts to two real trail locations. No poses or
@@ -102,7 +97,34 @@ func expedition(id: String) -> void:
 	scene.toast("SILVERPINE RANGE · Split Granite trail" if id == "rockies" else "KARELIAN TAIGA · Lake Vetra forest trail")
 	Input.action_press("off_brake")
 	stage = id + "_settle"
-	await advance(45, false)
+	await advance(12, false)
+	var viewport_size: Vector2 = scene.get_viewport().get_visible_rect().size
+	var center := Vector2(viewport_size.x * .56, viewport_size.y * .48)
+	var steering: Dictionary = scene.touch_buttons.off_left
+	var hit := Rect2(steering.root.global_position - steering.hit_size * .5, steering.hit_size)
+	var miss: Vector2 = steering.root.global_position + Vector2(64, -62)
+	check(not hit.has_point(miss) and scene.camera_touch_blocked(miss),
+		"%s: a touch just outside steering must belong to its guard band" % id)
+	var locked_before: Dictionary = scene.camera_preferences()
+	scene.toast("FOLLOW LOCKED · Steering misses keep your driving view")
+	scene.toast_remaining = 1.2
+	stage = id + "_protected_steering_miss"
+	touch(4, miss, true)
+	for i in range(6):
+		drag(4, miss.lerp(center, float(i + 1) / 6.0))
+		await advance(1, false)
+	touch(4, center, false)
+	var guarded_miss: bool = scene.camera_preferences() == locked_before
+	check(guarded_miss, "%s: a missed steering touch cannot move or unlock Follow" % id)
+	stage = id + "_locked_follow_drag"
+	touch(4, center, true)
+	for i in range(6):
+		drag(4, center + Vector2(90, -35) * float(i + 1) / 6.0)
+		await advance(1, false)
+	touch(4, center + Vector2(90, -35), false)
+	var locked_drag: bool = scene.camera_preferences() == locked_before and scene.camera_preset == "follow" and scene.camera_follow
+	check(locked_drag, "%s: deliberate scenery dragging also leaves Follow locked" % id)
+	await advance(12, false)
 	reset_metrics()
 	var start: Vector3 = scene.truck.get_telemetry().position
 	stage = id + "_drive"
@@ -125,16 +147,17 @@ func expedition(id: String) -> void:
 		"minimum_up": lowest_up, "damage": peak_damage, "stopped_speed": stats.speed,
 		"final_position": vector_values(stats.position)}
 	stage = id + "_camera"
-	scene.toast("ONE FINGER · Look around the working suspension")
+	scene.set_camera_preset("free")
+	check(scene.camera_preset == "free" and not scene.camera_follow,
+		"%s: suspension inspection must explicitly choose Free camera" % id)
+	scene.toast("FREE CAMERA · Look around the working suspension")
 	scene.toast_remaining = .7
-	var viewport_size: Vector2 = scene.get_viewport().get_visible_rect().size
-	var center := Vector2(viewport_size.x * .56, viewport_size.y * .48)
 	var first := center - Vector2(55, 0)
 	var orbit_before: float = scene.drive_orbit
 	var pitch_before: float = scene.drive_pitch
 	touch(4, first, true)
-	for i in range(39):
-		drag(4, first + Vector2(74 if id == "rockies" else -74, -18) * float(i + 1) / 39.0)
+	for i in range(15):
+		drag(4, first + Vector2(150 if id == "rockies" else -150, -18) * float(i + 1) / 15.0)
 		await advance(1)
 	touch(4, first, false)
 	check(absf(wrapf(scene.drive_orbit - orbit_before, -PI, PI)) > .2 and absf(scene.drive_pitch - pitch_before) > .035,
@@ -147,8 +170,8 @@ func expedition(id: String) -> void:
 	scene.toast_remaining = .7
 	touch(4, center - Vector2(55, 0), true)
 	touch(7, center + Vector2(55, 0), true)
-	for i in range(39):
-		var t := float(i + 1) / 39.0
+	for i in range(15):
+		var t := float(i + 1) / 15.0
 		# Deliberate rotation and translation ensure the pinch stays zoom-only.
 		var span := Vector2(lerpf(55.0, 91.0, t), 0).rotated(t * .34)
 		drag(4, center + Vector2(0, t * 7) - span)
@@ -162,12 +185,13 @@ func expedition(id: String) -> void:
 	scene.toast("ONE FINGER · Pan to place the tire contact in view")
 	scene.toast_remaining = .7
 	touch(4, first, true)
-	for i in range(39):
-		drag(4, first + Vector2(-19, -13) * float(i + 1) / 39.0)
+	for i in range(15):
+		drag(4, first + Vector2(-19, -13) * float(i + 1) / 15.0)
 		await advance(1)
 	touch(4, first, false)
 	check(scene.drive_pan.distance_to(pan_before) > .08, "%s: one finger must pan in Pan mode" % id)
-	review.camera = {"one_finger_orbit": wrapf(angle_after_orbit - orbit_before, -PI, PI),
+	review.camera = {"guarded_steering_miss": guarded_miss, "follow_drag_locked": locked_drag,
+		"inspection_preset": scene.camera_preset, "one_finger_orbit": wrapf(angle_after_orbit - orbit_before, -PI, PI),
 		"one_finger_tilt": pitch_after_orbit - pitch_before, "pinch_zoom": scene.drive_distance - distance_before,
 		"pinch_only": pinch_only, "one_finger_pan": [scene.drive_pan.x, scene.drive_pan.y]}
 	reviews.append(review)
@@ -217,7 +241,7 @@ func advance(count: int, measure := true) -> void:
 				"wheel_loads": Array(stats.wheel_normal_loads), "rock_loads": Array(stats.rock_loads),
 				"wheel_compression": Array(stats.wheel_compression), "axle_articulation": Array(stats.axle_articulation),
 				"suspension": Array(stats.suspension), "sim_ms": stats.sim_ms,
-				"camera_position": vector_values(scene.camera.position)})
+				"camera_preset": scene.camera_preset, "camera_position": vector_values(scene.camera.position)})
 		if stats.safety_clamps != 0 or stats.rejected_states != 0:
 			check(false, "%s: physics required an emergency state repair" % stage)
 

@@ -48,6 +48,7 @@ protected:
         ClassDB::bind_method(D_METHOD("set_drivetrain", "low_range", "locked_diffs"), &SoftBodyRig::set_drivetrain);
         ClassDB::bind_method(D_METHOD("set_axle_drivetrain", "low_range", "front_locked", "rear_locked"), &SoftBodyRig::set_axle_drivetrain);
         ClassDB::bind_method(D_METHOD("get_wheel_visuals"), &SoftBodyRig::get_wheel_visuals);
+        ClassDB::bind_method(D_METHOD("get_tire_contacts"), &SoftBodyRig::get_tire_contacts);
         ClassDB::bind_method(D_METHOD("get_dynamic_objects"), &SoftBodyRig::get_dynamic_objects);
         ClassDB::bind_method(D_METHOD("get_dynamic_object_poses"), &SoftBodyRig::get_dynamic_object_poses);
         ClassDB::bind_method(D_METHOD("camera_safe_position", "anchor", "desired", "radius"), &SoftBodyRig::camera_safe_position);
@@ -118,10 +119,10 @@ public:
     int expedition_mode(int mode) const { return (mode < 0 ? get_terrain_mode() : mode) == 5 ? 5 : 4; }
     Dictionary get_expedition_heightfield(int mode) const {
         const auto &data=boltyard::expedition_detail::cache(expedition_mode(mode));
-        PackedFloat32Array heights,surfaces;PackedColorArray materials;
-        heights.resize(data.height.size());surfaces.resize(data.height.size());materials.resize(data.height.size());
-        for(int i=0;i<(int)data.height.size();++i){const auto&m=data.material[i];heights.set(i,data.height[i]);surfaces.set(i,data.surface[i]);materials.set(i,Color(m.rock,m.dirt,m.grass,m.wet));}
-        Dictionary out;out["heights"]=heights;out["surfaces"]=surfaces;out["materials"]=materials;
+        PackedFloat32Array heights,surfaces,gravel;PackedColorArray materials;
+        heights.resize(data.height.size());surfaces.resize(data.height.size());materials.resize(data.height.size());gravel.resize(data.height.size());
+        for(int i=0;i<(int)data.height.size();++i){const auto&m=data.material[i];heights.set(i,data.height[i]);surfaces.set(i,data.surface[i]);materials.set(i,Color(m.rock,m.dirt,m.grass,m.wet));gravel.set(i,data.gravel[i]);}
+        Dictionary out;out["heights"]=heights;out["surfaces"]=surfaces;out["materials"]=materials;out["gravel"]=gravel;
         out["side"]=321;out["spacing"]=2.0;out["origin"]=-320.0;out["mode"]=expedition_mode(mode);return out;
     }
     Array get_expedition_rocks(int mode) const {
@@ -148,9 +149,26 @@ public:
     }
     void set_drivetrain(bool low, bool locked) { rig.set_drivetrain(low,locked); }
     void set_axle_drivetrain(bool low, bool front, bool rear) { rig.set_drivetrain(low,front,rear); }
+    Array get_tire_contacts() const {
+        Array wheels;
+        for(int w=0;w<4;++w){
+            Array contacts;
+            for(const auto &p:rig.wheel_contact_patches(w)){
+                Dictionary d;d["normal"]=gv(p.normal);d["point"]=gv(p.point);d["shear"]=gv(p.shear);
+                d["load"]=p.load;d["compression"]=p.compression;d["half_length"]=p.half_length;
+                d["half_width"]=p.half_width;d["friction"]=p.friction;d["surface"]=p.surface;d["dynamic_body"]=p.dynamic_body;
+                contacts.push_back(d);
+            }
+            wheels.push_back(contacts);
+        }
+        return wheels;
+    }
     Dictionary get_wheel_visuals() const {
         Dictionary d;
         PackedVector3Array axes, normals, points, link_starts, link_ends;
+        PackedColorArray patch_planes,patch_centers;
+        patch_planes.resize(24);patch_centers.resize(24);
+        for(int i=0;i<24;++i){patch_planes.set(i,Color(0,0,0,0));patch_centers.set(i,Color(0,0,0,0));}
         PackedFloat32Array phases, compression;
         for (int w=0;w<4;++w) {
             axes.push_back(gv(rig.wheel_axle_direction(w)));
@@ -160,11 +178,19 @@ public:
             compression.push_back(rig.wheel_compression(w));
             link_starts.push_back(gv(rig.suspension_link_start(w)));
             link_ends.push_back(gv(rig.suspension_link_end(w)));
+            int i=0;
+            for(const auto&p:rig.wheel_contact_patches(w)){
+                if(i>=6)break;
+                const float radius=std::hypot(p.half_length,p.half_width)+rig.config().tire_radius*.18f;
+                patch_planes.set(w*6+i,Color(p.normal.x,p.normal.y,p.normal.z,p.normal.dot(p.point)));
+                patch_centers.set(w*6+i,Color(p.point.x,p.point.y,p.point.z,radius));++i;
+            }
         }
         for(int w=0;w<4;++w){link_starts.push_back(gv(rig.upper_link_start(w)));link_ends.push_back(gv(rig.upper_link_end(w)));}
         for(int w=0;w<4;++w){link_starts.push_back(gv(rig.shock_start(w)));link_ends.push_back(gv(rig.shock_end(w)));}
         for(int a=0;a<2;++a){link_starts.push_back(gv(rig.transfer_case(a)));link_ends.push_back(gv(rig.axle_pinion(a)));}
         d["axes"]=axes;d["normals"]=normals;d["points"]=points;d["phases"]=phases;d["compression"]=compression;
+        d["patch_planes"]=patch_planes;d["patch_centers"]=patch_centers;
         d["link_starts"]=link_starts;d["link_ends"]=link_ends;
         d["up"]=gv(rig.up());
         PackedVector3Array axle_ups;for(int a=0;a<2;++a)axle_ups.push_back(gv(rig.axle_up(a)));d["axle_ups"]=axle_ups;
