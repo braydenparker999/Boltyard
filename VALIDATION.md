@@ -1,3 +1,38 @@
+# Crawlworks 2.0 — verified Android release
+
+[Android run 34010969782](https://github.com/braydenparker999/Boltyard/actions/runs/34010969782) completed successfully on 2026-09-06. Source: [`fcad915d2ef2484fbbc37ed8203225cf3cb42132`](https://github.com/braydenparker999/Boltyard/commit/fcad915d2ef2484fbbc37ed8203225cf3cb42132). All 46 changed source/asset blobs were matched against the local reviewed files before the build.
+
+## Installable artifact
+
+- File: `bolt-yard-2.0.0-expeditions.apk`, 43,241,926 bytes.
+- SHA256: `eab413923d0f5883efd1d7cc72e8e6ef7297b1fc5e480a8e5b265e1d7c347cd8`.
+- Package `games.boltyard.prototype`; version 2.0.0; Android version code 7.
+- APK ZIP CRC and workflow checksum verified independently after download. ARM64 solver, C++ runtime, new expedition APIs and all four new textures are present. Packaged vehicle shader include matches the reviewed source exactly.
+- `apksigner` verified v1/v2/v3 signatures. Certificate SHA256 remains `a882ee66b05eff32ad4629269a96d79bfc3514bcbf0e16e99f42f6046836ea73`, preserving update compatibility with 1.0.
+
+## Validation
+
+The workflow passed 623 engine checks, including 257 vehicle geometry checks, 100 actual-input camera integration checks, 56 gesture checks, 27 new region/UI checks and 18 rendered-world checks. Native results: 78 baseline cases, 10 crawl scenarios, 8 Crawlworks cases, 7 new linkage/route scenarios, 2 retained complete-road cases,59, 273 map structure checks and the movable-object suite.
+
+Both 90-second native expedition drives reached their fourth route point without damage or safety corrections. Maximum sampled road grades, shared triangle contact, closed convex rock hulls, tree clearance, wheel/carrier mass allocation, actual four-link endpoints and opposing carrier/rotor torque were checked. The two maps contain 2,431 and3,039 native/render-matched trees.
+
+Legacy road control review reached 38.9 km/h, remained upright and undamaged, then stopped. The Copperline review climbed to 1.88 m frame height and held; its loose-object line moved a body 2.809 m through actual contact. Their original numerical gates are retained as headless regressions, and all temporary save fixtures are restored.
+
+## Full rendered gameplay
+
+The final clip is 960×540 H.264, 30.0667 seconds/902 encoded frames,11,397, 102bytes. The fixture records 900 measured gameplay frames across Silverpine and Karelia. Both real throttle drives completed without damage or emergency state repair:
+
+| Map | Displacement | Peak granite support | Final held speed |
+|---|---:|---:|---:|
+| Silverpine |10.42m|4.46kN|0.00047m/s|
+| Karelia |11.04m|4.45kN|0.00247m/s|
+
+Actual raw one-finger orbit/tilt and pan passed. Pinch changed camera distance by 3.58 m while preserving orbit, pitch and pan. Final close screenshots expose the linked axles and tire contacts without caption overlap. Eight portrait/landscape garage, map, rig and camera layouts plus six landscape views were inspected. All new Compatibility shaders compiled without errors.
+
+The earlier local software recording reached 448/900 frames before its 360-second watchdog; it was used only for visual QA. The delivered clip comes from the successful complete CI capture. Desktop software rendering verifies appearance and game behavior, not sustained Samsung A15 FPS or thermal performance. Phone installation and touch feel still need the user's device test. The simulation remains a simplified, uncalibrated game model rather than BeamNG parity.
+
+---
+
 # Crawlworks 1.0 validation
 
 [Android run 34008254341](https://github.com/braydenparker999/Boltyard/actions/runs/34008254341) succeeded against source `98b6db7c6eca622971398c74e76d4960b7b1a78a`. The exact source passed 541 Godot engine checks, 78 general native checks, both full-road scenarios, ten crawl scenarios, eight new Crawlworks mechanics scenarios, and the movable-object suite. Rendered gameplay and camera gates passed, followed by signed ARM64 export.
