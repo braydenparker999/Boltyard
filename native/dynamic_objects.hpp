@@ -213,7 +213,7 @@ public:
         begin_step(dt,gravity);for(int i=0;i<iterations;++i)solve_world(dt);finish_step(dt);
     }
     void set_world_enabled(bool enabled){world_enabled_=enabled;}
-    void set_static_rocks(const std::vector<CrawlRock>&rocks){test_rocks_=rocks;custom_rocks_=true;static_bodies_.clear();}
+    void set_static_rocks(const std::vector<CrawlRock>&rocks){test_rocks_=rocks;for(auto&r:test_rocks_)r.rebuild_queries();custom_rocks_=true;static_bodies_.clear();}
     void use_course_rocks(){test_rocks_.clear();custom_rocks_=false;static_bodies_.clear();}
 
 private:

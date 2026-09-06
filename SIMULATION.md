@@ -1,3 +1,15 @@
+# 2.2 contact acceleration and damper packaging
+
+Static hull constructors build a balanced AABB tree once. Outside points traverse nearest bounds first and test the original triangles at leaves; interior points retain the original maximum supporting-plane response. Coplanar distance ties keep original triangle order. Queries on unindexed custom hulls fall back to the original scan. Custom-rock replacement rebuilds its index. Geometry must be reindexed after any authoring mutation. This is exact query acceleration, not collision simplification or a persistent infinite contact plane.
+
+Every wheel still discovers its nine samples per source and revalidates all retained patches at each solver iteration. No solver Hz, iteration count, clock-debt policy, support patch count, friction or tire stiffness was reduced. Compile-time host counters count distance calls and actual closest-triangle tests; they are absent from the release hot path.
+
+For solid axles, each shock's rest eye length is measured between affine chassis/carrier mounts. The tower is raised when needed so the configured bump and droop fit a single telescoping damper, eye clearances and piston overlap. Spring rate and separate compression/rebound damping remain applied along this true axis (so wheel rate depends on the motion ratio). A progressive bumper dissipates additional energy during compression near the end of stroke; it does not apply extra rebound damping. Free spring force remains compression-only: at droop, the rendered captive spring keeps its free length rather than stretching in tension. Spring preload remains zero; pressure and spring rates remain uncalibrated game settings.
+
+Visual body length and shaft length depend on the manufactured package, not the current eye separation. The piston overlap, seat separation and coil pitch change with travel; wire diameter stays 16 mm via a separate axial metre offset. Eye/bolt dimensions use metric mount-local coordinates, and link rods retain solved endpoints. Tower support struts connect to real frame points. This pass retains simplified differentials, driveshaft joints and steering knuckles. Suspension/body self-collision is still absent; severe frame damage can cause hardware intersections. It is not a detailed rigid-part or FEM model.
+
+---
+
 # Crawlworks 2.1 model
 
 This section describes the current model and supersedes conflicting historical notes below. Terrain modes 3–5 use articulated axle carriers and the bounded static tire-patch solve; modes 0–2 retain the legacy driving baseline.

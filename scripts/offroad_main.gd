@@ -525,6 +525,8 @@ func build_driving() -> void:
 	front_diff.add_theme_font_size_override("font_size", 12)
 	rear_diff.add_theme_font_size_override("font_size", 12)
 	crawl_loads = label(crawl_controls, "", 11, MUTED)
+	var copy_report = button(crawl_controls, "Copy performance report", copy_performance_report, 254)
+	copy_report.custom_minimum_size.y = 34
 	make_touch_button("Left", "‹", "off_left", Vector2(92, 80))
 	make_touch_button("Right", "›", "off_right", Vector2(92, 80))
 	make_touch_button("Reverse", "R", "off_reverse", Vector2(62, 64))
@@ -1418,6 +1420,18 @@ func update_camera(delta: float) -> void:
 	if camera.position.distance_squared_to(camera_target) > 0.01:
 		camera.look_at(camera_target, Vector3.UP)
 
+func copy_performance_report() -> void:
+	var report := {"version": "2.2.0", "device": OS.get_model_name(), "os": OS.get_name(),
+		"renderer": RenderingServer.get_current_rendering_method(), "quality": quality,
+		"render_scale": get_viewport().scaling_3d_scale, "viewport": str(get_viewport().get_visible_rect().size),
+		"map": selected_map, "settings": settings, "telemetry": truck.get_telemetry(),
+		"samples": truck.frame_pacing.count, "frame_ms": Array(truck.frame_pacing.frames.slice(0, truck.frame_pacing.count)),
+		"physics_ms": Array(truck.frame_pacing.physics.slice(0, truck.frame_pacing.count)),
+		"skin_ms": Array(truck.frame_pacing.preparation.slice(0, truck.frame_pacing.count)),
+		"scope": "Wall-clock frame intervals include vsync/cap wait; physics and skin are CPU. GPU not measured."}
+	DisplayServer.clipboard_set(JSON.stringify(report))
+	toast("Performance report copied")
+
 func update_telemetry() -> void:
 	var speed = absf(float(current_telemetry.get("speed", 0.0))) * 3.6
 	var damage = clampf(float(current_telemetry.get("damage", 0.0)), 0.0, 1.0)
@@ -1437,6 +1451,12 @@ func update_telemetry() -> void:
 		var squash = current_telemetry.get("wheel_compression", PackedFloat32Array([0, 0, 0, 0]))
 		var flex = current_telemetry.get("axle_articulation", PackedFloat32Array([0, 0]))
 		crawl_loads.text = "TIRE LOAD / kN  %.1f · %.1f / %.1f · %.1f\nCOMPRESSION / mm  %.0f · %.0f / %.0f · %.0f\nAXLE FLEX  F %.0f° / R %.0f°" % [loads[0] / 1000.0, loads[1] / 1000.0, loads[2] / 1000.0, loads[3] / 1000.0, squash[0] * 1000.0, squash[1] * 1000.0, squash[2] * 1000.0, squash[3] * 1000.0, rad_to_deg(flex[0]), rad_to_deg(flex[1])]
+		var pacing: Dictionary = current_telemetry.get("frame_pacing", {})
+		if not pacing.is_empty():
+			var rock_wheels := 0
+			for load_value in current_telemetry.get("rock_loads", []):
+				rock_wheels += int(load_value > 20.0)
+			crawl_loads.text += "\nFRAME ms  %.1f / %.1f / %.1f\nmedian / p95 / p99 · %d rock tires\nCPU physics %.1f · skin %.1f ms\n>50 ms  %d/%d" % [pacing.median_ms, pacing.p95_ms, pacing.p99_ms, rock_wheels, pacing.physics_ms, pacing.preparation_ms, pacing.over50, pacing.samples]
 	if crawl_mode:
 		var z: float = current_telemetry.get("position", CAMP).z
 		# Advance recovery only after clearing a section, never by proximity.

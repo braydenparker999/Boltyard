@@ -12,6 +12,7 @@ uniform vec3 wheel_up = vec3(0.0, 1.0, 0.0);
 uniform vec3 link_starts[14];
 uniform vec3 link_ends[14];
 uniform vec3 axle_ups[2];
+uniform vec4 shock_dimensions[4]; // free eye length, closed, extended, body length
 uniform float tire_radius = 0.46;
 uniform float tire_width = 0.2668;
 uniform vec3 rig_center = vec3(0.0);
@@ -121,6 +122,32 @@ void vertex() {
         vec3 radial = up * cos(angle) + normalize(cross(axle, up)) * sin(angle);
         point = node_positions[16 + w * 21] + axle * ((VERTEX.y - 0.5) * tire_width) + radial * (tire_radius * 0.88 * VERTEX.z);
         NORMAL = normalize(cross(axle, radial) * NORMAL.x + axle * NORMAL.y + radial * NORMAL.z);
+    } else if (binding >= 120) {
+        int wheel = (binding - 120) % 4;
+        vec3 upper = link_starts[8 + wheel];
+        vec3 lower = link_ends[8 + wheel];
+        if (binding >= 132 && binding < 148) {
+            int slot = wheel + (binding >= 140 ? 4 : 0);
+            upper = link_starts[slot]; lower = link_ends[slot];
+        }
+        if (binding >= 156) { upper = node_positions[wheel]; lower = link_starts[8 + wheel]; }
+        float eye_length = length(lower - upper);
+        vec3 axis = normalize(lower - upper);
+        vec3 reference = abs(axis.y) < 0.90 ? vec3(0.0, 1.0, 0.0) : vec3(0.0, 0.0, 1.0);
+        vec3 side = normalize(cross(axis, reference));
+        vec3 other = normalize(cross(axis, side));
+        float axial = VERTEX.x;
+        bool lower_end = (binding >= 124 && binding < 128) || (binding >= 136 && binding < 140) || (binding >= 144 && binding < 148) || (binding >= 152 && binding < 156);
+        if (lower_end) axial = eye_length - axial;
+        if (binding >= 128 && binding < 132) {
+            float span = min(eye_length, shock_dimensions[wheel].x) - 0.17;
+            axial = eye_length - 0.08 - span + VERTEX.x * span + UV2.y;
+        }
+        if (binding >= 148 && binding < 152) axial = 0.05 + VERTEX.x * shock_dimensions[wheel].w;
+        if (binding >= 152 && binding < 156) axial = eye_length - 0.04 - VERTEX.x * (shock_dimensions[wheel].z - shock_dimensions[wheel].y + 0.06);
+        if (binding >= 156) axial = VERTEX.x * eye_length;
+        point = upper + axis * axial + side * VERTEX.y + other * VERTEX.z;
+        NORMAL = normalize(axis * NORMAL.x * (lower_end ? -1.0 : 1.0) + side * NORMAL.y + other * NORMAL.z);
     } else if (binding >= 100) {
         int wheel = (binding - 100) % 4;
         vec3 upper = link_starts[8 + wheel];

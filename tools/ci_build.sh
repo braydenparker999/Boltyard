@@ -69,10 +69,10 @@ done
 timeout 120 "$godot_bin" --headless --path . --script tests/crawling.gd 2>&1 | tee build/crawl-integration-tests.log
 grep -Eq 'CRAWL INTEGRATION: [0-9]+ checks, 0 failures' build/crawl-integration-tests.log
 if grep -Eq 'SCRIPT ERROR|Parse Error|FAIL:' build/crawl-integration-tests.log; then exit 1; fi
-for suite in camera_gestures camera_integration crawlworks_visuals expedition_ui; do
+for suite in camera_gestures camera_integration crawlworks_visuals expedition_ui suspension_visuals; do
   timeout 120 "$godot_bin" --headless --path . --script "tests/$suite.gd" 2>&1 | tee "build/$suite-tests.log"
   if grep -Eq 'SCRIPT ERROR|Parse Error|FAIL:' "build/$suite-tests.log"; then exit 1; fi
-  grep -Eq '(CAMERA GESTURES|CAMERA INTEGRATION|CRAWLWORKS VISUALS|EXPEDITION UI): [0-9]+ checks, 0 failures' "build/$suite-tests.log"
+  grep -Eq '(CAMERA GESTURES|CAMERA INTEGRATION|CRAWLWORKS VISUALS|EXPEDITION UI|SUSPENSION VISUALS): [0-9]+ checks, 0 failures' "build/$suite-tests.log"
 done
 timeout 180 xvfb-run -a "$godot_bin" --path . --audio-driver Dummy --rendering-method gl_compatibility --script tests/capture.gd 2>&1 | tee build/capture.log
 grep -q 'CAPTURE: workshop and driving views saved' build/capture.log
@@ -97,21 +97,23 @@ done
 timeout 120 xvfb-run -a "$godot_bin" --path . --audio-driver Dummy --rendering-method gl_compatibility --fixed-fps 30 --script tests/tire_contact_visuals.gd 2>&1 | tee build/tire-contact-visuals.log
 grep -q 'TIRE CONTACT VISUALS:' build/tire-contact-visuals.log
 if grep -Eq 'SCRIPT ERROR|Parse Error|ERROR:' build/tire-contact-visuals.log; then exit 1; fi
+timeout 120 xvfb-run -a "$godot_bin" --path . --audio-driver Dummy --rendering-method gl_compatibility --fixed-fps 30 --script tests/suspension_visuals.gd 2>&1 | tee build/suspension-visuals.log
+grep -q "SUSPENSION VISUALS: 40 checks, 0 failures" build/suspension-visuals.log
 timeout 1200 xvfb-run -a "$godot_bin" --path . --audio-driver Dummy --rendering-method gl_compatibility --disable-vsync --fixed-fps 30 --write-movie build/expedition-gameplay.avi --script tests/expedition_video.gd 2>&1 | tee build/expedition-gameplay.log
 grep -q 'EXPEDITION VIDEO:' build/expedition-gameplay.log
 if grep -Eq 'SCRIPT ERROR|Parse Error|ERROR:' build/expedition-gameplay.log; then exit 1; fi
 ffmpeg -y -i build/expedition-gameplay.avi -an -c:v libx264 -preset fast -crf 22 -pix_fmt yuv420p -movflags +faststart build/expedition-gameplay.mp4 > build/expedition-video-encode.log 2>&1
 rm build/expedition-gameplay.avi
-"$godot_bin" --headless --path . --export-debug Android build/bolt-yard-2.1.0-trailcraft.apk 2>&1 | tee build/export.log
-test -s build/bolt-yard-2.1.0-trailcraft.apk
+"$godot_bin" --headless --path . --export-debug Android build/bolt-yard-2.2.0-articulation.apk 2>&1 | tee build/export.log
+test -s build/bolt-yard-2.2.0-articulation.apk
 python3 - <<'PY'
 import zipfile
-with zipfile.ZipFile('build/bolt-yard-2.1.0-trailcraft.apk') as archive:
+with zipfile.ZipFile('build/bolt-yard-2.2.0-articulation.apk') as archive:
     assert any(p.startswith('lib/arm64-v8a/') and 'boltyard' in p and p.endswith('.so') for p in archive.namelist()), 'Native softbody solver missing from APK'
     assert 'lib/arm64-v8a/libc++_shared.so' in archive.namelist(), 'C++ runtime missing from APK'
     assert any(p.endswith('boltyard.gdextension') for p in archive.namelist()), 'GDExtension registration missing from APK'
 print('APK includes the native ARM64 soft-body solver.')
 PY
-"$ANDROID_HOME/build-tools/34.0.0/apksigner" verify --verbose build/bolt-yard-2.1.0-trailcraft.apk | tee build/signature.log
-"$ANDROID_HOME/build-tools/34.0.0/aapt" dump badging build/bolt-yard-2.1.0-trailcraft.apk > build/package-info.log
-sha256sum build/bolt-yard-2.1.0-trailcraft.apk > build/SHA256SUMS.txt
+"$ANDROID_HOME/build-tools/34.0.0/apksigner" verify --verbose build/bolt-yard-2.2.0-articulation.apk | tee build/signature.log
+"$ANDROID_HOME/build-tools/34.0.0/aapt" dump badging build/bolt-yard-2.2.0-articulation.apk > build/package-info.log
+sha256sum build/bolt-yard-2.2.0-articulation.apk > build/SHA256SUMS.txt

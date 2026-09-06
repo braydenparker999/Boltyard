@@ -166,11 +166,12 @@ public:
     Dictionary get_wheel_visuals() const {
         Dictionary d;
         PackedVector3Array axes, normals, points, link_starts, link_ends;
-        PackedColorArray patch_planes,patch_centers;
+        PackedColorArray patch_planes,patch_centers,shock_dimensions;
         patch_planes.resize(24);patch_centers.resize(24);
         for(int i=0;i<24;++i){patch_planes.set(i,Color(0,0,0,0));patch_centers.set(i,Color(0,0,0,0));}
         PackedFloat32Array phases, compression;
         for (int w=0;w<4;++w) {
+            shock_dimensions.push_back(Color(rig.shock_rest_length(w),rig.shock_min_length(w),rig.shock_max_length(w),rig.shock_body_length(w)));
             axes.push_back(gv(rig.wheel_axle_direction(w)));
             normals.push_back(gv(rig.wheel_contact_normal(w)));
             points.push_back(gv(rig.wheel_contact_point(w)));
@@ -191,7 +192,7 @@ public:
         for(int a=0;a<2;++a){link_starts.push_back(gv(rig.transfer_case(a)));link_ends.push_back(gv(rig.axle_pinion(a)));}
         d["axes"]=axes;d["normals"]=normals;d["points"]=points;d["phases"]=phases;d["compression"]=compression;
         d["patch_planes"]=patch_planes;d["patch_centers"]=patch_centers;
-        d["link_starts"]=link_starts;d["link_ends"]=link_ends;
+        d["link_starts"]=link_starts;d["link_ends"]=link_ends;d["shock_dimensions"]=shock_dimensions;
         d["up"]=gv(rig.up());
         PackedVector3Array axle_ups;for(int a=0;a<2;++a)axle_ups.push_back(gv(rig.axle_up(a)));d["axle_ups"]=axle_ups;
         return d;

@@ -33,7 +33,7 @@ int main(){const auto started=std::chrono::steady_clock::now();int passed=0,fail
             require(lower.length()>.65f&&lower.length()<1.25f,"lower arm incorrectly reaches opposite end of chassis");
             require(r.suspension_link_start(w).x*r.suspension_link_end(w).x>0,"lower arms cross the centerline");
             require(std::abs(upper.x)>.35f,"upper links lack physical triangulation");
-            require(r.shock_length(w)>.65f&&r.shock_length(w)<1.f,"coilover has implausible eye length");
+            require(r.shock_length(w)>.65f&&r.shock_length(w)<1.4f,"coilover has implausible eye length");
             require(r.shock_start(w).y>r.shock_end(w).y+.5f,"coilover does not reach its actual tower");}
     });
     test("bump articulation keeps four links within millimeters and rotates pinion carrier",[]{

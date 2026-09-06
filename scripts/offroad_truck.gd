@@ -32,10 +32,13 @@ var _wheel_up := Vector3.UP
 var _link_starts := PackedVector3Array()
 var _link_ends := PackedVector3Array()
 var _axle_ups := PackedVector3Array()
+var _shock_dimensions := PackedColorArray()
 var _stats: Dictionary = {}
 var _settings: Dictionary = {}
 var _parts: Dictionary = {}
 var _sim_ms: float = 0.0
+var _physics_frame_ms := 0.0
+var frame_pacing = preload("res://scripts/frame_pacing.gd").new()
 var _configured: bool = false
 var _vehicle_type: int = 0
 var _tire_padding: float = 0.0552
@@ -137,6 +140,7 @@ func get_telemetry() -> Dictionary:
 	if core != null:
 		_stats = core.get_stats()
 	_stats["sim_ms"] = _sim_ms
+	_stats["frame_pacing"] = frame_pacing.summary
 	_stats["render_triangles"] = _triangle_count
 	if not _stats.has("position"):
 		_stats["position"] = Vector3(0, 1.5, 8)
@@ -152,10 +156,14 @@ func _physics_process(delta: float) -> void:
 	var begin_usec := Time.get_ticks_usec()
 	core.step(delta, throttle, steering, brake)
 	_sim_ms = float(Time.get_ticks_usec() - begin_usec) / 1000.0
+	_physics_frame_ms += _sim_ms
 
 func _process(delta: float) -> void:
 	_graph_tick += delta
+	var started := Time.get_ticks_usec()
 	_refresh_visuals()
+	frame_pacing.sample(_physics_frame_ms, float(Time.get_ticks_usec() - started) / 1000.0)
+	_physics_frame_ms = 0.0
 
 func _build_materials() -> void:
 	var colors: Array[Color] = [body_color, Color("202728"), Color("29434b"),
@@ -749,38 +757,66 @@ func _link_cylinder(material_id: int, binding: int, start: float, end: float, ra
 			Vector3(start, cos(b) * radius, sin(b) * radius), Vector3(end, cos(b) * radius, sin(b) * radius),
 			Vector3(end, cos(a) * radius, sin(a) * radius), normal)
 
+# Eye and bolt geometry uses metres in a mount-local basis; it never scales
+# with link length. The surrounding bracket cheeks move with the same joint.
+func _joint_eye(binding: int, bracket: bool = false) -> void:
+	for j in range(6):
+		var a := float(j) * TAU / 6.0
+		var b := float(j + 1) * TAU / 6.0
+		var pa := Vector3(cos(a), 0, sin(a))
+		var pb := Vector3(cos(b), 0, sin(b))
+		for side in [-1.0, 1.0]:
+			var offset := Vector3(0, side * 0.022, 0)
+			_wheel_quad(METAL, binding, pa * 0.038 + offset, pb * 0.038 + offset,
+				pb * 0.017 + offset, pa * 0.017 + offset, Vector3(0, side, 0))
+			_wheel_quad(DARK, binding, pa * 0.016 + offset, pb * 0.016 + offset,
+				pb * 0.016 + offset * 1.8, pa * 0.016 + offset * 1.8, (pa + pb).normalized())
+			if bracket:
+				_wheel_quad(DARK, binding, pa * 0.047 + offset * 1.2, pb * 0.047 + offset * 1.2,
+				pb * 0.020 + offset * 1.2, pa * 0.020 + offset * 1.2, Vector3(0, side, 0))
+		_wheel_quad(METAL, binding, pa * 0.038 + Vector3(0, -.022, 0), pb * 0.038 + Vector3(0, -.022, 0),
+			pb * 0.038 + Vector3(0, .022, 0), pa * 0.038 + Vector3(0, .022, 0), (pa + pb).normalized())
+
 func _build_suspension() -> void:
 	for axle in range(2):
 		_link_cylinder(DARK, 114 + axle, 0.02, 0.97, 0.042)
 		_link_cylinder(METAL, 114 + axle, 0.73, 0.92, 0.052)
-		_link_cylinder(DARK, 108 + axle, 0.08, 0.92, 0.065)
-		_link_cylinder(METAL, 108 + axle, 0.44, 0.56, 0.13)
-		_link_cylinder(DARK, 108 + axle, 0.40, 0.44, 0.10)
-		_link_cylinder(DARK, 108 + axle, 0.56, 0.60, 0.10)
+		_link_cylinder(DARK, 108 + axle, 0.02, 0.98, 0.065)
+		_link_cylinder(METAL, 108 + axle, 0.43, 0.57, 0.13)
+		for t in [0.025, 0.915]:
+			_link_cylinder(METAL, 108 + axle, t, t + 0.06, 0.083)
 	for w in range(4):
-		# Four-link rods and coilover eyes terminate at the same chassis and
-		# carrier hardpoints used by the native constraints.
-		_link_cylinder(AMBER, 100 + w, 0.07, 0.57, 0.034)
-		_link_cylinder(METAL, 100 + w, 0.46, 0.96, 0.017)
-		_link_cylinder(METAL, 104 + w, 0.04, 0.96, 0.027)
-		_link_cylinder(DARK, 110 + w, 0.04, 0.96, 0.024)
-		for binding in [100 + w, 104 + w, 110 + w]:
-			_link_cylinder(DARK, binding, 0.0, 0.055, 0.045, 6)
-			_link_cylinder(DARK, binding, 0.945, 1.0, 0.045, 6)
-			_link_cylinder(METAL, binding, 0.007, 0.023, 0.050, 6)
-			_link_cylinder(METAL, binding, 0.977, 0.993, 0.050, 6)
-		for j in range(24):
-			var t := float(j) / 24.0
-			var u := float(j + 1) / 24.0
-			var a := Vector3(0.18 + t * 0.60, cos(t * TAU * 5.0) * 0.052, sin(t * TAU * 5.0) * 0.052)
-			var b := Vector3(0.18 + u * 0.60, cos(u * TAU * 5.0) * 0.052, sin(u * TAU * 5.0) * 0.052)
+		_link_cylinder(DARK, 156 + w, 0.0, 1.0, 0.024)
+		# Body, piston gland and lower shaft have fixed manufactured lengths.
+		# Only their overlap changes as the actual shock-eye separation changes.
+		_link_cylinder(AMBER, 148 + w, 0.0, 1.0, 0.035, 10)
+		_link_cylinder(METAL, 148 + w, 0.94, 1.0, 0.039, 10)
+		_link_cylinder(METAL, 152 + w, 0.0, 1.0, 0.014, 8)
+		_link_cylinder(DARK, 120 + w, 0.032, 0.055, 0.025)
+		_link_cylinder(DARK, 124 + w, 0.032, 0.055, 0.025)
+		# Spring seats stay a fixed distance from each eye; unloaded spring
+		# length stops increasing at free length and is captive on the damper.
+		_link_cylinder(METAL, 120 + w, 0.071, 0.087, 0.066, 10)
+		_link_cylinder(METAL, 124 + w, 0.064, 0.080, 0.066, 10)
+		_link_cylinder(METAL, 104 + w, 0.025, 0.975, 0.027)
+		_link_cylinder(DARK, 110 + w, 0.025, 0.975, 0.024)
+		for binding in [120 + w, 124 + w, 132 + w, 136 + w, 140 + w, 144 + w]:
+			_joint_eye(binding, binding < 128)
+		# Six turns, ten segments per turn. Axial wire thickness is independent
+		# of pitch (UV2.y carries a metre offset), matching the CPU debug skin.
+		var spring_material := RED if str(_parts.get("suspension", "stock")) == "long_travel" else AMBER
+		for j in range(60):
 			for edge in range(3):
-				var angle := float(edge) * TAU / 3.0
-				var next := float(edge + 1) * TAU / 3.0
-				var p := Vector3(cos(angle) * 0.007, sin(angle) * cos(t * TAU * 5.0) * 0.009, sin(angle) * sin(t * TAU * 5.0) * 0.009)
-				var q := Vector3(cos(next) * 0.007, sin(next) * cos(t * TAU * 5.0) * 0.009, sin(next) * sin(t * TAU * 5.0) * 0.009)
-				_wheel_quad(RED if str(_parts.get("suspension", "stock")) == "long_travel" else AMBER,
-					100 + w, a + p, a + q, b + q, b + p, Vector3(0, cos(t * TAU * 5.0), sin(t * TAU * 5.0)))
+				for corner: Vector2 in [Vector2(j, edge), Vector2(j + 1, edge + 1), Vector2(j, edge + 1),
+					Vector2(j, edge), Vector2(j + 1, edge), Vector2(j + 1, edge + 1)]:
+					var t := corner.x / 60.0
+					var theta := t * TAU * 6.0
+					var around := corner.y * TAU / 3.0
+					var radial := 0.053 + sin(around) * 0.008
+					_vertex(spring_material, 128 + w, Vector3(t, cos(theta) * radial, sin(theta) * radial),
+						Vector3(cos(around), sin(around) * cos(theta), sin(around) * sin(theta)), Color.WHITE)
+					var bucket: MeshBucket = _buckets[spring_material]
+					bucket.bindings[bucket.bindings.size() - 1].y = cos(around) * 0.008
 
 func _refresh_visuals() -> void:
 	if core == null or _body == null:
@@ -806,6 +842,7 @@ func _refresh_visuals() -> void:
 	_link_starts = wheels.link_starts
 	_link_ends = wheels.link_ends
 	_axle_ups = wheels.axle_ups
+	_shock_dimensions = wheels.shock_dimensions
 	_ring_centers.resize(8)
 	for w in range(4):
 		for side in range(2):
@@ -832,6 +869,7 @@ func _refresh_visuals() -> void:
 		material.set_shader_parameter("link_starts", _link_starts)
 		material.set_shader_parameter("link_ends", _link_ends)
 		material.set_shader_parameter("axle_ups", _axle_ups)
+		material.set_shader_parameter("shock_dimensions", _shock_dimensions)
 		material.set_shader_parameter("tire_radius", _tire_padding / 0.12)
 		material.set_shader_parameter("tire_width", _tire_padding / 0.12 * 0.58 * float(_settings.get("tire_width_scale", 1.0)))
 	if body_color != _last_color:
@@ -903,7 +941,7 @@ func _debug_ring(first: int, phase: float) -> Vector3:
 	var d := _nodes[first + (k + 2) % 10]
 	return 0.5 * ((2.0 * b) + (c - a) * t + (2.0 * a - 5.0 * b + 4.0 * c - d) * t * t + (-a + 3.0 * b - 3.0 * c + d) * t * t * t)
 
-func _debug_vertex(binding: int, p: Vector3) -> Vector3:
+func _debug_vertex(binding: int, p: Vector3, axial_offset: float = 0.0) -> Vector3:
 	if binding < 16:
 		return debug_deform_point(_rest[0] + p * _frame_size)
 	if binding >= 200:
@@ -915,6 +953,35 @@ func _debug_vertex(binding: int, p: Vector3) -> Vector3:
 		var radial := up * cos(angle) + axle.cross(up).normalized() * sin(angle)
 		var radius := _tire_padding / 0.12
 		return _nodes[_hubs[w]] + axle * ((p.y - 0.5) * radius * 0.58 * float(_settings.get("tire_width_scale", 1.0))) + radial * (radius * 0.88 * p.z)
+	if binding >= 120 and binding < 200:
+		var w := (binding - 120) % 4
+		var upper := _link_starts[8 + w]
+		var lower := _link_ends[8 + w]
+		if binding >= 132 and binding < 148:
+			var slot := w + (4 if binding >= 140 else 0)
+			upper = _link_starts[slot]
+			lower = _link_ends[slot]
+		if binding >= 156:
+			upper = _nodes[w]
+			lower = _link_starts[8 + w]
+		var eye_length := upper.distance_to(lower)
+		var axis := (lower - upper).normalized()
+		var reference := Vector3.UP if absf(axis.y) < 0.90 else Vector3.BACK
+		var side := axis.cross(reference).normalized()
+		var other := axis.cross(side).normalized()
+		var axial := p.x
+		if (binding >= 124 and binding < 128) or (binding >= 136 and binding < 140) or (binding >= 144 and binding < 148):
+			axial = eye_length - axial
+		if binding >= 128 and binding < 132:
+			var span := minf(eye_length, _shock_dimensions[w].r) - 0.17
+			axial = eye_length - 0.08 - span + p.x * span + axial_offset
+		if binding >= 148 and binding < 152:
+			axial = 0.05 + p.x * _shock_dimensions[w].a
+		if binding >= 152 and binding < 156:
+			axial = eye_length - 0.04 - p.x * (_shock_dimensions[w].b - _shock_dimensions[w].g + 0.06)
+		if binding >= 156:
+			axial = p.x * eye_length
+		return upper + axis * axial + side * p.y + other * p.z
 	if binding >= 100:
 		var w := (binding - 100) % 4
 		var upper := _link_starts[8 + w]
@@ -987,7 +1054,7 @@ func get_visual_validation() -> Dictionary:
 		var vertices: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
 		var bindings: PackedVector2Array = arrays[Mesh.ARRAY_TEX_UV2]
 		for j in range(vertices.size()):
-			if not _debug_vertex(roundi(bindings[j].x), vertices[j]).is_finite():
+			if not _debug_vertex(roundi(bindings[j].x), vertices[j], bindings[j].y).is_finite():
 				nonfinite += 1
 	# Re-express shared structural seam samples in each original cell's rest
 	# coordinates. Both must produce the same world result despite cab damage.

@@ -89,9 +89,9 @@ func inspect_rendered_triangles(truck: Node3D, mesh: ArrayMesh) -> Dictionary:
 		var vertices: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
 		var bindings: PackedVector2Array = arrays[Mesh.ARRAY_TEX_UV2]
 		for index in range(0, vertices.size(), 3):
-			var a: Vector3 = truck.call("_debug_vertex", roundi(bindings[index].x), vertices[index])
-			var b: Vector3 = truck.call("_debug_vertex", roundi(bindings[index + 1].x), vertices[index + 1])
-			var c: Vector3 = truck.call("_debug_vertex", roundi(bindings[index + 2].x), vertices[index + 2])
+			var a: Vector3 = truck.call("_debug_vertex", roundi(bindings[index].x), vertices[index], bindings[index].y)
+			var b: Vector3 = truck.call("_debug_vertex", roundi(bindings[index + 1].x), vertices[index + 1], bindings[index + 1].y)
+			var c: Vector3 = truck.call("_debug_vertex", roundi(bindings[index + 2].x), vertices[index + 2], bindings[index + 2].y)
 			if a.is_finite() and b.is_finite() and c.is_finite() and (b - a).cross(c - a).length_squared() < 0.000000000000001:
 				result.degenerate += 1
 				if result.examples.size() < 6:
@@ -143,7 +143,9 @@ func exercise(build: Dictionary, fitted: bool) -> void:
 	check(uploaded.bad_arrays == 0 and mesh.get_surface_count() > 0, "%s has complete triangle, normal, binding and color arrays" % label)
 	check(uploaded.nonfinite == 0 and uploaded.bad_normals == 0, "%s uploads finite attributes and usable normals" % label)
 	var validation: Dictionary = truck.call("get_visual_validation")
-	var triangle_limit = 14000 if fitted else 11000
+	# Fixed-body coilovers, captive springs and mount hardware share the existing
+	# nine surfaces; bounded geometry budget includes their added detail.
+	var triangle_limit = 14500 if fitted else 13500
 	check(uploaded.triangles > 1000 and uploaded.triangles < triangle_limit, "%s uses %d triangles, below %d" % [label, uploaded.triangles, triangle_limit])
 	check(int(validation.get("triangles", -1)) == uploaded.triangles, "%s triangle telemetry matches the uploaded mesh" % label)
 	check(int(validation.get("nonfinite_vertices", -1)) == 0 and int(validation.get("degenerate_triangles", -1)) == 0, "%s has finite rest geometry with no degenerate triangles" % label)

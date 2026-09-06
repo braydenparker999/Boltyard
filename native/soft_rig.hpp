@@ -335,7 +335,8 @@ public:
     }
 
     void set_test_rocks(const std::vector<CrawlRock>& rocks) {
-        test_rocks_=rocks; custom_rocks_=true; dynamic_objects_.set_static_rocks(rocks);
+        test_rocks_=rocks;for(auto&r:test_rocks_)r.rebuild_queries();
+        custom_rocks_=true; dynamic_objects_.set_static_rocks(test_rocks_);
     }
     DynamicObjects &dynamic_objects() { return dynamic_objects_; }
     const DynamicObjects &dynamic_objects() const { return dynamic_objects_; }
@@ -394,6 +395,14 @@ public:
     Vec3 shock_start(int w) const { return valid_wheel(w) ? (solid_axles_active() ? attachment_position(shock_frame_[w]) : particles[w+4].pos) : Vec3{}; }
     Vec3 shock_end(int w) const { return valid_wheel(w) ? (solid_axles_active() ? attachment_position(shock_axle_[w]) : particles[wheel_hubs[w]].pos) : Vec3{}; }
     float shock_length(int w) const { return (shock_end(w)-shock_start(w)).length(); }
+    float shock_rest_length(int w) const { return valid_wheel(w)&&solid_axles_active()?coilovers_[w].rest:shock_length(w); }
+    float shock_max_length(int w) const { return shock_rest_length(w)+cfg_.suspension_travel; }
+    float shock_min_length(int w) const {
+        // A single telescoping damper must house its whole stroke plus eyes
+        // and piston overlap. Limit bump by real packaging, not stretched art.
+        return std::max(shock_rest_length(w)-compression_allowance(),(shock_max_length(w)+.18f)*.5f);
+    }
+    float shock_body_length(int w) const { return shock_min_length(w)-.10f; }
     // Compatibility endpoints: the triangulated upper pair provides lateral
     // location, so the new model does not add an overconstraining Panhard bar.
     Vec3 panhard_start(int axle) const { return upper_link_start(axle*2); }
@@ -913,7 +922,10 @@ private:
             lower_axle_[w]=axle_mount(axle,side*cfg_.track_width*.35f,-.06f,direction*.03f);
             upper_frame_[w]=frame_mount(side*cfg_.track_width*.32f,.145f,z+direction*cfg_.wheelbase*.29f);
             upper_axle_[w]=axle_mount(axle,side*cfg_.track_width*.065f,.17f,0);
-            const float tower_height=cfg_.vehicle_type==2?.32f:.40f;
+            // Raise the actual tower when a long-stroke package needs room. This
+            // preserves requested bump/droop instead of silently removing travel.
+            const float tower_height=std::max(cfg_.vehicle_type==2?.32f:.40f,
+                2*compression_allowance()+cfg_.suspension_travel+.215f-cfg_.ride_height);
             shock_frame_[w]=frame_mount(side*cfg_.track_width*.39f,tower_height,z+direction*.10f);
             shock_axle_[w]=axle_mount(axle,side*cfg_.track_width*.405f,.035f,direction*.02f);
             four_links_[w]=mount_constraint(lower_frame_[w],lower_axle_[w]);
@@ -936,7 +948,9 @@ private:
     void damp_mount(const MountConstraint &c,float damping) {
         const Vec3 axis=constraint_delta(c).normalized(); Vec3 relative; float inv=0;
         for(int i=0;i<c.count;++i) { relative+=particles[c.nodes[i]].velocity*c.weights[i]; inv+=c.weights[i]*c.weights[i]*dynamic_inv_mass(particles[c.nodes[i]]); }
-        const float impulse=-relative.dot(axis)*damping*fixed_dt/(1+damping*fixed_dt*inv);
+        // Exact viscous decay for this attachment's effective mass, rather
+        // than backward-Euler underdamping of stiff rebound settings.
+        const float impulse=inv>1e-8f?relative.dot(axis)*std::expm1(-damping*fixed_dt*inv)/inv:0.f;
         for(int i=0;i<c.count;++i)particles[c.nodes[i]].velocity+=axis*(impulse*c.weights[i]*dynamic_inv_mass(particles[c.nodes[i]]));
     }
     void solve_solid_axles() {
@@ -948,7 +962,7 @@ private:
         for(int w=0;w<4;++w) {
             auto &c=coilovers_[w];
             solve_mount(c,c.rest,1.f/cfg_.spring_rate,c.lambda,true);
-            const float length=constraint_delta(c).length(), low=c.rest-compression_allowance(), high=c.rest+cfg_.suspension_travel;
+            const float length=constraint_delta(c).length(), low=shock_min_length(w), high=shock_max_length(w);
             if(length<low || length>high) {
                 // Progressive jounce bumper / extension strap, then a firm
                 // mechanical stop. The rest length remains the real shock eye
@@ -1477,10 +1491,15 @@ private:
                 const float axial_speed=relative.dot(axis);
                 const float selected=axial_speed<0?cfg_.compression_damping:cfg_.rebound_damping;
                 float damper=selected>0?selected:cfg_.damping;
-                // Off-road high-speed valving: the slope softens above0.6m/s
-                // while force remains monotone and always opposes eye motion.
+                // Compression blow-off softens sharp impacts above 0.6 m/s.
+                // The independently selected rebound circuit remains linear;
+                // sharing blow-off with it undermines extension control.
                 const float velocity=std::abs(axial_speed);
-                if(velocity>.6f)damper*=.72f+.28f*.6f/velocity;
+                if(axial_speed<-.6f)damper*=.72f+.28f*.6f/velocity;
+                // A compressed elastomer bumper dissipates energy on the
+                // compression stroke. Without this, the tighter physical
+                // damper package behaves like a nearly elastic impact stop.
+                if(axial_speed<0)damper+=12000.f*(1-smoothstep(shock_min_length(w)-.01f,shock_min_length(w)+.035f,shock_length(w)));
                 damp_mount(c,damper);
                 continue;
             }

@@ -1,3 +1,15 @@
+# Crawlworks 2.2: Articulation
+
+This update targets the severe multi-wheel rock-contact stalls reported on the Samsung A15. Exact convex queries now use a triangle bounding-volume tree, preserving the original rounded collision/render hulls, 240 Hz physics, nine iterations, secondary tire support, grip and mass. Host profiling and measurements are in `PERFORMANCE.md`; on-device acceptance remains pending.
+
+Coilovers now have fixed-length bodies, telescoping shafts, spring seats and constant-diameter spring wire. Mount eyes, bolts and link ends follow solved attachment points. Long-travel packages raise their actual shock towers enough to house the stroke, with visible tower supports and dissipative bump stops. Axle tubes extend to their hub housings. There are no new independently simulated decorative bodies.
+
+In **Rig**, frame median/p95/p99, CPU physics/skin cost, rock-supported wheel count and >50 ms frames show a rolling 240-frame window. **Copy performance report** copies device, setup, map, timing samples and contact telemetry for comparison. Frame intervals include presentation waiting; these are not GPU timings. Background pauses restart the window.
+
+Install the signed 2.2.0 update over the previous app to retain builds and map progress. Package and signing identity are unchanged. Performance quality remains the A15 starting point; sustained device frame rate and thermals still need a phone test.
+
+---
+
 # Bolt Yard — Crawlworks 2.1: Trailcraft
 
 An offline Android crawling and exploration game built with Godot 4.4.1 and a native C++ vehicle solver. Explore two 640 × 640 m regions: **Silverpine Range**, a Rocky Mountain inspired pine-and-granite landscape, and **Karelian Taiga**, a Russian forest of birch, spruce, exposed bedrock and lakes. Both are fictional landscapes, with connected trails shaped into their terrain.

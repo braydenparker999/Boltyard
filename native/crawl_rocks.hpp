@@ -1,6 +1,13 @@
 #pragma once
 // Included after Vec3. Convex, closed sandstone pieces: the rendering binding
 // exports these exact triangles. No separate visual rock/cylinder approximation.
+struct RockQueryCounters { unsigned long long calls=0, triangles=0; };
+inline thread_local RockQueryCounters rock_query_counters;
+#ifdef BOLT_PROFILE_CONTACTS
+#define BOLT_ROCK_COUNT(field) (++rock_query_counters.field)
+#else
+#define BOLT_ROCK_COUNT(field) ((void)0)
+#endif
 struct CrawlRock {
     std::vector<Vec3> vertices;
     std::vector<std::array<int,3>> triangles;
@@ -8,6 +15,40 @@ struct CrawlRock {
     float reach=0, surface=1.15f;
     // Generated once with the hull; every physics query uses the same faces.
     std::vector<Vec3> triangle_normals;
+    struct Bounds {
+        Vec3 low{1e20f,1e20f,1e20f}, high{-1e20f,-1e20f,-1e20f};
+        void add(Vec3 p) {
+            low={std::min(low.x,p.x),std::min(low.y,p.y),std::min(low.z,p.z)};
+            high={std::max(high.x,p.x),std::max(high.y,p.y),std::max(high.z,p.z)};
+        }
+        float distance_squared(Vec3 p) const {
+            const Vec3 d{std::max({low.x-p.x,0.f,p.x-high.x}),std::max({low.y-p.y,0.f,p.y-high.y}),std::max({low.z-p.z,0.f,p.z-high.z})};
+            return d.length_squared();
+        }
+    };
+    struct QueryNode { Bounds bounds; int left=-1,right=-1,begin=0,end=0; };
+    std::vector<QueryNode> query_nodes;
+    std::vector<int> query_faces;
+    // Geometry is immutable during simulation. Call after any authoring edit.
+    void rebuild_queries() {
+        query_nodes.clear();query_faces.clear();
+        for(int i=0;i<int(triangles.size());++i)query_faces.push_back(i);
+        if(triangles.empty())return;
+        query_nodes.reserve(triangles.size()*2);
+        auto build=[&](auto&&self,int begin,int end)->int {
+            const int index=int(query_nodes.size());query_nodes.emplace_back();
+            Bounds bounds;for(int k=begin;k<end;++k)for(int v:triangles[query_faces[k]])bounds.add(vertices[v]);
+            query_nodes[index].bounds=bounds;query_nodes[index].begin=begin;query_nodes[index].end=end;
+            if(end-begin<=4)return index;
+            Vec3 extent=bounds.high-bounds.low;int axis=extent.x>extent.y?0:1;if(extent.z>(axis==0?extent.x:extent.y))axis=2;
+            auto centroid=[&](int f){Vec3 c;for(int v:triangles[f])c+=vertices[v];return axis==0?c.x:axis==1?c.y:c.z;};
+            int mid=(begin+end)/2;
+            std::nth_element(query_faces.begin()+begin,query_faces.begin()+mid,query_faces.begin()+end,[&](int a,int b){return centroid(a)<centroid(b);});
+            int left=self(self,begin,mid),right=self(self,mid,end);
+            query_nodes[index].left=left;query_nodes[index].right=right;return index;
+        };
+        build(build,0,int(triangles.size()));
+    }
 };
 inline CrawlRock crawl_fractured_rock(float x,float z,float width,float depth,float height,float slope,float roll,float yaw,float base,unsigned fracture_variant) {
     CrawlRock r;
@@ -106,7 +147,7 @@ inline CrawlRock crawl_fractured_rock(float x,float z,float width,float depth,fl
         if((p-r.vertices[r.triangles[i][0]]).dot(r.triangle_normals[i])>.0004f&&fracture_variant<8)
             return crawl_fractured_rock(x,z,width,depth,height,slope,roll,yaw,base,fracture_variant+1);
     for(auto p:r.vertices)r.reach=std::max(r.reach,(p-r.center).length());
-    return r;
+    r.rebuild_queries();return r;
 }
 inline CrawlRock crawl_rock(float x,float z,float width,float depth,float height,float slope=0,float roll=0,float yaw=0,float base=0) {
     return crawl_fractured_rock(x,z,width,depth,height,slope,roll,yaw,base,0);
@@ -171,10 +212,43 @@ inline Vec3 closest_triangle(Vec3 p,Vec3 a,Vec3 b,Vec3 c){
     float inv=1/(va+vb+vc);return a+ab*(vb*inv)+ac*(vc*inv);
 }
 struct RockDistance {float distance;Vec3 normal,point;};
-inline RockDistance rock_distance(const CrawlRock&r,Vec3 p){
+inline RockDistance rock_distance_reference(const CrawlRock&r,Vec3 p){
+    BOLT_ROCK_COUNT(calls);
     float closest=1e20f,max_plane=-1e20f;Vec3 q,n,inside_n;
     for(size_t i=0;i<r.triangles.size();++i){auto t=r.triangles[i];Vec3 a=r.vertices[t[0]],b=r.vertices[t[1]],c=r.vertices[t[2]];Vec3 face=r.triangle_normals.size()==r.triangles.size()?r.triangle_normals[i]:(b-a).cross(c-a).normalized();float plane=(p-a).dot(face);if(plane>max_plane){max_plane=plane;inside_n=face;}
-        Vec3 v=closest_triangle(p,a,b,c);float d=(p-v).length_squared();if(d<closest){closest=d;q=v;n=face;}}
+        BOLT_ROCK_COUNT(triangles); Vec3 v=closest_triangle(p,a,b,c);float d=(p-v).length_squared();if(d<closest){closest=d;q=v;n=face;}}
     if(max_plane<=0)return {max_plane,inside_n,p-inside_n*max_plane};
     float d=std::sqrt(closest);return {d,d>1e-7f?(p-q)/d:n,q};
+}
+inline RockDistance rock_distance(const CrawlRock&r,Vec3 p){
+    // Unindexed ad-hoc hulls remain correct. Production builders index once.
+    if(r.query_nodes.empty() || r.triangle_normals.size()!=r.triangles.size())return rock_distance_reference(r,p);
+    BOLT_ROCK_COUNT(calls);
+    if(r.query_nodes[0].bounds.distance_squared(p)==0) {
+        float plane=-1e20f;Vec3 normal;bool outside=false;
+        for(size_t i=0;i<r.triangles.size();++i) {
+            const float d=(p-r.vertices[r.triangles[i][0]]).dot(r.triangle_normals[i]);
+            if(d>0){outside=true;break;}
+            if(d>plane){plane=d;normal=r.triangle_normals[i];}
+        }
+        if(!outside)return {plane,normal,p-normal*plane};
+    }
+    float closest=1e20f;int best=int(r.triangles.size());Vec3 point,normal;
+    auto visit=[&](auto&&self,int index)->void {
+        const auto&node=r.query_nodes[index];
+        // Conservative rounding margin: bounds may only skip impossible faces.
+        if(node.bounds.distance_squared(p)>closest+1e-7f)return;
+        if(node.left<0) {
+            for(int k=node.begin;k<node.end;++k) {
+                int i=r.query_faces[k];auto t=r.triangles[i];BOLT_ROCK_COUNT(triangles);
+                Vec3 q=closest_triangle(p,r.vertices[t[0]],r.vertices[t[1]],r.vertices[t[2]]);float d=(p-q).length_squared();
+                if(d<closest||(d==closest&&i<best)){closest=d;best=i;point=q;normal=r.triangle_normals[i];}
+            }
+        } else {
+            int first=node.left,second=node.right;
+            if(r.query_nodes[first].bounds.distance_squared(p)>r.query_nodes[second].bounds.distance_squared(p))std::swap(first,second);
+            self(self,first);self(self,second);
+        }
+    };
+    visit(visit,0);float d=std::sqrt(closest);return {d,d>1e-7f?(p-point)/d:normal,point};
 }

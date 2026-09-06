@@ -94,7 +94,7 @@ inline CrawlRock expedition_granite(int mode,float x,float z,float width,float d
         if(rock.triangle_normals[f].dot(p-rock.vertices[rock.triangles[f][0]])>.00045f)
             return expedition_granite(mode,x,z,width,depth,exposure,yaw,seed,fracture_attempt+1);
     rock.surface=1.10f-expedition_material(mode,x,z).wet*.54f;
-    return rock;
+    rock.rebuild_queries();return rock;
 }
 inline const std::vector<CrawlRock>& expedition_rocks(int mode) {
     auto make=[](int m) {

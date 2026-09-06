@@ -73,6 +73,7 @@ render_suite() {
   printf 'RENDER SUITE: %s completed in %s seconds\n' "$suite" "$((SECONDS-started))"
 }
 
+render_suite suspension_visuals "SUSPENSION VISUALS: 40 checks, 0 failures" 120
 render_suite camera_views 'CAMERA VIEW: camera-rig-portrait.png' 300
 render_suite expedition_worlds 'EXPEDITION WORLD CHECKS: [0-9]+ checks / 0 failures' 180
 if [[ -f tests/tire_contact_visuals.gd ]]; then
