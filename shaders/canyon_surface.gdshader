@@ -19,12 +19,16 @@ void fragment() {
     float macro=texture(rock_texture,p.xz*.027+p.y*.009).r;
     // Sedimentary bedding follows world elevation across neighbouring blocks.
     // Large mineral bands and fine texture read without displacement or parallax.
-    float strata=p.y*.83+sin(p.x*.022+p.z*.014)*.7+macro*.8;
-    float seam=1.-smoothstep(.018,.082,abs(fract(strata)-.5));
-    float band=.88+.12*sin(strata*6.28318);
-    vec3 warm=mix(vec3(.47,.245,.135),vec3(.79,.52,.32),clamp(grain*1.6,0.,1.));
-    warm*=band*mix(.89,1.10,macro)*mix(1.,.70,seam*(1.-abs(n.y)));
-    vec3 sand=vec3(.65,.43,.27)*mix(.83,1.15,grain);
+    float strata=p.y*1.1+sin(p.x*.035+p.z*.019)*1.2+macro*3.;
+    float band=.97+.03*sin(strata*6.28318);
+    float distance_filter=1.-smoothstep(.3,1.1,fwidth(strata));
+    band=mix(1.,band,distance_filter*(1.-abs(n.y)));
+    vec3 warm=vec3(.36,.215,.14)*(.43+grain*2.35);
+    warm*=band*mix(.88,1.12,macro);
+    // Top surfaces carry paler dust; mineral photographs retain their own
+    // fractures. Broad subtle bedding avoids zebra stripes and distant aliasing.
+    warm=mix(warm,warm*vec3(1.12,1.10,1.06),smoothstep(.6,.98,n.y)*.36);
+    vec3 sand=vec3(.31,.215,.145)*(.52+grain*1.9);
     float stone=ground_surface?clamp(COLOR.r,0.,1.):1.;
     ALBEDO=mix(sand,warm,stone)*(ground_surface?1.:mix(.82,1.,COLOR.a));
     ROUGHNESS=.94;SPECULAR=.16;

@@ -568,6 +568,11 @@ func _build_water_patch(center: Vector2, radius: Vector2, water_height: float, t
 	for z in range(floori(center.y - radius.y - 8), ceili(center.y + radius.y + 8), 2):
 		for x in range(floori(center.x - radius.x - 8), ceili(center.x + radius.x + 8), 2):
 			for triangle in [[Vector2(x,z), Vector2(x+2,z), Vector2(x,z+2)], [Vector2(x+2,z), Vector2(x+2,z+2), Vector2(x,z+2)]]:
+				# A local ford must not flood unrelated lower terrain nearby.
+				if title == "SplitGraniteFord":
+					var midpoint: Vector2 = (triangle[0]+triangle[1]+triangle[2])/3.0
+					if ((midpoint-center)/radius).length_squared() > .72:
+						continue
 				var polygon: Array[Vector3] = []
 				for p in triangle:
 					polygon.append(Vector3(p.x, _core.terrain_height(p.x, p.y), p.y))
@@ -592,6 +597,9 @@ func _build_water_patch(center: Vector2, radius: Vector2, water_height: float, t
 	material.set_shader_parameter("ripple_normal", load("res://assets/world/terrain_dirt_normal.png"))
 	material.set_shader_parameter("deep_color", Color("172d32") if map_mode == 5 else Color("233f49"))
 	material.set_shader_parameter("shallow_color", Color("475548"))
+	if title == "SplitGraniteFord":
+		material.set_shader_parameter("shallow_color", Color("777664"))
+		material.set_shader_parameter("ford", true)
 	var water := _instance(surface.commit(), material, Vector3.ZERO)
 	water.name = title
 	water.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF

@@ -15,7 +15,7 @@ inline CrawlRock expedition_granite(int mode,float x,float z,float width,float d
     // and rounded joint blocks. Affine crown drift makes the abraded approach
     // longer than the lee shoulder without non-convex contact approximations.
     const float cross_power=2.0f+(seed%3)*.36f;
-    const float crown_power=seed%5<2?2.0f:(seed%5==2?3.4f:2.65f);
+    const float crown_power=mode==6?(3.4f+(seed%3)*.5f):(seed%5<2?2.0f:(seed%5==2?3.4f:2.65f));
     const float drift=(seed%2?.16f:-.10f)*depth;
     auto point=[&](float a,float level,float radial) {
         auto signed_power=[](float value,float exponent){return std::copysign(std::pow(std::abs(value),exponent),value);};
@@ -100,7 +100,16 @@ inline const std::vector<CrawlRock>& canyon_rocks() {
     static const auto rocks=[] {
         using namespace expedition_detail;std::vector<CrawlRock> out;unsigned seed=821;
         auto block=[&](float x,float z,float w,float d,float height,float yaw,float base){
-            out.push_back(crawl_fractured_rock(x,z,w,d,height,0,0,yaw,base,seed++));
+            auto r=expedition_granite(6,x,z,w,d,height,yaw,seed++);
+            // Affine vertical remapping keeps the rounded convex geology while
+            // placing stacked beds and the suspended arch lintel precisely.
+            float lo=1e6f,hi=-1e6f;for(auto p:r.vertices){lo=std::min(lo,p.y);hi=std::max(hi,p.y);}
+            r.center={};r.reach=0;r.triangle_normals.clear();
+            for(auto&p:r.vertices){p.y=base+(p.y-lo)*height/(hi-lo);r.center+=p;}
+            r.center*=1.f/r.vertices.size();
+            for(auto t:r.triangles)r.triangle_normals.push_back((r.vertices[t[1]]-r.vertices[t[0]]).cross(r.vertices[t[2]]-r.vertices[t[0]]).normalized());
+            for(auto p:r.vertices)r.reach=std::max(r.reach,(p-r.center).length());
+            r.rebuild_queries();out.push_back(std::move(r));
         };
         // Shared stratification: tall buried blocks form walls, while thin,
         // overlapping slabs make traversable wheel-scale ledges on side lines.
@@ -122,6 +131,11 @@ inline const std::vector<CrawlRock>& canyon_rocks() {
                         // sloping cap makes the exit gradual instead of a box.
                         out.push_back(crawl_fractured_rock(cx,cz,3.7f+v,4.8f+v,1.6f,
                             .10f,sign*.025f,yaw,expedition_height(6,cx,cz)-1.6f+exposure,seed++));
+                    }
+                    if(index%3==1) {
+                        float off=a.width+3.2f+v*2;
+                        float cx=x-nx*sign*off,cz=z-nz*sign*off;
+                        out.push_back(expedition_granite(6,cx,cz,3.5f+v*3,4.6f+v*4,.35f+v*.85f,yaw,seed++));
                     }
                     if(index%2==0) {
                         float off=(a.route==3?8.5f:13.f)+v*5;
