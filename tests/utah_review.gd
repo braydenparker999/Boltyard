@@ -18,7 +18,7 @@ func run() -> void:
 	camera.far=3000
 	stage.add_child(camera)
 	camera.current=true
-	for spot in [["trailhead",Vector2(-561.1,238.8),0],["ridge",Vector2(-386.1,-306.1),0],["high",Vector2(-561.1,238.8),2]]:
+	for spot in [["trailhead",Vector2(-561.1,238.8),0],["ridge",Vector2(-386.1,-306.1),0],["high",Vector2(-561.1,238.8),2],["road",Vector2(262.05542,393.945221),1]]:
 		world.set_quality(spot[2])
 		var p: Vector2 = spot[1]
 		var at := Vector3(p.x,truck.core.terrain_height(p.x,p.y)+1.5,p.y)

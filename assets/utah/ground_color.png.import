@@ -3,19 +3,21 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://cr2etsonttle1"
-path="res://.godot/imported/ground_color.png-2846ee6d8bcdcb55677f42c9997601cd.ctex"
+path.s3tc="res://.godot/imported/ground_color.png-2846ee6d8bcdcb55677f42c9997601cd.s3tc.ctex"
+path.etc2="res://.godot/imported/ground_color.png-2846ee6d8bcdcb55677f42c9997601cd.etc2.ctex"
 metadata={
-"vram_texture": false
+"imported_formats": ["s3tc_bptc", "etc2_astc"],
+"vram_texture": true
 }
 
 [deps]
 
 source_file="res://assets/utah/ground_color.png"
-dest_files=["res://.godot/imported/ground_color.png-2846ee6d8bcdcb55677f42c9997601cd.ctex"]
+dest_files=["res://.godot/imported/ground_color.png-2846ee6d8bcdcb55677f42c9997601cd.s3tc.ctex", "res://.godot/imported/ground_color.png-2846ee6d8bcdcb55677f42c9997601cd.etc2.ctex"]
 
 [params]
 
-compress/mode=0
+compress/mode=2
 compress/high_quality=false
 compress/lossy_quality=0.7
 compress/hdr_compression=1

@@ -17,3 +17,6 @@ data/utah/*.bin
 data/utah/*.json
 
 assets/utah/scenery/
+
+assets/utah/materials/
+assets/utah/roads/

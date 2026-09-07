@@ -5,6 +5,7 @@ const DATA := "res://data/utah/"
 static var terrain_loaded := false
 var manifest: Dictionary = {}
 var scenery: Node3D
+var _terrain_materials: Array[ShaderMaterial] = []
 
 func configure(solver: RefCounted) -> void:
 	_core = solver
@@ -34,15 +35,24 @@ func _build_course() -> void:
 	add_child(_course)
 	_ground_material = ShaderMaterial.new()
 	_ground_material.shader = load("res://shaders/utah_ground.gdshader")
-	for name in ["ground_color", "rock_mask"]:
-		_ground_material.set_shader_parameter(name, load("res://assets/utah/" + name + ".png"))
-	for name in ["rock", "dirt"]:
-		_ground_material.set_shader_parameter(name + "_detail", load("res://assets/utah/" + name + ".jpg"))
+	_ground_material.set_shader_parameter("ground_color", load("res://assets/utah/ground_color.png"))
+	_ground_material.set_shader_parameter("material_blend", load("res://assets/utah/materials/blend.png"))
+	_ground_material.set_shader_parameter("detail_color", load("res://assets/utah/materials/color.res"))
+	_ground_material.set_shader_parameter("detail_normal", load("res://assets/utah/materials/normal.res"))
+	var materials: Array = JSON.parse_string(FileAccess.get_file_as_string(DATA+"ground_materials.json"))
+	for pair in [["tile_scale","scale"],["color_strength","strength"],["normal_strength","normal_strength"]]:
+		var values := PackedFloat32Array()
+		for material in materials: values.append(material[pair[1]])
+		_ground_material.set_shader_parameter(pair[0], values)
 	for z in 8:
 		for x in 8:
 			var visual := MeshInstance3D.new()
 			visual.name = "Terrain_%d_%d" % [x, z]
-			visual.material_override = _ground_material
+			var material := _ground_material.duplicate() as ShaderMaterial
+			material.set_shader_parameter("road_color", load("res://assets/utah/roads/road_%d_%d.png"%[x,z]))
+			material.set_shader_parameter("road_origin", Vector2(x*256-1024,z*256-1024))
+			_terrain_materials.append(material)
+			visual.material_override = material
 			visual.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 			_course.add_child(visual)
 			var far_mesh := _make_mesh(x, z, 8)
@@ -95,6 +105,7 @@ func update_focus(at: Vector3) -> void:
 func set_quality(level: int) -> void:
 	var at := _last_focus
 	super.set_quality(level)
+	for material in _terrain_materials: material.set_shader_parameter("detailed_surface", _quality>0)
 	if scenery != null: scenery.update_focus(at, _quality)
 
 func get_metrics() -> Dictionary:

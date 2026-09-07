@@ -1449,7 +1449,7 @@ func update_camera(delta: float) -> void:
 		camera.look_at(camera_target, Vector3.UP)
 
 func copy_performance_report() -> void:
-	var report := {"version": "2.3.0", "device": OS.get_model_name(), "os": OS.get_name(),
+	var report := {"version": ProjectSettings.get_setting("application/config/version", "unknown"), "device": OS.get_model_name(), "os": OS.get_name(),
 		"renderer": RenderingServer.get_current_rendering_method(), "quality": quality,
 		"render_scale": get_viewport().scaling_3d_scale, "viewport": str(get_viewport().get_visible_rect().size),
 		"map": selected_map, "settings": settings, "telemetry": truck.get_telemetry(),

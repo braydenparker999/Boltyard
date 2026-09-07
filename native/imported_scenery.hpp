@@ -7,6 +7,7 @@ inline std::unordered_map<int64_t,std::vector<int>> cells;
 inline int64_t key(int x,int z){return int64_t((uint64_t(uint32_t(x))<<32)|uint32_t(z));}
 inline bool load(const uint8_t* data,size_t size) {
     if(!instances.empty())return true; // Geometry is immutable across map switches.
+    instance_query_cache.clear();
     size_t offset=0;bool valid=true;
     auto u32=[&](){uint32_t v=0;if(offset+4>size){valid=false;return v;}std::memcpy(&v,data+offset,4);offset+=4;return v;};
     auto f32=[&](){uint32_t u=u32();float v;std::memcpy(&v,&u,4);if(!std::isfinite(v))valid=false;return v;};

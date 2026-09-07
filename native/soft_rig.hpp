@@ -20,6 +20,7 @@
 #include <limits>
 #include <vector>
 #include <unordered_map>
+#include <list>
 #include <cstdint>
 #include <cstring>
 #include "terrain_v03.hpp"
