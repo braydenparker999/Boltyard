@@ -12,7 +12,7 @@ const ACTIONS = ["off_left", "off_right", "off_go", "off_reverse", "off_brake"]
 const CAMP = Vector3(0, 1.5, 8)
 
 const EXPEDITIONS = {
-	"utah": {"name": "UTAH EXTRA", "region": "UTAH / TERRAIN PREVIEW", "mode": 7, "color": "d5ac80", "description": "Full 2 km terrain, hill climbs and scenic ridges. Ground-only preview: stock cliffs, boulders and bridges are pending."},
+	"utah": {"name": "UTAH EXTRA", "region": "UTAH / CANYON COUNTRY", "mode": 7, "color": "d5ac80", "description": "Full 2 km terrain with imported cliffs, boulders and junipers. Some newer bridges and structures remain unavailable."},
     "canyon": {"name": "REDSTONE CANYON", "region": "SANDSTONE COUNTRY", "mode": 6, "color": "d99b6b", "description": "Layered red cliffs, slickrock ledges and an open arch. Choose the rim traverse or the broad return trail."},
 	"rockies": {"name": "SILVERPINE RANGE", "region": "ROCKY MOUNTAINS", "mode": 4, "color": "829b88", "description": "Granite shelves, pine forest and high mountain passes. Find your line through the landscape."},
 	"russia": {"name": "KARELIAN TAIGA", "region": "RUSSIA", "mode": 5, "color": "a2af82", "description": "Wet forest tracks, glacial stone and quiet lakes. Crawl through birch and spruce country."}
@@ -102,6 +102,7 @@ var toast_remaining = 0.0
 var tuning_delay = -1.0
 var telemetry_delay = 0.0
 var recovery_cooldown = 0.0
+var automatic_recovery_attempted := false
 var orbit = 2.24
 var orbit_distance = 9.3
 var orbit_pitch = 0.49
@@ -1370,8 +1371,16 @@ func _process(delta: float) -> void:
 			if safe_spots.is_empty() or position.distance_to(safe_spots.back().position) > 5:
 				safe_spots.append({"position": position, "forward": current_telemetry.get("forward", Vector3.FORWARD)})
 				if safe_spots.size() > 20: safe_spots.pop_front()
-	if recovery_cooldown <= 0 and driving and (position.y < -50 or absf(position.x) > (365 if selected_map == "legacy" else 316) or absf(position.z) > (365 if selected_map == "legacy" else 316)):
+	var outside := automatic_recovery_needed(position, selected_map)
+	if not outside and recovery_cooldown <= 0:
+		automatic_recovery_attempted = false
+	if outside and driving and recovery_cooldown <= 0 and not automatic_recovery_attempted:
+		automatic_recovery_attempted = true
 		recover_safe()
+
+static func automatic_recovery_needed(at: Vector3, map_id: String) -> bool:
+	var limit := 1020.0 if map_id == "utah" else (365.0 if map_id == "legacy" else 316.0)
+	return not at.is_finite() or at.y < -50 or absf(at.x) > limit or absf(at.z) > limit
 
 func update_camera(delta: float) -> void:
 	var position: Vector3 = current_telemetry.get("position", CAMP)

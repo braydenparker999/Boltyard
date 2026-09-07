@@ -9,6 +9,11 @@ inline thread_local RockQueryCounters rock_query_counters;
 #define BOLT_ROCK_COUNT(field) ((void)0)
 #endif
 struct CrawlRock {
+    const CrawlRock* source=nullptr; // Immutable mesh shared by imported placements.
+    Vec3 basis[3]{{1,0,0},{0,1,0},{0,0,1}}, inverse[3], origin;
+    float minimum_scale_squared=1;
+    Vec3 world(Vec3 p) const {return origin+basis[0]*p.x+basis[1]*p.y+basis[2]*p.z;}
+    Vec3 local(Vec3 p) const {p-=origin;return {inverse[0].dot(p),inverse[1].dot(p),inverse[2].dot(p)};}
     std::vector<Vec3> vertices;
     std::vector<std::array<int,3>> triangles;
     Vec3 center;
@@ -249,7 +254,31 @@ inline RockDistance rock_distance_reference(const CrawlRock&r,Vec3 p){
     if(max_plane<=0)return {max_plane,inside_n,p-inside_n*max_plane};
     float d=std::sqrt(closest);return {d,d>1e-7f?(p-q)/d:n,q};
 }
+// Exact world-space nearest face under rotation and nonuniform scale. The
+// shared local BVH uses a conservative inverse-matrix norm bound for pruning.
+inline RockDistance instanced_rock_distance(const CrawlRock& r,Vec3 p) {
+    BOLT_ROCK_COUNT(calls);
+    const auto& mesh=*r.source;Vec3 local=r.local(p),point,normal;
+    float closest=1e20f;
+    auto bound=[&](int id){return mesh.query_nodes[id].bounds.distance_squared(local)*r.minimum_scale_squared;};
+    auto visit=[&](auto&& self,int id)->void {
+        if(bound(id)>closest+1e-5f)return;
+        const auto& node=mesh.query_nodes[id];
+        if(node.left>=0){int a=node.left,b=node.right;if(bound(a)>bound(b))std::swap(a,b);self(self,a);self(self,b);return;}
+        for(int k=node.begin;k<node.end;++k){
+            auto t=mesh.triangles[mesh.query_faces[k]];BOLT_ROCK_COUNT(triangles);
+            Vec3 a=r.world(mesh.vertices[t[0]]),b=r.world(mesh.vertices[t[1]]),c=r.world(mesh.vertices[t[2]]);
+            Vec3 q=closest_triangle(p,a,b,c);float d=(p-q).length_squared();
+            if(d<closest){closest=d;point=q;normal=(b-a).cross(c-a).normalized();}
+        }
+    };
+    visit(visit,0);float d=std::sqrt(closest);
+    bool inside=mesh.surface_mesh&&rock_mesh_inside(mesh,local);
+    if(d>1e-6f)normal=(inside?point-p:p-point)/d;
+    return {inside?-d:d,normal,point};
+}
 inline RockDistance rock_distance(const CrawlRock&r,Vec3 p){
+    if(r.source)return instanced_rock_distance(r,p);
     // Unindexed ad-hoc hulls remain correct. Production builders index once.
     if(r.query_nodes.empty() || r.triangle_normals.size()!=r.triangles.size())return rock_distance_reference(r,p);
     BOLT_ROCK_COUNT(calls);

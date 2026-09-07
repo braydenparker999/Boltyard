@@ -18,7 +18,8 @@ func run() -> void:
 	camera.far=3000
 	stage.add_child(camera)
 	camera.current=true
-	for spot in [["trailhead",Vector2(-561.1,238.8)],["ridge",Vector2(-386.1,-306.1)]]:
+	for spot in [["trailhead",Vector2(-561.1,238.8),0],["ridge",Vector2(-386.1,-306.1),0],["high",Vector2(-561.1,238.8),2]]:
+		world.set_quality(spot[2])
 		var p: Vector2 = spot[1]
 		var at := Vector3(p.x,truck.core.terrain_height(p.x,p.y)+1.5,p.y)
 		truck.reset(at)
@@ -28,10 +29,11 @@ func run() -> void:
 		world.update_focus(stats.position)
 		camera.position=stats.position+Vector3(9,7,12)
 		camera.look_at(stats.position+Vector3(-7,0,-13))
-		for i in 8: await process_frame
+		while not world.scenery.pending.is_empty():world.scenery._process(0)
+		for i in 4: await process_frame
 		await RenderingServer.frame_post_draw
 		root.get_texture().get_image().save_png("res://build/utah-%s.png" % spot[0])
-		print("UTAH VIEW ",spot[0]," ",world.get_metrics())
+		print("UTAH VIEW ",spot[0]," ",world.get_metrics(), " drawn_triangles ", Performance.get_monitor(Performance.RENDER_TOTAL_PRIMITIVES_IN_FRAME), " draws ", Performance.get_monitor(Performance.RENDER_TOTAL_DRAW_CALLS_IN_FRAME))
 	stage.queue_free()
 	await process_frame
 	quit()

@@ -4,6 +4,7 @@ extends OffroadWorld
 const DATA := "res://data/utah/"
 static var terrain_loaded := false
 var manifest: Dictionary = {}
+var scenery: Node3D
 
 func configure(solver: RefCounted) -> void:
 	_core = solver
@@ -13,6 +14,7 @@ func configure(solver: RefCounted) -> void:
 		var layers := FileAccess.get_file_as_bytes(DATA + "surface.bin")
 		terrain_loaded = _core.load_imported_terrain(h, layers)
 		assert(terrain_loaded, "Utah terrain data missing or invalid")
+	assert(_core.load_imported_scenery(FileAccess.get_file_as_bytes(DATA + "scenery_collision.bin")), "Utah scenery collision is invalid")
 	_core.set_terrain(7)
 	if is_inside_tree() and _course == null:
 		_build_course()
@@ -46,6 +48,9 @@ func _build_course() -> void:
 			var far_mesh := _make_mesh(x, z, 8)
 			visual.mesh = far_mesh
 			_chunks.append({"x": x, "z": z, "visual": visual, "far": far_mesh, "step": 8})
+	scenery = preload("res://scripts/utah_scenery.gd").new()
+	_course.add_child(scenery)
+	scenery.configure()
 	update_focus(get_spawn_position())
 
 func _make_mesh(x: int, z: int, step: int) -> ArrayMesh:
@@ -76,6 +81,7 @@ func update_focus(at: Vector3) -> void:
 	if Vector2(at.x - _last_focus.x, at.z - _last_focus.z).length_squared() < 144.0:
 		return
 	_last_focus = at
+	if scenery != null: scenery.update_focus(at, _quality)
 	for chunk in _chunks:
 		var center := Vector2(chunk.x * 256.0 - 896.0, chunk.z * 256.0 - 896.0)
 		var delta := (Vector2(at.x, at.z) - center).abs() - Vector2(128, 128)
@@ -86,8 +92,13 @@ func update_focus(at: Vector3) -> void:
 			chunk.visual.mesh = chunk.far if step == 8 else _make_mesh(chunk.x, chunk.z, step)
 			chunk.step = step
 
+func set_quality(level: int) -> void:
+	var at := _last_focus
+	super.set_quality(level)
+	if scenery != null: scenery.update_focus(at, _quality)
+
 func get_metrics() -> Dictionary:
 	var triangles := 0
 	for chunk in _chunks:
 		triangles += chunk.visual.mesh.surface_get_array_index_len(0) / 3
-	return {"chunks": _chunks.size(), "triangles": triangles, "extent": 1024.0}
+	return {"chunks": _chunks.size(), "triangles": triangles, "extent": 1024.0, "scenery": scenery.get_metrics() if scenery != null else {}}

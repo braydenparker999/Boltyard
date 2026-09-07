@@ -19,6 +19,9 @@
 #include <cstddef>
 #include <limits>
 #include <vector>
+#include <unordered_map>
+#include <cstdint>
+#include <cstring>
 #include "terrain_v03.hpp"
 #include "expedition_terrain.hpp"
 
@@ -50,6 +53,7 @@ inline float length(Vec3 v) { return v.length(); }
 inline Vec3 normalized(Vec3 v) { return v.normalized(); }
 
 #include "crawl_rocks.hpp"
+#include "imported_scenery.hpp"
 #include "expedition_rocks.hpp"
 #include "dynamic_objects.hpp"
 
@@ -1225,7 +1229,8 @@ private:
         moving_support_points_.assign(support_pairs, {}); moving_support_friction_.assign(support_pairs, {});
         near_rocks_.clear();
         const auto& rocks = custom_rocks_ ? test_rocks_ : (terrain_mode_>=4?expedition_rocks(terrain_mode_):crawl_course());
-        if(custom_rocks_ || terrain_mode_>=3) for(const auto&r:rocks) if((r.center-center()).length()<r.reach+7)near_rocks_.push_back(&r);
+        if(!custom_rocks_ && terrain_mode_==7) imported_scenery::near(center(),7,near_rocks_);
+        else if(custom_rocks_ || terrain_mode_>=3) for(const auto&r:rocks) if((r.center-center()).length()<r.reach+7)near_rocks_.push_back(&r);
         skid_lambdas_.assign(near_rocks_.size()*9,0);skid_friction_.assign(near_rocks_.size()*9,{});
         axle_contact_lambdas_.assign(solid_axles_active() ? (near_rocks_.size() + 1) * 10 : 0, 0);
         axle_contact_friction_.assign(axle_contact_lambdas_.size(), {});

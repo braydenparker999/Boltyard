@@ -147,7 +147,7 @@ public:
     // Tire drive/brake impulses must call apply_impulse with their opposite.
     void begin_step(float dt,Vec3 gravity={0,-9.81f,0}){
         if(!(dt>0)||!std::isfinite(dt))return;
-        if(world_enabled_&&static_bodies_.empty())for(const auto&r:world_rocks())static_bodies_.push_back(static_body(r));
+        if(world_enabled_&&!bodies_.empty()&&static_bodies_.empty())for(const auto&r:world_rocks())static_bodies_.push_back(static_body(r));
         contacts_=0;ground_.clear();pairs_.clear();
         for(auto&b:bodies_){
             b.previous_position=b.position;b.previous_rotation=b.rotation;

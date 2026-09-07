@@ -33,6 +33,7 @@ class SoftBodyRig : public RefCounted {
 
 protected:
     static void _bind_methods() {
+        ClassDB::bind_method(D_METHOD("load_imported_scenery", "data"), &SoftBodyRig::load_imported_scenery);
         ClassDB::bind_method(D_METHOD("load_imported_terrain", "heights", "layers"), &SoftBodyRig::load_imported_terrain);
         ClassDB::bind_method(D_METHOD("get_imported_chunk", "x", "z", "step"), &SoftBodyRig::get_imported_chunk);
         ClassDB::bind_method(D_METHOD("configure", "settings"), &SoftBodyRig::configure);
@@ -74,6 +75,7 @@ protected:
     }
 
 public:
+    bool load_imported_scenery(const PackedByteArray &data) {return boltyard::imported_scenery::load(data.ptr(),data.size());}
     bool load_imported_terrain(const PackedFloat32Array &h,const PackedByteArray &m) {
         return boltyard::imported_terrain::load(h.ptr(),h.size(),m.ptr(),m.size());
     }
@@ -282,7 +284,8 @@ public:
         const auto &rocks=get_terrain_mode()>=4?boltyard::expedition_rocks(get_terrain_mode()):boltyard::crawl_course();
         std::vector<const boltyard::CrawlRock*> nearby;
         const auto initial_delta=candidate-start;const float initial_length=std::max(.00001f,initial_delta.length_squared());
-        for(const auto&r:rocks){const auto closest=start+initial_delta*std::clamp((r.center-start).dot(initial_delta)/initial_length,0.f,1.f);if((closest-r.center).length_squared()<(r.reach+padding+.5f)*(r.reach+padding+.5f))nearby.push_back(&r);}
+        if(get_terrain_mode()==7)boltyard::imported_scenery::near((start+candidate)*.5f,(candidate-start).length()*.5f+padding+.5f,nearby);
+        else for(const auto&r:rocks){const auto closest=start+initial_delta*std::clamp((r.center-start).dot(initial_delta)/initial_length,0.f,1.f);if((closest-r.center).length_squared()<(r.reach+padding+.5f)*(r.reach+padding+.5f))nearby.push_back(&r);}
         auto face_normal=[](const boltyard::CrawlRock &shape,size_t i){
             const auto &t=shape.triangles[i];const auto a=shape.vertices[t[0]];
             return shape.triangle_normals.size()==shape.triangles.size()?shape.triangle_normals[i]:(shape.vertices[t[1]]-a).cross(shape.vertices[t[2]]-a).normalized();

@@ -15,3 +15,5 @@ assets/utah/*.png
 assets/utah/*.jpg
 data/utah/*.bin
 data/utah/*.json
+
+assets/utah/scenery/

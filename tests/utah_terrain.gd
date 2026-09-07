@@ -9,7 +9,7 @@ func run() -> void:
 	assert(core.get_terrain_mode() == 7)
 	assert(game.map_canvas.extent == 1024)
 	assert(game.map_canvas.trails.size() == 16)
-	assert(core.get_expedition_rocks().is_empty())
+	assert(game.world.get_metrics().scenery.placements == 124212)
 	assert(core.get_expedition_obstacles().is_empty())
 	assert(core.get_dynamic_objects().is_empty())
 	assert(game.world.get_metrics().chunks == 64)
