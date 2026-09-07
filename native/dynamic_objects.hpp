@@ -62,11 +62,12 @@ public:
     int awake_count() const {int n=0;for(const auto&b:bodies_)if(!b.sleeping)++n;return n;}
 
     void set_terrain(int mode) {
-        terrain_mode_=std::clamp(mode,0,6); static_bodies_.clear();
+        terrain_mode_=std::clamp(mode,0,7); static_bodies_.clear();
     }
     void clear(){bodies_.clear();pairs_.clear();ground_.clear();contacts_=0;}
     void reset(){
         clear();
+        if(terrain_mode_==7)return;
         // Accessible optional loose line at x=8..10. The central test course
         // and bypass around x=4.5 remain unobstructed.
         add_stone({8.15f,.24f,-13.2f},{.68f,.46f,.83f},42,.16f);

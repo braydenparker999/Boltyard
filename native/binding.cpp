@@ -33,6 +33,8 @@ class SoftBodyRig : public RefCounted {
 
 protected:
     static void _bind_methods() {
+        ClassDB::bind_method(D_METHOD("load_imported_terrain", "heights", "layers"), &SoftBodyRig::load_imported_terrain);
+        ClassDB::bind_method(D_METHOD("get_imported_chunk", "x", "z", "step"), &SoftBodyRig::get_imported_chunk);
         ClassDB::bind_method(D_METHOD("configure", "settings"), &SoftBodyRig::configure);
         ClassDB::bind_method(D_METHOD("reset", "origin"), &SoftBodyRig::reset, DEFVAL(Vector3(0,1.5,8)));
         ClassDB::bind_method(D_METHOD("recover_near", "origin", "heading"), &SoftBodyRig::recover_near);
@@ -72,6 +74,38 @@ protected:
     }
 
 public:
+    bool load_imported_terrain(const PackedFloat32Array &h,const PackedByteArray &m) {
+        return boltyard::imported_terrain::load(h.ptr(),h.size(),m.ptr(),m.size());
+    }
+    Array get_imported_chunk(int cx,int cz,int step) const {
+        Array out;out.resize(13); // Mesh::ARRAY_MAX in Godot 4.4
+        if(cx<0||cz<0||cx>=8||cz>=8||(step!=1&&step!=4&&step!=8))return out;
+        using namespace boltyard::imported_terrain;
+        if(!ready())return out;
+        const int cells=128/step,n=cells+1;
+        PackedVector3Array vertices,normals;PackedInt32Array indices;
+        // Global coordinates avoid mismatched UVs at chunk borders.
+        for(int z=0;z<n;++z)for(int x=0;x<n;++x){
+            int gx=cx*128+x*step,gz=cz*128+z*step;
+            float px=gx*spacing-extent,pz=gz*spacing-extent;
+            vertices.push_back(Vector3(px,at(gx,gz),pz));
+            float dx=(at(gx+1,gz)-at(gx-1,gz))/(gx==0||gx==side-1?spacing:2*spacing);
+            float dz=(at(gx,gz+1)-at(gx,gz-1))/(gz==0||gz==side-1?spacing:2*spacing);
+            normals.push_back(Vector3(-dx,1,-dz).normalized());
+        }
+        auto tri=[&](int a,int b,int c){indices.push_back(a);indices.push_back(b);indices.push_back(c);};
+        for(int z=0;z<cells;++z)for(int x=0;x<cells;++x){int a=z*n+x,b=a+1,c=a+n,d=c+1;tri(a,b,c);tri(b,d,c);}
+        // Vertical skirts conceal cracks where adjacent chunks have different LODs.
+        std::vector<int> edge;for(int x=0;x<n;++x)edge.push_back(x);
+        for(int z=1;z<n;++z)edge.push_back(z*n+cells);
+        for(int x=cells-1;x>=0;--x)edge.push_back(cells*n+x);
+        for(int z=cells-1;z>0;--z)edge.push_back(z*n);
+        int base=vertices.size();
+        for(int i:edge){vertices.push_back(vertices[i]-Vector3(0,40,0));normals.push_back(normals[i]);}
+        for(int j=0;j<int(edge.size());++j){int k=(j+1)%edge.size();tri(edge[j],base+j,edge[k]);tri(edge[k],base+j,base+k);}
+        out[0]=vertices;out[1]=normals;out[12]=indices;return out;
+    }
+
     void configure(const Dictionary &d) {
         boltyard::Config c;
         c.tire_radius = number(d,"tire_radius",0.46f,0.32f,0.65f);
@@ -116,10 +150,15 @@ public:
         auto end = std::chrono::steady_clock::now();
         sim_ms = std::chrono::duration<double,std::milli>(end-start).count();
     }
-    void set_terrain(int mode) { rig.set_terrain(std::clamp(mode,0,6)); }
+    void set_terrain(int mode) { rig.set_terrain(std::clamp(mode,0,7)); }
     int get_terrain_mode() const { return rig.get_terrain_mode(); }
-    int expedition_mode(int mode) const { return std::clamp(mode < 0 ? get_terrain_mode() : mode, 4, 6); }
+    int expedition_mode(int mode) const { return std::clamp(mode < 0 ? get_terrain_mode() : mode, 4, 7); }
     Dictionary get_expedition_heightfield(int mode) const {
+        if(expedition_mode(mode)==7){
+            PackedFloat32Array heights;heights.resize(boltyard::imported_terrain::heights.size());
+            for(int i=0;i<heights.size();++i)heights.set(i,boltyard::imported_terrain::heights[i]);
+            Dictionary d;d["heights"]=heights;d["side"]=1025;d["spacing"]=2.0;d["origin"]=-1024.0;d["mode"]=7;return d;
+        }
         const auto &data=boltyard::expedition_detail::cache(expedition_mode(mode));
         PackedFloat32Array heights,surfaces,gravel;PackedColorArray materials;
         heights.resize(data.height.size());surfaces.resize(data.height.size());materials.resize(data.height.size());gravel.resize(data.height.size());

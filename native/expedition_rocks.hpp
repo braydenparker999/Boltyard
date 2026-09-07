@@ -179,6 +179,7 @@ inline const std::vector<CrawlRock>& canyon_rocks() {
     }();return rocks;
 }
 inline const std::vector<CrawlRock>& expedition_rocks(int mode) {
+    if(mode==7){static const std::vector<CrawlRock> empty;return empty;}
     if(mode==6)return canyon_rocks();
     auto make=[](int m) {
         using namespace expedition_detail;std::vector<CrawlRock> out;unsigned seed=137;

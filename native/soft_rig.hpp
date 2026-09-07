@@ -274,7 +274,7 @@ public:
         for(int ring=0;ring<=4;++ring)for(int direction=0;direction<(ring?12:1);++direction){
             float angle=direction*6.2831853f/12;
             Vec3 at=requested+Vec3(std::sin(angle)*ring*3,0,std::cos(angle)*ring*3);
-            float limit=terrain_mode_>=4?310.f:360.f;
+            float limit=terrain_mode_==7?1014.f:(terrain_mode_>=4?310.f:360.f);
             if(std::abs(at.x)>limit||std::abs(at.z)>limit)continue;
             float lo=1e9f,hi=-1e9f;
             // Sample the full footprint, including the spaces between the wheels.
@@ -342,7 +342,7 @@ public:
 
     void set_terrain(int mode) {
         const bool was_solid = solid_axles_active();
-        terrain_mode_ = std::clamp(mode, 0, 6);
+        terrain_mode_ = std::clamp(mode, 0, 7);
         dynamic_objects_.set_terrain(terrain_mode_);
         for(auto &c:wheel_manifolds_)c.clear();
         wheel_shear_.fill({});

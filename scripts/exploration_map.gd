@@ -14,7 +14,7 @@ var trails: Dictionary = {}
 var height_min = 0.0
 var height_max = 60.0
 
-func configure(core, locations: Array) -> void:
+func configure(core, locations: Array, imported_routes: Array = []) -> void:
 	landmarks = locations.duplicate(true)
 	heights.clear()
 	trails.clear()
@@ -24,6 +24,8 @@ func configure(core, locations: Array) -> void:
 			if not trails.has(route):
 				trails[route] = PackedVector3Array()
 			trails[route].append(point.position)
+	for route in imported_routes:
+		trails[trails.size()] = route
 	# Sample the same height function used for tire contact, once for the atlas.
 	for z in GRID:
 		for x in GRID:

@@ -12,6 +12,7 @@ const ACTIONS = ["off_left", "off_right", "off_go", "off_reverse", "off_brake"]
 const CAMP = Vector3(0, 1.5, 8)
 
 const EXPEDITIONS = {
+	"utah": {"name": "UTAH EXTRA", "region": "UTAH / TERRAIN PREVIEW", "mode": 7, "color": "d5ac80", "description": "Full 2 km terrain, hill climbs and scenic ridges. Ground-only preview: stock cliffs, boulders and bridges are pending."},
     "canyon": {"name": "REDSTONE CANYON", "region": "SANDSTONE COUNTRY", "mode": 6, "color": "d99b6b", "description": "Layered red cliffs, slickrock ledges and an open arch. Choose the rim traverse or the broad return trail."},
 	"rockies": {"name": "SILVERPINE RANGE", "region": "ROCKY MOUNTAINS", "mode": 4, "color": "829b88", "description": "Granite shelves, pine forest and high mountain passes. Find your line through the landscape."},
 	"russia": {"name": "KARELIAN TAIGA", "region": "RUSSIA", "mode": 5, "color": "a2af82", "description": "Wet forest tracks, glacial stone and quiet lakes. Crawl through birch and spruce country."}
@@ -127,6 +128,8 @@ func _ready() -> void:
 	get_tree().auto_accept_quit = false
 	setup_input()
 	load_settings()
+	if selected_map == "utah" and not FileAccess.file_exists("res://data/utah/height.bin"):
+		selected_map = "rockies"
 	settings = VehicleCatalog.compose(builds[selected_vehicle])
 	truck = OffroadTruck.new()
 	truck.name = "Truck"
@@ -139,13 +142,15 @@ func _ready() -> void:
 	world.set_quality(quality)
 	add_child(world)
 	add_child(truck)
+	if selected_map == "utah":
+		truck.reset(recovery_point())
 	landmarks = world.get_landmarks()
 	restore_exploration_progress()
 	camera = Camera3D.new()
 	camera.current = true
 	camera.fov = 52.0
 	camera.near = 0.08
-	camera.far = 800.0
+	camera.far = 3000.0 if selected_map == "utah" else 800.0
 	add_child(camera)
 	trail_dust = preload("res://scripts/trail_dust.gd").new()
 	add_child(trail_dust)
@@ -327,6 +332,8 @@ func build_garage() -> void:
 	var trails = column(options, 9)
 	garage_pages.trails = trails
 	for id in EXPEDITIONS:
+		if id == "utah" and not FileAccess.file_exists("res://data/utah/height.bin"):
+			continue
 		var descriptor: Dictionary = EXPEDITIONS[id]
 		var item = button(trails, descriptor.region + "  ↗\n" + descriptor.name, select_map.bind(id), 0)
 		item.custom_minimum_size.y = 82
@@ -338,7 +345,7 @@ func build_garage() -> void:
 	details.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	button(trails, "DRIVE BEDROCK NARROWS  ›", start_bedrock_narrows, 0)
 	course_button = button(trails, "EQUIP CRAWLER SETUP", fit_crawl_setup, 0)
-	label(trails, "OPEN EXPLORATION  /  640 m REGIONS", 11, ACCENT)
+	label(trails, "OPEN EXPLORATION  /  CHOOSE YOUR REGION", 11, ACCENT)
 	var equipment_page = column(options, 7)
 	garage_pages.rig = equipment_page
 	section(equipment_page, "PAINT")
@@ -732,8 +739,8 @@ func build_map() -> void:
 	map_canvas = ExplorationMap.new()
 	map_canvas.custom_minimum_size = Vector2(180, 180)
 	map_canvas.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	map_canvas.extent = 384.0 if selected_map == "legacy" else 320.0
-	map_canvas.configure(truck.core, landmarks)
+	map_canvas.extent = 1024.0 if selected_map == "utah" else (384.0 if selected_map == "legacy" else 320.0)
+	map_canvas.configure(truck.core, landmarks, world.get_map_routes() if world.has_method("get_map_routes") else [])
 	map_canvas.destination_selected.connect(select_destination)
 	content.add_child(map_canvas)
 	var info = label(content, "Tap a marker or destination. Follow the compass; discover each place by driving there.", 12, MUTED)
@@ -1217,11 +1224,11 @@ func load_settings() -> void:
 		if active is String and VehicleCatalog.VEHICLES.has(active):
 			selected_vehicle = active
 		var map_id = parsed.get("selected_map", "rockies")
-		if map_id is String and map_id in ["canyon", "rockies", "russia", "legacy"]:
+		if map_id is String and map_id in ["utah", "canyon", "rockies", "russia", "legacy"]:
 			selected_map = map_id
 		var per_map = parsed.get("map_progress", {})
 		if per_map is Dictionary:
-			for id in ["canyon", "rockies", "russia", "legacy"]:
+			for id in ["utah", "canyon", "rockies", "russia", "legacy"]:
 				if per_map.get(id) is Dictionary:
 					exploration_progress[id] = per_map[id].duplicate(true)
 		var old_progress_map = selected_map if parsed.has("selected_map") else "legacy"
@@ -1544,11 +1551,15 @@ func _notification(what: int) -> void:
 		get_tree().quit()
 
 func recovery_point() -> Vector3:
+	if selected_map == "utah":
+		return world.get_spawn_position()
 	if not crawl_mode:
 		return Vector3(0, float(truck.core.terrain_height(0, 8)) + 1.5, 8)
 	return Vector3(0, 1.5, [8.0, -11.0, -24.0, -41.5, -55.0, -80.0][crawl_section])
 
 func create_world(id: String):
+	if id == "utah":
+		return load("res://scripts/imported_utah_world.gd").new()
 	if id == "copperline":
 		return load("res://scripts/crawl_world.gd").new()
 	if id == "legacy":
@@ -1606,8 +1617,8 @@ func restore_exploration_progress() -> void:
 	validate_exploration()
 
 func refresh_map_destinations() -> void:
-	map_canvas.extent = 384.0 if selected_map == "legacy" else 320.0
-	map_canvas.configure(truck.core, landmarks)
+	map_canvas.extent = 1024.0 if selected_map == "utah" else (384.0 if selected_map == "legacy" else 320.0)
+	map_canvas.configure(truck.core, landmarks, world.get_map_routes() if world.has_method("get_map_routes") else [])
 	map_title.text = str(EXPEDITIONS[selected_map].name) if EXPEDITIONS.has(selected_map) else "WORKSHOP MAP"
 	var grid: GridContainer = map_overlay.get_child(0).get_node("Destinations")
 	for child in grid.get_children():
@@ -1624,11 +1635,14 @@ func refresh_map_destinations() -> void:
 	update_map()
 
 func select_map(id: String) -> void:
-	if driving or id == selected_map or not id in ["canyon", "rockies", "russia", "copperline", "legacy"]:
+	if id == "utah" and not FileAccess.file_exists("res://data/utah/height.bin"):
+		return
+	if driving or id == selected_map or not id in ["utah", "canyon", "rockies", "russia", "copperline", "legacy"]:
 		return
 	clear_controls()
 	store_exploration_progress()
 	selected_map = id
+	camera.far = 3000.0 if selected_map == "utah" else 800.0
 	crawl_mode = selected_map == "copperline"
 	crawl_section = 0
 	var previous = world

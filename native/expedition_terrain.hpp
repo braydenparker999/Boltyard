@@ -2,6 +2,7 @@
 // Three fictional expedition landscapes. The 2 m cache is the authoritative
 // ground mesh: contact heights, normals, materials and rendering share it.
 #include "terrain_v03.hpp"
+#include "imported_terrain.hpp"
 #include "generated/canyon_floor.hpp"
 
 namespace boltyard {
@@ -302,12 +303,14 @@ inline float sample(const std::vector<float>&data,float x,float z) {
 }
 }
 inline float expedition_height(int mode,float x,float z) {
+    if(mode==7)return imported_terrain::sample(x,z);
     if(!std::isfinite(x)||!std::isfinite(z))return 0;
     if(mode==6 && blender_canyon::contains(x,z))return blender_canyon::sample(x,z);
     return expedition_detail::sample(expedition_detail::cache(mode).height,x,z)+
         std::max(0.f,std::max(std::abs(x),std::abs(z))-expedition_detail::extent)*.65f;
 }
 inline ExplorationNormal expedition_normal(int mode,float x,float z) {
+    if(mode==7){float dx,dz;imported_terrain::sample(x,z,&dx,&dz);float l=std::sqrt(dx*dx+dz*dz+1);return {-dx/l,1/l,-dz/l};}
     if(!std::isfinite(x)||!std::isfinite(z))return {0,1,0};
     if(mode==6 && blender_canyon::contains(x,z)){float dx,dz;blender_canyon::sample(x,z,&dx,&dz);float l=std::sqrt(dx*dx+dz*dz+1);return {-dx/l,1/l,-dz/l};}
     using namespace expedition_detail;const auto&data=cache(mode).height;
@@ -321,11 +324,13 @@ inline ExplorationNormal expedition_normal(int mode,float x,float z) {
     float length=std::sqrt(dx*dx+dz*dz+1);return {-dx/length,1/length,-dz/length};
 }
 inline float expedition_surface(int mode,float x,float z) {
+    if(mode==7)return imported_terrain::grip(x,z);
     if(!std::isfinite(x)||!std::isfinite(z))return .85f;
     if(mode==6 && blender_canyon::contains(x,z)){float rock=blender_canyon::sample(x,z,nullptr,nullptr,blender_canyon::rock_weights);return rock*1.10f+(1-rock)*.78f;}
     return expedition_detail::sample(expedition_detail::cache(mode).surface,x,z);
 }
 inline ExpeditionMaterial expedition_material(int mode,float x,float z) {
+    if(mode==7){int l=imported_terrain::layer(x,z);if(l>=8&&l<=10)return {1,0,0,0};if(l>=4&&l<=7)return {0,.3f,.7f,0};return {0,1,0,l==13?1.f:0.f};}
     using namespace expedition_detail;
     if(!std::isfinite(x)||!std::isfinite(z))return {0,0,1,0};
     if(mode==6 && blender_canyon::contains(x,z)){float r=blender_canyon::sample(x,z,nullptr,nullptr,blender_canyon::rock_weights);return {r,1-r,0,0};}
@@ -341,6 +346,7 @@ inline ExpeditionMaterial expedition_material(int mode,float x,float z) {
     return blend(data[i+side+1],data[i+side],data[i+1],tx+tz-1,1-tx,1-tz);
 }
 inline int expedition_surface_material(int mode,float x,float z) {
+    if(mode==7){int l=imported_terrain::layer(x,z);if(l>=8&&l<=10)return ExpeditionDryRock;if(l==1)return ExpeditionGravel;if(l==13)return ExpeditionMud;if(l==11||l==12)return ExpeditionSand;return ExpeditionDirt;}
     const auto m=expedition_material(mode,x,z);
     if(m.rock>=.50f)return m.wet>.30f?ExpeditionWetRock:ExpeditionDryRock;
     if(m.wet>.40f)return ExpeditionMud;
@@ -349,10 +355,11 @@ inline int expedition_surface_material(int mode,float x,float z) {
         expedition_detail::sample(expedition_detail::cache(mode).gravel,x,z)>.42f)return ExpeditionGravel;
     return ExpeditionDirt;
 }
-inline float expedition_trail_distance(int mode,float x,float z){return expedition_detail::nearest_trail(mode,x,z).distance;}
-inline const std::vector<ExpeditionTrailPoint>& expedition_trail_points(int mode){return expedition_detail::trails(mode);}
-inline ExpeditionWater expedition_water(int mode){return expedition_detail::water(mode);}
+inline float expedition_trail_distance(int mode,float x,float z){return mode==7?10000.f:expedition_detail::nearest_trail(mode,x,z).distance;}
+inline const std::vector<ExpeditionTrailPoint>& expedition_trail_points(int mode){if(mode==7){static const std::vector<ExpeditionTrailPoint> empty;return empty;}return expedition_detail::trails(mode);}
+inline ExpeditionWater expedition_water(int mode){if(mode==7)return {0,0,0,0,-10000};return expedition_detail::water(mode);}
 inline const std::vector<ExpeditionLandmark>& expedition_landmarks(int mode) {
+    if(mode==7){static const std::vector<ExpeditionLandmark> empty;return empty;}
     static const std::vector<ExpeditionLandmark> mountain{
         {0,8,"Silverpine Basecamp","Forest roads and granite lines"},
         {15,-75,"Split Granite","Short bedrock crawl above camp"},
@@ -380,6 +387,7 @@ inline const std::vector<ExpeditionLandmark>& expedition_landmarks(int mode) {
     return mode==6?canyon:(mode==5?taiga:mountain);
 }
 inline const std::vector<ExplorationObstacle>& expedition_obstacles(int mode) {
+    if(mode==7){static const std::vector<ExplorationObstacle> empty;return empty;}
     auto make=[](int m) {
         std::vector<ExplorationObstacle> out;
         using namespace expedition_detail;
