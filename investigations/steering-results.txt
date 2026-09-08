@@ -1,0 +1,12 @@
+locked=0 entry=2.02 steer=0.25 end=3.63 yaw_deg=22.0 max_yaw=0.16 max_side=0.19 min_up=1.000 damage=0.000 clamps=0
+locked=0 entry=2.02 steer=0.65 end=3.44 yaw_deg=54.8 max_yaw=0.41 max_side=0.48 min_up=1.000 damage=0.000 clamps=0
+locked=0 entry=8.02 steer=0.25 end=9.29 yaw_deg=49.5 max_yaw=0.33 max_side=0.20 min_up=1.000 damage=0.000 clamps=0
+locked=0 entry=8.02 steer=0.65 end=8.48 yaw_deg=123.3 max_yaw=0.78 max_side=0.53 min_up=0.998 damage=0.000 clamps=0
+locked=0 entry=15.02 steer=0.25 end=15.30 yaw_deg=88.1 max_yaw=0.61 max_side=0.40 min_up=0.997 damage=0.000 clamps=0
+locked=0 entry=15.02 steer=0.65 end=4.92 yaw_deg=190.2 max_yaw=2.15 max_side=8.93 min_up=-0.841 damage=0.000 clamps=0
+locked=1 entry=2.02 steer=0.25 end=3.54 yaw_deg=16.7 max_yaw=0.12 max_side=0.19 min_up=1.000 damage=0.000 clamps=0
+locked=1 entry=2.02 steer=0.65 end=2.83 yaw_deg=38.5 max_yaw=0.27 max_side=0.44 min_up=1.000 damage=0.000 clamps=0
+locked=1 entry=8.00 steer=0.25 end=9.17 yaw_deg=39.5 max_yaw=0.26 max_side=0.23 min_up=1.000 damage=0.000 clamps=0
+locked=1 entry=8.00 steer=0.65 end=7.89 yaw_deg=98.9 max_yaw=0.62 max_side=0.59 min_up=0.999 damage=0.000 clamps=0
+locked=1 entry=15.02 steer=0.25 end=15.49 yaw_deg=70.5 max_yaw=0.49 max_side=0.19 min_up=0.998 damage=0.000 clamps=0
+locked=1 entry=15.02 steer=0.65 end=5.85 yaw_deg=187.7 max_yaw=2.20 max_side=9.49 min_up=-0.829 damage=0.000 clamps=0
