@@ -122,3 +122,25 @@ PY
 # Preserve the official verifier with evidence for independent downloaded-APK validation.
 cp "$ANDROID_HOME/build-tools/34.0.0/lib/apksigner.jar" build/apksigner.jar
 sha256sum build/bolt-yard-2.3.0-thumbdrive.apk > build/SHA256SUMS.txt
+
+# Experimental sideload build. Same code, but its own applicationId, launcher
+# name and version code, so it installs beside a release install rather than
+# replacing it and cannot reach that install's saves.
+"$godot_bin" --headless --path . --export-debug "Android Test" build/bolt-yard-test.apk 2>&1 | tee build/export-test.log
+test -s build/bolt-yard-test.apk
+python3 - <<'TESTAPK'
+import zipfile
+with zipfile.ZipFile('build/bolt-yard-test.apk') as archive:
+    names = archive.namelist()
+    assert any(p.startswith('lib/arm64-v8a/') and 'boltyard' in p and p.endswith('.so') for p in names), 'Native softbody solver missing from test APK'
+    assert 'lib/arm64-v8a/libc++_shared.so' in names, 'C++ runtime missing from test APK'
+    assert any(p.endswith('boltyard.gdextension') for p in names), 'GDExtension registration missing from test APK'
+print('Test APK includes the native ARM64 soft-body solver.')
+TESTAPK
+"$ANDROID_HOME/build-tools/34.0.0/apksigner" verify --verbose build/bolt-yard-test.apk | tee build/signature-test.log
+"$ANDROID_HOME/build-tools/34.0.0/aapt" dump badging build/bolt-yard-test.apk > build/package-info-test.log
+# The whole point of this build is that it is a different package from the
+# release one, so assert that rather than trusting the preset stayed edited.
+grep -q "package: name='games.boltyard.test'" build/package-info-test.log
+grep -q "application-label:'Bolt Yard Test'" build/package-info-test.log
+sha256sum build/bolt-yard-test.apk >> build/SHA256SUMS.txt
