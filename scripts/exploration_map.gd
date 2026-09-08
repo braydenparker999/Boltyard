@@ -11,6 +11,10 @@ var vehicle_position = Vector3.ZERO
 var discovered: Array[String] = []
 var destination = ""
 var trails: Dictionary = {}
+## Difficulty per route index, so a six-route network reads as a network and
+## not as one undifferentiated tangle of identical lines.
+var route_grades: Dictionary = {}
+const ROUTE_COLORS := [Color("d9bd8299"), Color("cfa96b99"), Color("d2865e99")]
 var height_min = 0.0
 var height_max = 60.0
 
@@ -18,6 +22,11 @@ func configure(core, locations: Array) -> void:
 	landmarks = locations.duplicate(true)
 	heights.clear()
 	trails.clear()
+	route_grades.clear()
+	if core.has_method("get_expedition_route_info"):
+		var info: Array = core.get_expedition_route_info()
+		for index in range(info.size()):
+			route_grades[index] = int(info[index].get("difficulty", 0))
 	if core.has_method("get_expedition_trails"):
 		for point in core.get_expedition_trails():
 			var route = int(point.route)
@@ -70,7 +79,8 @@ func _draw() -> void:
 		for point in trails[route]:
 			line.append(project(point))
 		if line.size() > 1:
-			draw_polyline(line, Color("d9bd8299"), 2.0, true)
+			var grade: int = clampi(int(route_grades.get(route, 0)), 0, ROUTE_COLORS.size() - 1)
+			draw_polyline(line, ROUTE_COLORS[grade], 2.0 if grade < 2 else 2.6, true)
 	for i in range(1, 4):
 		var amount = area.size.x * i / 4.0
 		draw_line(area.position + Vector2(amount, 0), area.position + Vector2(amount, area.size.y), Color("bed3cb23"))

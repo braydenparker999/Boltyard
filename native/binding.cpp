@@ -45,6 +45,7 @@ protected:
         ClassDB::bind_method(D_METHOD("get_expedition_landmarks", "mode"), &SoftBodyRig::get_expedition_landmarks, DEFVAL(-1));
         ClassDB::bind_method(D_METHOD("get_expedition_trails", "mode"), &SoftBodyRig::get_expedition_trails, DEFVAL(-1));
         ClassDB::bind_method(D_METHOD("get_expedition_routes", "mode"), &SoftBodyRig::get_expedition_routes, DEFVAL(-1));
+        ClassDB::bind_method(D_METHOD("get_expedition_route_info", "mode"), &SoftBodyRig::get_expedition_route_info, DEFVAL(-1));
         ClassDB::bind_method(D_METHOD("get_expedition_water", "mode"), &SoftBodyRig::get_expedition_water, DEFVAL(-1));
         ClassDB::bind_method(D_METHOD("set_drivetrain", "low_range", "locked_diffs"), &SoftBodyRig::set_drivetrain);
         ClassDB::bind_method(D_METHOD("set_axle_drivetrain", "low_range", "front_locked", "rear_locked"), &SoftBodyRig::set_axle_drivetrain);
@@ -116,9 +117,14 @@ public:
         auto end = std::chrono::steady_clock::now();
         sim_ms = std::chrono::duration<double,std::milli>(end-start).count();
     }
-    void set_terrain(int mode) { rig.set_terrain(std::clamp(mode,0,5)); }
+    void set_terrain(int mode) { rig.set_terrain(std::clamp(mode,0,boltyard::expedition_detail::last_terrain_mode)); }
     int get_terrain_mode() const { return rig.get_terrain_mode(); }
-    int expedition_mode(int mode) const { return (mode < 0 ? get_terrain_mode() : mode) == 5 ? 5 : 4; }
+    // Any terrain mode at or past the first expedition selects that region;
+    // anything below it (the legacy course fixtures) reads the first one.
+    int expedition_mode(int mode) const {
+        const int requested = mode < 0 ? get_terrain_mode() : mode;
+        return std::clamp(requested, 4, boltyard::expedition_detail::last_terrain_mode);
+    }
     Dictionary get_expedition_heightfield(int mode) const {
         const auto &data=boltyard::expedition_detail::cache(expedition_mode(mode));
         PackedFloat32Array heights,surfaces,gravel;PackedColorArray materials;
@@ -135,11 +141,19 @@ public:
     }
     Array get_expedition_landmarks(int mode) const {
         const int m=expedition_mode(mode);Array out;int i=0;
-        for(const auto&l:boltyard::expedition_landmarks(m)){Dictionary d;d["id"]=String(m==5?"russia_":"rockies_")+String::num_int64(i++);d["name"]=l.name;d["description"]=l.detail;d["position"]=Vector3(l.x,boltyard::expedition_height(m,l.x,l.z),l.z);d["radius"]=18.0;out.push_back(d);}return out;
+        for(const auto&l:boltyard::expedition_landmarks(m)){Dictionary d;d["id"]=String(boltyard::expedition_region_id(m))+String("_")+String::num_int64(i++);d["name"]=l.name;d["description"]=l.detail;d["position"]=Vector3(l.x,boltyard::expedition_height(m,l.x,l.z),l.z);d["radius"]=18.0;out.push_back(d);}return out;
     }
     Array get_expedition_trails(int mode) const {
         if(mode<0&&get_terrain_mode()<4)return Array();
         Array out;for(const auto&p:boltyard::expedition_trail_points(expedition_mode(mode))){Dictionary d;d["position"]=Vector3(p.x,p.h,p.z);d["width"]=p.width;d["route"]=p.route;out.push_back(d);}return out;
+    }
+    Array get_expedition_route_info(int mode) const {
+        Array out;
+        for(const auto &route:boltyard::expedition_detail::routes(expedition_mode(mode))){
+            Dictionary d;d["name"]=route.name;d["detail"]=route.detail;d["difficulty"]=route.difficulty;
+            out.push_back(d);
+        }
+        return out;
     }
     Array get_expedition_routes(int mode) const {
         Array out;int route=-1;PackedVector3Array points;
