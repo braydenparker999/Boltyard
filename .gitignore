@@ -9,3 +9,7 @@ native/godot-cpp/
 native/.sconsign*
 native/*.o
 native/*.os
+
+# Godot 4.4 regenerates a .uid beside every script and shader on import, and
+# CI imports from a clean checkout every run. Asset .import files stay tracked.
+*.uid
