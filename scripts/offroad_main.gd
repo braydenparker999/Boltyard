@@ -12,12 +12,13 @@ const ACTIONS = ["off_left", "off_right", "off_go", "off_reverse", "off_brake"]
 const CAMP = Vector3(0, 1.5, 8)
 
 const EXPEDITIONS = {
+	"gridmap": {"name": "GRIDMAP REFRESH", "region": "PROVING GROUND", "mode": 7, "color": "adb8c0", "description": "Original ramps, suspension obstacles, pipes, oval and surface tests. A few shared scenery assets are unavailable."},
 	"utah": {"name": "UTAH EXTRA", "region": "UTAH / CANYON COUNTRY", "mode": 7, "color": "d5ac80", "description": "Full 2 km terrain with imported cliffs, boulders and junipers. Some newer bridges and structures remain unavailable."},
     "canyon": {"name": "REDSTONE CANYON", "region": "SANDSTONE COUNTRY", "mode": 6, "color": "d99b6b", "description": "Layered red cliffs, slickrock ledges and an open arch. Choose the rim traverse or the broad return trail."},
 	"rockies": {"name": "SILVERPINE RANGE", "region": "ROCKY MOUNTAINS", "mode": 4, "color": "829b88", "description": "Granite shelves, pine forest and high mountain passes. Find your line through the landscape."},
 	"russia": {"name": "KARELIAN TAIGA", "region": "RUSSIA", "mode": 5, "color": "a2af82", "description": "Wet forest tracks, glacial stone and quiet lakes. Crawl through birch and spruce country."}
 }
-var selected_map = "rockies"
+var selected_map = "gridmap"
 var exploration_progress: Dictionary = {}
 var map_buttons: Dictionary = {}
 var garage_tabs: Dictionary = {}
@@ -129,7 +130,7 @@ func _ready() -> void:
 	get_tree().auto_accept_quit = false
 	setup_input()
 	load_settings()
-	if selected_map == "utah" and not FileAccess.file_exists("res://data/utah/height.bin"):
+	if selected_map in ["utah", "gridmap"] and not FileAccess.file_exists("res://data/%s/height.bin" % selected_map):
 		selected_map = "rockies"
 	settings = VehicleCatalog.compose(builds[selected_vehicle])
 	truck = OffroadTruck.new()
@@ -143,7 +144,7 @@ func _ready() -> void:
 	world.set_quality(quality)
 	add_child(world)
 	add_child(truck)
-	if selected_map == "utah":
+	if selected_map in ["utah", "gridmap"]:
 		truck.reset(recovery_point())
 	landmarks = world.get_landmarks()
 	restore_exploration_progress()
@@ -151,7 +152,7 @@ func _ready() -> void:
 	camera.current = true
 	camera.fov = 52.0
 	camera.near = 0.08
-	camera.far = 3000.0 if selected_map == "utah" else 800.0
+	camera.far = 3000.0 if selected_map in ["utah", "gridmap"] else 800.0
 	add_child(camera)
 	trail_dust = preload("res://scripts/trail_dust.gd").new()
 	add_child(trail_dust)
@@ -333,7 +334,7 @@ func build_garage() -> void:
 	var trails = column(options, 9)
 	garage_pages.trails = trails
 	for id in EXPEDITIONS:
-		if id == "utah" and not FileAccess.file_exists("res://data/utah/height.bin"):
+		if id in ["utah", "gridmap"] and not FileAccess.file_exists("res://data/%s/height.bin" % id):
 			continue
 		var descriptor: Dictionary = EXPEDITIONS[id]
 		var item = button(trails, descriptor.region + "  ↗\n" + descriptor.name, select_map.bind(id), 0)
@@ -740,7 +741,7 @@ func build_map() -> void:
 	map_canvas = ExplorationMap.new()
 	map_canvas.custom_minimum_size = Vector2(180, 180)
 	map_canvas.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	map_canvas.extent = 1024.0 if selected_map == "utah" else (384.0 if selected_map == "legacy" else 320.0)
+	map_canvas.extent = 1024.0 if selected_map in ["utah", "gridmap"] else (384.0 if selected_map == "legacy" else 320.0)
 	map_canvas.configure(truck.core, landmarks, world.get_map_routes() if world.has_method("get_map_routes") else [])
 	map_canvas.destination_selected.connect(select_destination)
 	content.add_child(map_canvas)
@@ -1225,11 +1226,11 @@ func load_settings() -> void:
 		if active is String and VehicleCatalog.VEHICLES.has(active):
 			selected_vehicle = active
 		var map_id = parsed.get("selected_map", "rockies")
-		if map_id is String and map_id in ["utah", "canyon", "rockies", "russia", "legacy"]:
+		if map_id is String and map_id in ["gridmap", "utah", "canyon", "rockies", "russia", "legacy"]:
 			selected_map = map_id
 		var per_map = parsed.get("map_progress", {})
 		if per_map is Dictionary:
-			for id in ["utah", "canyon", "rockies", "russia", "legacy"]:
+			for id in ["gridmap", "utah", "canyon", "rockies", "russia", "legacy"]:
 				if per_map.get(id) is Dictionary:
 					exploration_progress[id] = per_map[id].duplicate(true)
 		var old_progress_map = selected_map if parsed.has("selected_map") else "legacy"
@@ -1379,8 +1380,9 @@ func _process(delta: float) -> void:
 		recover_safe()
 
 static func automatic_recovery_needed(at: Vector3, map_id: String) -> bool:
-	var limit := 1020.0 if map_id == "utah" else (365.0 if map_id == "legacy" else 316.0)
-	return not at.is_finite() or at.y < -50 or absf(at.x) > limit or absf(at.z) > limit
+	var limit := 1020.0 if map_id in ["utah", "gridmap"] else (365.0 if map_id == "legacy" else 316.0)
+	var fall_floor := -120.0 if map_id == "gridmap" else -50.0
+	return not at.is_finite() or at.y < fall_floor or absf(at.x) > limit or absf(at.z) > limit
 
 func update_camera(delta: float) -> void:
 	var position: Vector3 = current_telemetry.get("position", CAMP)
@@ -1560,13 +1562,15 @@ func _notification(what: int) -> void:
 		get_tree().quit()
 
 func recovery_point() -> Vector3:
-	if selected_map == "utah":
+	if selected_map in ["utah", "gridmap"]:
 		return world.get_spawn_position()
 	if not crawl_mode:
 		return Vector3(0, float(truck.core.terrain_height(0, 8)) + 1.5, 8)
 	return Vector3(0, 1.5, [8.0, -11.0, -24.0, -41.5, -55.0, -80.0][crawl_section])
 
 func create_world(id: String):
+	if id == "gridmap":
+		return load("res://scripts/gridmap_world.gd").new()
 	if id == "utah":
 		return load("res://scripts/imported_utah_world.gd").new()
 	if id == "copperline":
@@ -1626,7 +1630,7 @@ func restore_exploration_progress() -> void:
 	validate_exploration()
 
 func refresh_map_destinations() -> void:
-	map_canvas.extent = 1024.0 if selected_map == "utah" else (384.0 if selected_map == "legacy" else 320.0)
+	map_canvas.extent = 1024.0 if selected_map in ["utah", "gridmap"] else (384.0 if selected_map == "legacy" else 320.0)
 	map_canvas.configure(truck.core, landmarks, world.get_map_routes() if world.has_method("get_map_routes") else [])
 	map_title.text = str(EXPEDITIONS[selected_map].name) if EXPEDITIONS.has(selected_map) else "WORKSHOP MAP"
 	var grid: GridContainer = map_overlay.get_child(0).get_node("Destinations")
@@ -1644,14 +1648,14 @@ func refresh_map_destinations() -> void:
 	update_map()
 
 func select_map(id: String) -> void:
-	if id == "utah" and not FileAccess.file_exists("res://data/utah/height.bin"):
+	if id in ["utah", "gridmap"] and not FileAccess.file_exists("res://data/%s/height.bin" % id):
 		return
-	if driving or id == selected_map or not id in ["utah", "canyon", "rockies", "russia", "copperline", "legacy"]:
+	if driving or id == selected_map or not id in ["gridmap", "utah", "canyon", "rockies", "russia", "copperline", "legacy"]:
 		return
 	clear_controls()
 	store_exploration_progress()
 	selected_map = id
-	camera.far = 3000.0 if selected_map == "utah" else 800.0
+	camera.far = 3000.0 if selected_map in ["utah", "gridmap"] else 800.0
 	crawl_mode = selected_map == "copperline"
 	crawl_section = 0
 	var previous = world

@@ -18,6 +18,8 @@ struct CrawlRock {
     std::vector<std::array<int,3>> triangles;
     Vec3 center;
     float reach=0, surface=1.15f;
+    bool authored_surface=false;
+    int surface_id=1;
     bool surface_mesh=false; // Closed authored concave scenery; convex vehicle shapes keep their fast path.
     // Generated once with the hull; every physics query uses the same faces.
     std::vector<Vec3> triangle_normals;

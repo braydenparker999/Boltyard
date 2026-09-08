@@ -1,7 +1,7 @@
 extends Node3D
 # Original placements are retained across the full map. Render batches stream
 # by location and use source LODs; collision remains loaded independently.
-const DATA := "res://data/utah/"
+var data_path := "res://data/utah/"
 var models: Array = []
 var groups: Array = []
 var meshes: Dictionary = {}
@@ -9,10 +9,10 @@ var pending: Array = []
 var total := 0
 var collider_count := 0
 func configure() -> void:
- var meta: Dictionary = JSON.parse_string(FileAccess.get_file_as_string(DATA+"scenery.json"))
+ var meta: Dictionary = JSON.parse_string(FileAccess.get_file_as_string(data_path+"scenery.json"))
  models = meta.models
  collider_count = meta.colliders
- var file := FileAccess.open(DATA+"scenery_instances.bin",FileAccess.READ)
+ var file := FileAccess.open(data_path+"scenery_instances.bin",FileAccess.READ)
  total = file.get_32()
  var buckets: Dictionary = {}
  for i in total:

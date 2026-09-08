@@ -1095,10 +1095,10 @@ private:
                 const Vec3 support_point=line_center-radial*cfg_.tire_radius;
                 if(rock_distance(r,support_point).distance>std::max(.012f,-c.gap))c.gap=1.f;
             }
-            const float surface=terrain_mode_>=4&&!custom_rocks_?
+            const float surface=terrain_mode_>=4&&!custom_rocks_&&!r.authored_surface?
                 1.10f-.54f*expedition_material(terrain_mode_,hit.point.x,hit.point.z).wet:r.surface;
             c.mu=tire_mu(surface);
-            c.surface=terrain_mode_>=4&&expedition_material(terrain_mode_,hit.point.x,hit.point.z).wet>.30f?2:1;
+            c.surface=r.authored_surface?r.surface_id:terrain_mode_>=4&&expedition_material(terrain_mode_,hit.point.x,hit.point.z).wet>.30f?2:1;
         }
         return c;
     }

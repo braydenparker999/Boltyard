@@ -6,16 +6,19 @@ inline std::vector<CrawlRock> meshes,instances;
 inline std::unordered_map<int64_t,std::vector<int>> cells;
 inline int64_t key(int x,int z){return int64_t((uint64_t(uint32_t(x))<<32)|uint32_t(z));}
 inline bool load(const uint8_t* data,size_t size) {
-    if(!instances.empty())return true; // Geometry is immutable across map switches.
+    // Switching imported maps replaces geometry before simulation resumes.
+    meshes.clear();instances.clear();cells.clear();
     instance_query_cache.clear();
     size_t offset=0;bool valid=true;
     auto u32=[&](){uint32_t v=0;if(offset+4>size){valid=false;return v;}std::memcpy(&v,data+offset,4);offset+=4;return v;};
     auto f32=[&](){uint32_t u=u32();float v;std::memcpy(&v,&u,4);if(!std::isfinite(v))valid=false;return v;};
     auto vec=[&](){float x=f32(),y=f32(),z=f32();return Vec3{x,y,z};};
     auto fail=[](){meshes.clear();instances.clear();cells.clear();return false;};
-    if(u32()!=0x33545542)return false;
+    uint32_t magic=u32();bool materials=magic==0x34545542;
+    if(magic!=0x33545542&&!materials)return false;
     uint32_t count=u32();if(count>1000)return false;meshes.resize(count);
     for(auto& mesh:meshes){
+        if(materials){mesh.surface=f32();mesh.surface_id=int(u32());mesh.authored_surface=true;if(mesh.surface<0||mesh.surface>3||mesh.surface_id<0||mesh.surface_id>6)return fail();}
         uint32_t vertices=u32(),faces=u32();if(vertices>1000000||faces>1000000)return fail();
         mesh.surface_mesh=true;mesh.vertices.reserve(vertices);mesh.triangles.reserve(faces);
         for(uint32_t i=0;i<vertices;++i)mesh.vertices.push_back(vec());
@@ -27,7 +30,7 @@ inline bool load(const uint8_t* data,size_t size) {
     count=u32();if(count>250000)return fail();instances.reserve(count);
     for(uint32_t i=0;i<count;++i){
         uint32_t model=u32();if(model>=meshes.size()||meshes[model].query_nodes.empty())return fail();
-        CrawlRock r;r.source=&meshes[model];r.surface_mesh=true;
+        CrawlRock r;r.source=&meshes[model];r.surface_mesh=true;r.surface=r.source->surface;r.surface_id=r.source->surface_id;r.authored_surface=materials;
         for(auto& b:r.basis)b=vec();r.origin=vec();
         float det=r.basis[0].dot(r.basis[1].cross(r.basis[2]));if(!valid||std::abs(det)<1e-10f)return fail();
         r.inverse[0]=r.basis[1].cross(r.basis[2])/det;r.inverse[1]=r.basis[2].cross(r.basis[0])/det;r.inverse[2]=r.basis[0].cross(r.basis[1])/det;

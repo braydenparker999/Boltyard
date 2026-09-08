@@ -7,7 +7,9 @@
 namespace boltyard { namespace imported_terrain {
 // One immutable shared grid, loaded before selecting terrain mode 7.
 constexpr int side=1025;
-constexpr float extent=1024.f, spacing=2.f;
+inline float extent=1024.f, spacing=2.f;
+inline std::vector<float> surface_grip;
+inline std::vector<int> surface_ids;
 inline std::vector<float> heights;
 inline std::vector<uint8_t> layers;
 inline bool ready(){return heights.size()==size_t(side)*side;}
@@ -38,6 +40,6 @@ inline int layer(float x,float z){
 }
 inline float grip(float x,float z){
     constexpr float values[]={1.05f,.78f,.78f,.85f,.78f,.78f,.78f,.80f,1.10f,.98f,.95f,.76f,.70f,.55f};
-    return values[layer(x,z)];
+    int id=layer(x,z);return id<int(surface_grip.size())?surface_grip[id]:values[id];
 }
 } }

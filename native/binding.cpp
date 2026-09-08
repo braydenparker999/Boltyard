@@ -33,6 +33,7 @@ class SoftBodyRig : public RefCounted {
 
 protected:
     static void _bind_methods() {
+        ClassDB::bind_method(D_METHOD("configure_imported_surface", "spacing", "grip", "ids"), &SoftBodyRig::configure_imported_surface);
         ClassDB::bind_method(D_METHOD("load_imported_scenery", "data"), &SoftBodyRig::load_imported_scenery);
         ClassDB::bind_method(D_METHOD("load_imported_terrain", "heights", "layers"), &SoftBodyRig::load_imported_terrain);
         ClassDB::bind_method(D_METHOD("get_imported_chunk", "x", "z", "step"), &SoftBodyRig::get_imported_chunk);
@@ -75,6 +76,13 @@ protected:
     }
 
 public:
+    void configure_imported_surface(float cell_spacing,const PackedFloat32Array &grip,const PackedInt32Array &ids) {
+        using namespace boltyard::imported_terrain;
+        if(!std::isfinite(cell_spacing)||cell_spacing<.25f||cell_spacing>8||grip.size()!=ids.size()||grip.size()>14)return;
+        for(int i=0;i<grip.size();++i)if(!std::isfinite(grip[i])||grip[i]<0||grip[i]>3||ids[i]<0||ids[i]>6)return;
+        spacing=cell_spacing;extent=512*spacing;surface_grip.clear();surface_ids.clear();
+        if(grip.size()){surface_grip.assign(grip.ptr(),grip.ptr()+grip.size());surface_ids.assign(ids.ptr(),ids.ptr()+ids.size());}
+    }
     bool load_imported_scenery(const PackedByteArray &data) {return boltyard::imported_scenery::load(data.ptr(),data.size());}
     bool load_imported_terrain(const PackedFloat32Array &h,const PackedByteArray &m) {
         return boltyard::imported_terrain::load(h.ptr(),h.size(),m.ptr(),m.size());

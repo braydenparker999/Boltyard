@@ -10,12 +10,13 @@ var _terrain_materials: Array[ShaderMaterial] = []
 func configure(solver: RefCounted) -> void:
 	_core = solver
 	manifest = JSON.parse_string(FileAccess.get_file_as_string(DATA + "manifest.json"))
-	if not terrain_loaded:
-		var h := FileAccess.get_file_as_bytes(DATA + "height.bin").to_float32_array()
-		var layers := FileAccess.get_file_as_bytes(DATA + "surface.bin")
-		terrain_loaded = _core.load_imported_terrain(h, layers)
-		assert(terrain_loaded, "Utah terrain data missing or invalid")
-	assert(_core.load_imported_scenery(FileAccess.get_file_as_bytes(DATA + "scenery_collision.bin")), "Utah scenery collision is invalid")
+	_core.configure_imported_surface(2.0, PackedFloat32Array(), PackedInt32Array())
+	var h := FileAccess.get_file_as_bytes(DATA + "height.bin").to_float32_array()
+	var layers := FileAccess.get_file_as_bytes(DATA + "surface.bin")
+	terrain_loaded = _core.load_imported_terrain(h, layers)
+	assert(terrain_loaded, "Utah terrain data missing or invalid")
+	var scenery_ok: bool = _core.load_imported_scenery(FileAccess.get_file_as_bytes(DATA + "scenery_collision.bin"))
+	assert(scenery_ok, "Utah scenery collision is invalid")
 	_core.set_terrain(7)
 	if is_inside_tree() and _course == null:
 		_build_course()

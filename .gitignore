@@ -20,3 +20,9 @@ assets/utah/scenery/
 
 assets/utah/materials/
 assets/utah/roads/
+
+# Private Gridmap Refresh conversion; third-party art is not redistributed in git.
+assets/gridmap/
+data/gridmap/
+*.uid
+*.import

@@ -346,7 +346,7 @@ inline ExpeditionMaterial expedition_material(int mode,float x,float z) {
     return blend(data[i+side+1],data[i+side],data[i+1],tx+tz-1,1-tx,1-tz);
 }
 inline int expedition_surface_material(int mode,float x,float z) {
-    if(mode==7){int l=imported_terrain::layer(x,z);if(l>=8&&l<=10)return ExpeditionDryRock;if(l==1)return ExpeditionGravel;if(l==13)return ExpeditionMud;if(l==11||l==12)return ExpeditionSand;return ExpeditionDirt;}
+    if(mode==7){int l=imported_terrain::layer(x,z);if(l<int(imported_terrain::surface_ids.size()))return imported_terrain::surface_ids[l];if(l>=8&&l<=10)return ExpeditionDryRock;if(l==1)return ExpeditionGravel;if(l==13)return ExpeditionMud;if(l==11||l==12)return ExpeditionSand;return ExpeditionDirt;}
     const auto m=expedition_material(mode,x,z);
     if(m.rock>=.50f)return m.wet>.30f?ExpeditionWetRock:ExpeditionDryRock;
     if(m.wet>.40f)return ExpeditionMud;
