@@ -8,6 +8,43 @@ const MAP_SIDE := 321
 const MAP_CHUNKS := 10
 const CELL_SIZE := 64.0
 const ROCK_CREASE_COS := 0.743145 # 42 degrees: weathered crowns blend, cut ledges stay legible.
+## Everything that differs between regions, keyed by the native terrain mode.
+## Adding a region means adding a row here, not another `map_mode == 5` ternary.
+## `rock` is the bedrock grain; `cover` is the photograph the third material
+## channel is keyed from, which is forest floor on the boreal maps and
+## wind-blown sand on redrock.
+const REGIONS := {
+	4: {
+		"course": "SilverpineRange", "title": "SILVERPINE RANGE", "subtitle": "ROCKY MOUNTAINS",
+		"species": ["pine"], "understory": "fern", "taiga": 0.0, "desert": 0.0,
+		"rock": "res://assets/world/expedition_granite.png",
+		"cover": "res://assets/world/expedition_forest_floor.png",
+		"sun_angles": Vector3(-43, -39, 0), "sun_color": "fff5e5", "sun_energy": 1.05,
+		"ambient": "bccbd1", "ambient_energy": .32, "fill_energy": .17,
+		"fog": "a9bdc7", "fog_density": .0010, "sky_energy": .87,
+		"water_deep": "233f49", "water_shallow": "475548",
+	},
+	5: {
+		"course": "KareliaTaiga", "title": "KARELIA / КАРЕЛИЯ", "subtitle": "NORTHWEST RUSSIA",
+		"species": ["pine", "birch"], "understory": "fern", "taiga": 1.0, "desert": 0.0,
+		"rock": "res://assets/world/expedition_granite.png",
+		"cover": "res://assets/world/expedition_forest_floor.png",
+		"sun_angles": Vector3(-32, -58, 0), "sun_color": "f0f1e8", "sun_energy": .86,
+		"ambient": "c0cad0", "ambient_energy": .39, "fill_energy": .21,
+		"fog": "a6b5b4", "fog_density": .0018, "sky_energy": .78,
+		"water_deep": "172d32", "water_shallow": "475548",
+	},
+	6: {
+		"course": "RedrockBasin", "title": "REDROCK BASIN", "subtitle": "HIGH DESERT",
+		"species": ["pine"], "understory": "brush", "taiga": 0.0, "desert": 1.0,
+		"rock": "res://assets/world/terrain_rock_photo.png",
+		"cover": "res://assets/world/terrain_dirt.png",
+		"sun_angles": Vector3(-52, -28, 0), "sun_color": "ffeed4", "sun_energy": 1.06,
+		"ambient": "9fb0c4", "ambient_energy": .36, "fill_energy": .17,
+		"fog": "b6b3ae", "fog_density": .0007, "sky_energy": .86,
+		"water_deep": "2e3f33", "water_shallow": "5c6a4e",
+	},
+}
 var map_mode := 4
 var _weights := PackedColorArray()
 var _gravel_weights := PackedFloat32Array()
@@ -29,6 +66,9 @@ func configure(solver: RefCounted) -> void:
 	elif _course != null:
 		_built_core_id = _core.get_instance_id()
 
+func region() -> Dictionary:
+	return REGIONS.get(map_mode, REGIONS[4])
+
 func get_landmarks() -> Array:
 	if _core == null:
 		return []
@@ -46,29 +86,29 @@ func get_landmarks() -> Array:
 
 func _make_lighting() -> void:
 	super._make_lighting()
-	var taiga := map_mode == 5
-	_sun.rotation_degrees = Vector3(-43, -39, 0) if not taiga else Vector3(-32, -58, 0)
-	_sun.light_color = Color("fff5e5") if not taiga else Color("f0f1e8")
-	_sun.light_energy = 1.05 if not taiga else 0.86
+	var region_data := region()
+	_sun.rotation_degrees = region_data.sun_angles
+	_sun.light_color = Color(region_data.sun_color)
+	_sun.light_energy = region_data.sun_energy
 	# Retain OffroadWorld's GLES shadow bias (.9 / 2.4). Reducing it caused
 	# self-shadow interference rings on level dirt and bands on vehicle panels.
 	var settings := _environment.environment
-	settings.ambient_light_color = Color("bccbd1") if not taiga else Color("c0cad0")
-	settings.ambient_light_energy = .32 if not taiga else .39
+	settings.ambient_light_color = Color(region_data.ambient)
+	settings.ambient_light_energy = region_data.ambient_energy
 	settings.tonemap_exposure = 1.0
-	settings.fog_light_color = Color("a9bdc7") if not taiga else Color("a6b5b4")
-	settings.fog_density = .0010 if not taiga else .0018
+	settings.fog_light_color = Color(region_data.fog)
+	settings.fog_density = region_data.fog_density
 	settings.fog_light_energy = .84
 	settings.fog_sky_affect = .06
 	var fill := get_node_or_null("OpenSkyFill") as DirectionalLight3D
 	if fill != null:
-		fill.light_energy = .17 if not taiga else .21
-		fill.light_color = Color("b8c9d1")
+		fill.light_energy = region_data.fill_energy
+		fill.light_color = Color("b8c9d1") if map_mode != 6 else Color("aebfd4")
 	# Use a neutral daylight sky for both locations. Replacing the material on
 	# the retained Sky avoids accumulating environment resources on map changes.
 	var sky_material := PanoramaSkyMaterial.new()
 	sky_material.panorama = load("res://assets/world/expedition_daylight_sky.png")
-	sky_material.energy_multiplier = .87 if not taiga else .78
+	sky_material.energy_multiplier = region_data.sky_energy
 	settings.sky.sky_material = sky_material
 	if _reflection != null:
 		_reflection.visible = false
@@ -85,8 +125,9 @@ func _load_surface(preferred: String, fallback: String) -> Texture2D:
 	return load(preferred if ResourceLoader.exists(preferred) else fallback) as Texture2D
 
 func _make_materials() -> void:
-	var granite := _load_surface("res://assets/world/expedition_granite.png", "res://assets/world/terrain_rock_photo.png")
-	var forest := _load_surface("res://assets/world/expedition_forest_floor.png", "res://assets/world/terrain_grass.png")
+	var region_data := region()
+	var granite := _load_surface(region_data.rock, "res://assets/world/terrain_rock_photo.png")
+	var forest := _load_surface(region_data.cover, "res://assets/world/terrain_grass.png")
 	_ground_material = ShaderMaterial.new()
 	_ground_material.shader = load("res://shaders/expedition_ground.gdshader")
 	_ground_material.set_shader_parameter("forest_floor", forest)
@@ -94,28 +135,33 @@ func _make_materials() -> void:
 	_ground_material.set_shader_parameter("trail_gravel", load("res://assets/world/terrain_dirt.png"))
 	_ground_material.set_shader_parameter("detail_normal", load("res://assets/world/terrain_rock_normal.png"))
 	_ground_material.set_shader_parameter("soil_normal", load("res://assets/world/terrain_dirt_normal.png"))
-	_ground_material.set_shader_parameter("taiga", 1.0 if map_mode == 5 else 0.0)
+	_ground_material.set_shader_parameter("taiga", region_data.taiga)
+	_ground_material.set_shader_parameter("desert", region_data.desert)
 	_expedition_rock = ShaderMaterial.new()
 	_expedition_rock.shader = load("res://shaders/expedition_granite.gdshader")
 	_expedition_rock.set_shader_parameter("granite", granite)
 	_expedition_rock.set_shader_parameter("forest_floor", forest)
 	_expedition_rock.set_shader_parameter("detail_normal", load("res://assets/world/terrain_rock_normal.png"))
-	_expedition_rock.set_shader_parameter("taiga", 1.0 if map_mode == 5 else 0.0)
-	for kind in ["pine", "birch"]:
+	_expedition_rock.set_shader_parameter("taiga", region_data.taiga)
+	_expedition_rock.set_shader_parameter("desert", region_data.desert)
+	var desert: bool = region_data.desert > 0.0
+	for kind: String in region_data.species:
 		var bark := ShaderMaterial.new()
 		bark.shader = load("res://shaders/expedition_bark.gdshader")
 		bark.set_shader_parameter("birch", kind == "birch")
+		bark.set_shader_parameter("desert", desert)
 		_materials[kind + "_bark"] = bark
 		var foliage := ShaderMaterial.new()
 		foliage.shader = load("res://shaders/expedition_foliage.gdshader")
 		var leaf_path := "res://assets/world/expedition_birch_branch.png"
 		foliage.set_shader_parameter("branch_texture", _load_surface(leaf_path if kind == "birch" else "res://assets/world/juniper_branch_photo.png", "res://assets/world/juniper_branch_photo.png"))
 		foliage.set_shader_parameter("birch", kind == "birch")
+		foliage.set_shader_parameter("desert", desert)
 		foliage.set_shader_parameter("leaf_geometry", kind == "birch" and not ResourceLoader.exists(leaf_path))
 		_materials[kind] = foliage
-	_materials.wood = _mat(Color("493c2c"), .97)
-	_materials.sign = _mat(Color("303e34"), .94)
-	_materials.fern = _mat(Color("637548"), 1.0)
+	_materials.wood = _mat(Color("493c2c") if not desert else Color("5b4433"), .97)
+	_materials.sign = _mat(Color("303e34") if not desert else Color("3d3229"), .94)
+	_materials.fern = _mat(Color("637548") if not desert else Color("6c6a4a"), 1.0)
 	_materials.fern.vertex_color_use_as_albedo = true
 	_materials.fern.cull_mode = BaseMaterial3D.CULL_DISABLED
 
@@ -146,7 +192,7 @@ func _build_course() -> void:
 	_make_materials()
 	_cache_terrain()
 	_course = Node3D.new()
-	_course.name = "SilverpineRange" if map_mode == 4 else "KareliaTaiga"
+	_course.name = region().course
 	add_child(_course)
 	for iz in range(MAP_CHUNKS):
 		for ix in range(MAP_CHUNKS):
@@ -380,6 +426,40 @@ func _conifer_crown(variant: int, simple: bool) -> ArrayMesh:
 		_branch_card(surface, Vector3(0, .83, 0), Vector3(cos(angle), 0, sin(angle)) * .037, Vector3.UP * .18, 1.0)
 	return surface.commit()
 
+func _juniper_crown(variant: int, simple: bool) -> ArrayMesh:
+	# Utah juniper is squat and about as broad as it is tall, with an irregular
+	# rounded canopy and no leader spire. The trunk cylinder it is drawn on is
+	# the native contact shape; the canopy is non-supporting decoration. Building it from the same branch cards
+	# as the conifer keeps one canopy draw per species per cell.
+	var surface := SurfaceTool.new()
+	surface.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var layers := 5 if simple else 8
+	var branches := 5 if simple else 8
+	for layer in range(layers):
+		var t := float(layer) / float(layers - 1)
+		# The canopy runs past the top of the trunk cylinder it is drawn on.
+		# Stopping short of it leaves the bare tip standing above the foliage,
+		# which reads as a conifer leader and is exactly what a juniper has not.
+		var y := .14 + t * .88
+		# Widest a little below half height, tapering to a blunt, uneven top.
+		var profile := sin(pow(t, .70) * PI * .82)
+		var width := (.400 * profile + .055) * (1.0 + .22 * sin(variant * 2.11 + layer * 1.61))
+		for branch in range(branches):
+			var angle := branch * TAU / float(branches) + layer * 2.39 + variant * 1.27
+			var radial := Vector3(cos(angle), 0, sin(angle))
+			var tangent := Vector3(-sin(angle), 0, cos(angle))
+			var reach := width * (1.0 + .26 * sin(branch * 2.31 + layer * .87 + variant))
+			var out := radial * reach + Vector3.UP * (.030 * (1.0 - t) - .020 * t)
+			var origin := Vector3(0, y + .024 * sin(branch * 1.93 + layer), 0)
+			var shade := .80 + .16 * t + .08 * sin(branch * 3.11 + variant)
+			_branch_card(surface, origin, tangent * reach * .48 + Vector3.UP * .030, out, shade)
+			if not simple:
+				_branch_card(surface, origin - radial * .010, tangent * reach * .20 + Vector3.UP * reach * .30, out, shade * .90)
+	for cap in range(3):
+		var angle := cap * TAU / 3.0 + variant * .8
+		_branch_card(surface, Vector3(0, .88, 0), Vector3(cos(angle), 0, sin(angle)) * .062, Vector3.UP * .15, .97)
+	return surface.commit()
+
 func _birch_branches(simple: bool) -> ArrayMesh:
 	var surface := SurfaceTool.new()
 	surface.begin(Mesh.PRIMITIVE_TRIANGLES)
@@ -436,6 +516,8 @@ func _make_batch(mesh: Mesh, material: Material, transforms: Array, label_text: 
 	return visual
 
 func _build_forest() -> void:
+	var species: Array = region().species
+	var desert: bool = region().desert > 0.0
 	var obstacles: Array = _core.get_expedition_obstacles(map_mode)
 	var cells: Dictionary = {}
 	var rng := RandomNumberGenerator.new()
@@ -447,6 +529,8 @@ func _build_forest() -> void:
 		var h := float(obstacle.height)
 		var radius := float(obstacle.radius)
 		var kind := "birch" if int(obstacle.type) == 3 else "pine"
+		if not kind in species:
+			kind = species[0]
 		var at := Vector3(x, _core.terrain_height(x, z), z)
 		var cell := Vector2i(floori(x / CELL_SIZE), floori(z / CELL_SIZE))
 		# Variants vary between cells; per-tree scale/rotation varies within them.
@@ -462,21 +546,32 @@ func _build_forest() -> void:
 		# Rooted ferns occur in sparse islands; they are less than knee height and
 		# never conceal the driving surface or add invisible supporting collision.
 		if _tree_count % 2 == 0:
-			for j in range(2):
+			for j in range(1 if desert else 2):
 				var p := at + Vector3(rng.randf_range(-2.4, 2.4), 0, rng.randf_range(-2.4, 2.4))
 				p.y = _core.terrain_height(p.x, p.z)
 				var sample_index := clampi(roundi((p.z + MAP_EXTENT) * .5), 0, 320) * MAP_SIDE + clampi(roundi((p.x + MAP_EXTENT) * .5), 0, 320)
-				if _weights[sample_index].g > .38 or _weights[sample_index].r > .58 or _weights[sample_index].a > .8:
+				# Understory follows the loose ground the native surface pass
+				# found: forest floor on the boreal maps, sand on redrock. Both
+				# reject bare rock, standing water and the graded tread itself.
+				if desert:
+					if _weights[sample_index].b < .34 or _weights[sample_index].r > .70 or _weights[sample_index].a > .5:
+						continue
+				elif _weights[sample_index].g > .38 or _weights[sample_index].r > .58 or _weights[sample_index].a > .8:
 					continue
 				if not plants.has(cell):
 					plants[cell] = []
 				var size := rng.randf_range(.55, 1.08)
 				plants[cell].append(Transform3D(Basis(Vector3.UP, rng.randf()*TAU).scaled(Vector3(size, size, size)), p))
 	var trunk_mesh := _trunk_mesh()
-	for kind in ["pine", "birch"]:
+	for kind: String in species:
 		for variant in range(2):
 			var key: String = kind + str(variant)
-			_foliage_meshes[key] = [_conifer_crown(variant, false), _conifer_crown(variant, true)] if kind == "pine" else [_birch_crown(false), _birch_crown(true)]
+			if kind != "pine":
+				_foliage_meshes[key] = [_birch_crown(false), _birch_crown(true)]
+			elif desert:
+				_foliage_meshes[key] = [_juniper_crown(variant, false), _juniper_crown(variant, true)]
+			else:
+				_foliage_meshes[key] = [_conifer_crown(variant, false), _conifer_crown(variant, true)]
 			_branch_meshes[key] = _conifer_branches(variant) if kind == "pine" else _birch_branches(false)
 	for key in cells:
 		var cell: Dictionary = cells[key]
@@ -486,12 +581,33 @@ func _build_forest() -> void:
 		var branches := _make_batch(_branch_meshes[kind + str(cell.variant)], _materials[kind + "_bark"], cell.crowns, "Boughs_" + key)
 		var crowns := _make_batch(meshes[1], _materials[kind], cell.crowns, "Canopy_" + key)
 		_forest_cells.append({"center": cell.center, "trunks": trunks, "branches": branches, "crowns": crowns, "near_mesh": meshes[0], "far_mesh": meshes[1]})
-	var fern_mesh := _fern_mesh()
+	var fern_mesh := _brush_mesh() if desert else _fern_mesh()
 	for cell in plants:
 		var cover := _make_batch(fern_mesh, _materials.fern, plants[cell], "ForestFloor_%d_%d" % [cell.x, cell.y])
 		cover.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-		cover.visibility_range_end = 95.0
+		cover.visibility_range_end = 95.0 if not desert else 78.0
 		_vegetation.append(cover)
+
+func _brush_mesh() -> ArrayMesh:
+	# A low blackbrush clump: stiff radiating twigs rather than soft fronds.
+	# Like the fern it stays below knee height and carries no collision, so it
+	# can never hide the driving surface or support a tire.
+	var surface := SurfaceTool.new()
+	surface.begin(Mesh.PRIMITIVE_TRIANGLES)
+	for twig in range(11):
+		var angle := twig * 2.39996
+		var lean := .30 + .22 * sin(twig * 1.71)
+		var radial := Vector3(cos(angle), 0, sin(angle))
+		var tangent := Vector3(-sin(angle), 0, cos(angle))
+		var tip := radial * lean + Vector3.UP * (.20 + .13 * sin(twig * 2.13))
+		var tint := Color(.52,.50,.34).lerp(Color(.80,.76,.55), float(twig % 3) / 2.0)
+		for leaf in range(3):
+			var t := float(leaf + 1) / 4.0
+			var at := tip * t
+			var half_width := .036 * (1.0 - t * .55)
+			_emit_triangle(surface, at, at + tangent * half_width, at + tip * .30, tint)
+			_emit_triangle(surface, at, at + tip * .30, at - tangent * half_width, tint)
+	return surface.commit()
 
 func _fern_mesh() -> ArrayMesh:
 	var surface := SurfaceTool.new()
@@ -533,9 +649,12 @@ func update_focus(at: Vector3) -> void:
 		cell.crowns.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON if distance < tree_near else GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 
 func _build_expedition_lake() -> void:
-	var center := Vector2(108, -87) if map_mode == 4 else Vector2(26, -147)
-	var radius := Vector2(35, 28) if map_mode == 4 else Vector2(83, 66)
-	var water_height := 5.0 if map_mode == 4 else -1.6
+	# The native water body is authoritative: it is the same ellipse the
+	# heightfield carved its bed and shoreline from.
+	var basin: Dictionary = _core.get_expedition_water(map_mode)
+	var center := Vector2(float(basin.x), float(basin.z))
+	var radius := Vector2(float(basin.rx), float(basin.rz))
+	var water_height := float(basin.height)
 	var surface := SurfaceTool.new()
 	surface.begin(Mesh.PRIMITIVE_TRIANGLES)
 	var triangle_count := 0
@@ -564,17 +683,17 @@ func _build_expedition_lake() -> void:
 	var material := ShaderMaterial.new()
 	material.shader = load("res://shaders/world_water.gdshader")
 	material.set_shader_parameter("ripple_normal", load("res://assets/world/terrain_dirt_normal.png"))
-	material.set_shader_parameter("deep_color", Color("172d32") if map_mode == 5 else Color("233f49"))
-	material.set_shader_parameter("shallow_color", Color("475548"))
+	material.set_shader_parameter("deep_color", Color(region().water_deep))
+	material.set_shader_parameter("shallow_color", Color(region().water_shallow))
 	var water := _instance(surface.commit(), material, Vector3.ZERO)
-	water.name = "GlacialLake"
+	water.name = "StandingWater"
 	water.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 
 func _build_trailhead() -> void:
 	# Wayfinding belongs to the trailhead. The routes themselves remain natural
 	# connected rock and soil, without floating labels or obstacle-course gates.
-	var title := "SILVERPINE RANGE" if map_mode == 4 else "KARELIA / КАРЕЛИЯ"
-	var sub := "ROCKY MOUNTAINS" if map_mode == 4 else "NORTHWEST RUSSIA"
+	var title: String = region().title
+	var sub: String = region().subtitle
 	var at := Vector3(-6.5, _core.terrain_height(-6.5, 9.8), 9.8)
 	for offset in [-1.18, 1.18]:
 		_box(Vector3(.13, 2.25, .13), at + Vector3(offset, 1.125, 0), _materials.wood)

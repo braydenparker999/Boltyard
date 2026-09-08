@@ -32,9 +32,24 @@ func check_rock_shading(world: Node3D) -> void:
 	check(hard[0].is_equal_approx(Vector3.UP) and hard[3].is_equal_approx(Vector3.FORWARD),
 		"A deliberate vertical ledge must keep its hard rim visible")
 
+## Per-region expectations. Redrock is bare rock with a scatter of
+## pinyon-juniper, so a boreal tree count would be the wrong test, not a
+## loose one; it spends that budget on standing sandstone instead.
+const EXPECTED := {
+	4: {"label": "rockies", "min_trees": 1000, "min_rocks": 60, "focus": Vector3(15, 0, -75),
+		"eye": Vector3(9, 5.5, 12), "aim": Vector3(-6, 1.2, -12)},
+	5: {"label": "russia", "min_trees": 1000, "min_rocks": 60, "focus": Vector3(-63, 0, -29),
+		"eye": Vector3(9, 5.5, 12), "aim": Vector3(-6, 1.2, -12)},
+	# Redrock frames a corridor between two fins, looking along the bedding
+	# rather than across it, so the still shows the walls and not their ends.
+	6: {"label": "redrock", "min_trees": 150, "min_rocks": 150, "focus": Vector3(-206, 0, 214),
+		"eye": Vector3(13, 4.6, 13), "aim": Vector3(-15, 1.0, -15), "vegetation": Vector3(-40, 0, 60)},
+}
+
 func run() -> void:
 	root.size = Vector2i(1280, 720)
-	for mode in [4, 5]:
+	for mode in [4, 5, 6]:
+		var expected: Dictionary = EXPECTED[mode]
 		var stage := Node3D.new()
 		root.add_child(stage)
 		var core: RefCounted = ClassDB.instantiate("SoftBodyRig")
@@ -47,11 +62,13 @@ func run() -> void:
 		world.update_focus(Vector3(0, 0, 8))
 		var metrics: Dictionary = world.get_world_metrics()
 		check(metrics.terrain_chunks == 100, "Each map must cover the full native 640 m square")
-		check(metrics.tree_count == core.get_expedition_obstacles().size(), "Every visible tree trunk must come from native tree collision")
-		check(metrics.tree_count > 1000, "Each exploration forest needs substantial native tree coverage")
+		check(metrics.tree_count == core.get_expedition_obstacles(mode).size(), "Every visible tree trunk must come from native tree collision")
+		check(metrics.tree_count >= int(expected.min_trees), "Each region needs the native vegetation cover it declares")
+		check(metrics.rock_batches > 0 and core.get_expedition_rocks(mode).size() >= int(expected.min_rocks),
+			"Each region needs its own exact rock geometry")
 		var native_vertices := 0
 		var native_points: Dictionary = {}
-		for rock in core.get_expedition_rocks():
+		for rock in core.get_expedition_rocks(mode):
 			native_vertices += rock.size()
 			for vertex: Vector3 in rock:
 				native_points[vertex] = int(native_points.get(vertex, 0)) + 1
@@ -83,7 +100,7 @@ func run() -> void:
 		camera.fov = 63
 		stage.add_child(camera)
 		camera.current = true
-		var label := "rockies" if mode == 4 else "russia"
+		var label: String = expected.label
 		camera.position = Vector3(8, 4.3, 20)
 		camera.look_at(Vector3(-15, 1.5, -28))
 		await settle(7)
@@ -99,18 +116,18 @@ func run() -> void:
 			await settle()
 			root.get_texture().get_image().save_png("res://build/expedition-shadow-off.png")
 			world._sun.shadow_enabled = true
-		var at := Vector3(15, 0, -75) if mode == 4 else Vector3(-63, 0, -29)
+		var at: Vector3 = expected.focus
 		at.y = core.terrain_height(at.x, at.z)
 		world.update_focus(at)
-		camera.position = at + Vector3(9, 5.5, 12)
-		camera.look_at(at + Vector3(-6, 1.2, -12))
+		camera.position = at + Vector3(expected.eye)
+		camera.look_at(at + Vector3(expected.aim))
 		await settle()
 		root.get_texture().get_image().save_png("res://build/expedition-%s-rock-trail.png" % label)
 		# Inspect a real supporting hull at tire scale. The broader trail image
 		# alone cannot reveal whether its crown and contact entry remain faceted.
 		var nearest_rock := PackedVector3Array()
 		var nearest_distance := INF
-		for rock: PackedVector3Array in core.get_expedition_rocks():
+		for rock: PackedVector3Array in core.get_expedition_rocks(mode):
 			var rock_center := Vector3.ZERO
 			for vertex: Vector3 in rock:
 				rock_center += vertex
@@ -132,6 +149,24 @@ func run() -> void:
 			camera.look_at(rock_center)
 			await settle()
 			root.get_texture().get_image().save_png("res://build/expedition-%s-contact-scale.png" % label)
+		# A region's vegetation is only judgeable at the scale it is driven past.
+		if expected.has("vegetation"):
+			var trees: Array = core.get_expedition_obstacles(mode)
+			var chosen: Dictionary = {}
+			var closest := INF
+			for tree: Dictionary in trees:
+				var offset := Vector2(float(tree.x), float(tree.z)).distance_to(Vector2(expected.vegetation.x, expected.vegetation.z))
+				if offset < closest:
+					closest = offset
+					chosen = tree
+			if not chosen.is_empty():
+				var root_point := Vector3(float(chosen.x), 0, float(chosen.z))
+				root_point.y = core.terrain_height(root_point.x, root_point.z)
+				world.update_focus(root_point)
+				camera.position = root_point + Vector3(6.5, 3.2, 6.5)
+				camera.look_at(root_point + Vector3(0, float(chosen.height) * .45, 0))
+				await settle()
+				root.get_texture().get_image().save_png("res://build/expedition-%s-vegetation.png" % label)
 		var water: Dictionary = core.get_expedition_water(mode)
 		at = Vector3(water.x + water.rx * .80, water.height, water.z + water.rz * 1.15)
 		world.update_focus(at)

@@ -1,3 +1,54 @@
+## Redrock Basin
+
+A third 640 × 640 m region. **Redrock Basin** is high desert: a sandy wash
+draining a basin between a flat-topped mesa, a slickrock dome field, a standing
+fin field and a set of scoured pothole benches. The per-region route ceiling
+rose from four to six to hold it, and route difficulty is now declared data
+rather than an index comparison, so the trail atlas draws the technical lines
+in their own colour.
+
+Six named routes share it, and every one hands off to another at a junction
+they hold in common, so any technical line can be left for an easier one:
+
+| Route | Grade | What it is |
+|---|---|---|
+| **Basin Wash** | Easy | The sandy loop, run as a figure eight through camp, that every other route leaves from and returns to |
+| **Dome Traverse** | Moderate | Rolling bare slickrock over the eastern swell |
+| **Mesa Rim Road** | Moderate | The exposed shelf circuit around the top of the mesa |
+| **The Fins** | Technical | Corridors between standing sandstone walls |
+| **Devils Staircase** | Technical | The stacked ledge climb up the mesa flank, and the only way to the rim road |
+| **Pothole Flats** | Technical | Scoured benches, short drops and the water pocket |
+
+The landform is a bedrock platform cut into flat benches, so the ground a tire
+reads stays a surface: the metre-scale walls, fins and ledge steps are exact
+convex hulls in the rock cache, the same geometry that is drawn. Bedding fades
+out as the grade rises, because risers stacked on a cliff face would be steeper
+than the cliff. Route elevations were solved against that landform and then
+relaxed until every span is climbable, so the trails follow the ground instead
+of cutting a bench into it.
+
+Redrock inverts the other two maps' materials. Bare sandstone is the default
+ground and the third material channel carries wind-blown sand rather than
+forest floor, so **Sand** joins dirt, dry and wet rock, mud and gravel as a
+reported contact material. Dry slickrock is the grippiest surface in the game
+and dry sand one of the loosest; a gravel bar runs down the wash between them.
+Vegetation is pinyon-juniper rather than forest — 342 trees against Silverpine's
+2554 — and that budget is spent on 227 rock hulls instead.
+
+In the Linux render review, at the same quality and framing the other two
+regions are captured at, Redrock draws 222 calls and about 155,000 triangles
+against Silverpine's 185 calls / 446,000 triangles and Karelian Taiga's 247 /
+282,000 — the trees it does not have cost more than the rock it does. These are
+desktop Compatibility-renderer counts, not an Android measurement; Samsung A15
+frame rate and thermals for this region still need a phone test.
+
+Building a region now costs roughly 40% less than it did, for all three: the
+surface pass reuses the nearest-route answer the height pass already computed
+rather than walking the whole trail network a second time per grid cell.
+Silverpine and Karelian Taiga are otherwise unchanged, vertex for vertex.
+
+---
+
 ## 2.3 Thumbdrive
 
 Portrait-first analog steering and progressive throttle replace the digital driving pedals. Range, front/rear axle locks and local recovery sit in a permanent thumb-height row. FWD/REV selects direction; changing direction releases a held throttle. Pause offers control size, vertical position and steering sensitivity, saved with the garage.
@@ -20,7 +71,7 @@ Install the signed 2.2.0 update over the previous app to retain builds and map p
 
 # Bolt Yard — Crawlworks 2.1: Trailcraft
 
-An offline Android crawling and exploration game built with Godot 4.4.1 and a native C++ vehicle solver. Explore two 640 × 640 m regions: **Silverpine Range**, a Rocky Mountain inspired pine-and-granite landscape, and **Karelian Taiga**, a Russian forest of birch, spruce, exposed bedrock and lakes. Both are fictional landscapes, with connected trails shaped into their terrain.
+An offline Android crawling and exploration game built with Godot 4.4.1 and a native C++ vehicle solver. Explore three 640 × 640 m regions: **Silverpine Range**, a Rocky Mountain inspired pine-and-granite landscape, **Karelian Taiga**, a Russian forest of birch, spruce, exposed bedrock and lakes, and **Redrock Basin**, a high-desert basin of slickrock domes, standing fins and a mesa rim. All three are fictional landscapes, with connected trails shaped into their terrain.
 
 Choose a region in **Trails**, select a vehicle, press **Fit a crawling setup**, then **Explore**. Equipment and Setup have their own garage tabs. Each region remembers its discoveries and recovery point; saved vehicle builds remain available across regions.
 
@@ -48,7 +99,7 @@ Follow and Trail ignore scenery drags. Choose Free explicitly before orbiting, t
 
 The four-link axle carriers and coilovers continue to act at their actual mounting points, with drivetrain and brake torque reactions. Tires remain a bounded contact model with derived rubber geometry; there is no finite-element carcass, puncture model or measured real-truck calibration. Movable objects use one tire contact per object rather than the static multi-patch solve. Water has a solid low-grip bed; buoyancy, deformable mud and vehicle self-collision are not implemented. Samsung A15 frame rate, temperature and touch feel still require a phone test.
 
-Both regions are original landscapes. [BeamNG's Johnson Valley development notes](https://beamng.com/game/news/blog/beamng-drive-v0-27/) and [Moab's creator notes](https://www.beamng.com/resources/moab-utah.26830/) informed the use of broad eroded forms and deliberately placed trail obstacles. No BeamNG maps, heightmaps, meshes or textures were imported.
+All three regions are original landscapes, generated at runtime from the anchor tables and noise fields in `native/expedition_terrain.hpp`; the repository contains no heightmap or terrain mesh files at all. [BeamNG's Johnson Valley development notes](https://beamng.com/game/news/blog/beamng-drive-v0-27/) and [Moab's creator notes](https://www.beamng.com/resources/moab-utah.26830/) informed the use of broad eroded forms and deliberately placed trail obstacles, and Redrock Basin takes the same kind of reference from Colorado Plateau canyon country. No BeamNG maps, heightmaps, meshes or textures were imported, and no real place is reproduced.
 
 ## Install and build
 

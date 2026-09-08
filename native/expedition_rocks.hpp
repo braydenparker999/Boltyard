@@ -1,7 +1,14 @@
 #pragma once
 // Include inside boltyard after CrawlRock and expedition_terrain.hpp. These
-// rounded, buried granite hulls are exported verbatim for visible rock meshes.
-inline CrawlRock expedition_granite(int mode,float x,float z,float width,float depth,float exposure,float yaw,unsigned seed,int fracture_attempt=0) {
+// rounded, buried hulls are exported verbatim for visible rock meshes.
+// The shell shape. Glaciated granite derives it from the seed alone; layered
+// sandstone needs to ask for a specific form, because a fin and a ledge tread
+// are the obstacle, not a variation on a boulder.
+//   cross_power  2 is an ellipse in plan, higher squares the sides off.
+//   crown_power  2 is a dome, higher holds full width up to a flat top.
+//   drift        shifts the crown along local z, lengthening one approach.
+struct RockProfile { float cross_power,crown_power,drift; bool fracture; };
+inline CrawlRock expedition_granite(int mode,float x,float z,float width,float depth,float exposure,float yaw,unsigned seed,int fracture_attempt=0,const RockProfile *profile=nullptr) {
     using namespace expedition_detail;
     CrawlRock rock;std::vector<Vec3> points;
     const float cy=expedition_height(mode,x,z),burial=std::max(1.1f,std::max(width,depth)*.27f);
@@ -14,9 +21,9 @@ inline CrawlRock expedition_granite(int mode,float x,float z,float width,float d
     // Convex superellipsoid sections vary from long whalebacks to broad slabs
     // and rounded joint blocks. Affine crown drift makes the abraded approach
     // longer than the lee shoulder without non-convex contact approximations.
-    const float cross_power=2.0f+(seed%3)*.36f;
-    const float crown_power=seed%5<2?2.0f:(seed%5==2?3.4f:2.65f);
-    const float drift=(seed%2?.16f:-.10f)*depth;
+    const float cross_power=profile?profile->cross_power:2.0f+(seed%3)*.36f;
+    const float crown_power=profile?profile->crown_power:(seed%5<2?2.0f:(seed%5==2?3.4f:2.65f));
+    const float drift=(profile?profile->drift:(seed%2?.16f:-.10f))*depth;
     auto point=[&](float a,float level,float radial) {
         auto signed_power=[](float value,float exponent){return std::copysign(std::pow(std::abs(value),exponent),value);};
         float px=signed_power(std::cos(a),2/cross_power)*width*.5f*radial;
@@ -42,7 +49,7 @@ inline CrawlRock expedition_granite(int mode,float x,float z,float width,float d
     // clipping plane, so the abrupt technical edge is both drawn and collided.
     // Low traversable slabs keep the fracture short; larger shoulder blocks
     // can carry the more prominent broken face seen in glaciated bedrock.
-    const bool fractured=fracture_attempt<6&&(seed%5==2||seed%7==0);
+    const bool fractured=fracture_attempt<6&&(profile?profile->fracture:(seed%5==2||seed%7==0));
     if(fractured) {
         Vec3 plane{.10f,exposure<.6f?.24f:.12f,seed%2?1.f:-1.f};plane=plane.normalized();
         const float offset=depth*(.22f+variant*.08f+fracture_attempt*.007f);
@@ -88,21 +95,46 @@ inline CrawlRock expedition_granite(int mode,float x,float z,float width,float d
     }
     for(auto p:rock.vertices)rock.reach=std::max(rock.reach,(p-rock.center).length());
     // Near-coincident cuts can make tiny triangles lose their supporting plane
-    // after float world translation. Move the geological joint slightly and
-    // rebuild rather than shipping a numerically non-convex collision shell.
-    if(fractured)for(size_t f=0;f<rock.triangles.size();++f)for(auto p:rock.vertices)
-        if(rock.triangle_normals[f].dot(p-rock.vertices[rock.triangles[f][0]])>.00045f)
-            return expedition_granite(mode,x,z,width,depth,exposure,yaw,seed,fracture_attempt+1);
+    // after float world translation, or weld a cap edge onto more than the two
+    // faces that may share it. Either way the shell stops being a convex solid
+    // the contact solver can trust, so move the geological joint slightly and
+    // rebuild rather than shipping it.
+    if(fractured) {
+        for(size_t f=0;f<rock.triangles.size();++f)for(auto p:rock.vertices)
+            if(rock.triangle_normals[f].dot(p-rock.vertices[rock.triangles[f][0]])>.00045f)
+                return expedition_granite(mode,x,z,width,depth,exposure,yaw,seed,fracture_attempt+1,profile);
+        // This header is included inside the boltyard namespace, so it must
+        // not pull in new standard headers; sorting a flat edge list needs
+        // nothing beyond what the rock geometry already uses.
+        std::vector<std::pair<int,int>> edges;
+        edges.reserve(rock.triangles.size()*3);
+        for(const auto &t:rock.triangles)for(int e=0;e<3;++e){
+            int a=t[e],b=t[(e+1)%3];if(a>b)std::swap(a,b);edges.push_back({a,b});
+        }
+        std::sort(edges.begin(),edges.end());
+        for(size_t i=0;i<edges.size();) {
+            size_t j=i;while(j<edges.size()&&edges[j]==edges[i])++j;
+            if(j-i!=2)return expedition_granite(mode,x,z,width,depth,exposure,yaw,seed,fracture_attempt+1,profile);
+            i=j;
+        }
+    }
     rock.surface=1.10f-expedition_material(mode,x,z).wet*.54f;
     rock.rebuild_queries();return rock;
 }
 inline const std::vector<CrawlRock>& expedition_rocks(int mode) {
     auto make=[](int m) {
         using namespace expedition_detail;std::vector<CrawlRock> out;unsigned seed=137;
-        auto add=[&](float x,float z,float width,float depth,float exposure,float yaw){
+        auto add=[&](float x,float z,float width,float depth,float exposure,float yaw,const RockProfile *profile=nullptr){
             if(x*x+(z-8)*(z-8)<20*20)return;
-            out.push_back(expedition_granite(m,x,z,width,depth,exposure,yaw,seed++));
+            out.push_back(expedition_granite(m,x,z,width,depth,exposure,yaw,seed++,0,profile));
         };
+        // Sandstone parts along its bedding and its joints, so redrock asks for
+        // three explicit forms where granite takes whatever the seed gives it.
+        static const RockProfile fin{4.4f,3.6f,0.f,true};       // standing wall
+        static const RockProfile ledge{3.0f,3.3f,.10f,true};    // stepped tread, cut face
+        static const RockProfile block{2.4f,2.6f,-.08f,false};  // fallen caprock
+        const RockProfile *near_profile=m==6?&ledge:nullptr;
+        const RockProfile *far_profile=m==6?&block:nullptr;
         // Technical trails cross the exposed top of a broad bedrock spine.
         // Low, overlapping pieces share a geological orientation and extend
         // into the shoulders. The centre remains passable with a stock crawler.
@@ -115,16 +147,28 @@ inline const std::vector<CrawlRock>& expedition_rocks(int mode) {
                 float t=clamp((next_rock-along)/length,0,1),cx=a.x+dx*t,cz=a.z+dz*t;
                 float v=hash(a.route*191+placement*19,m*37),side=placement%2?1.f:-1.f;
                 float yaw=std::atan2(dx,dz)+(m==5?.15f:-.12f);
-                if(a.route>=2){
+                if(technical_route(m,a.route)){
                     // Unevenly spaced slabs meet one wheel first, with a clear
                     // smooth approach between formations and a passable exit.
-                    add(cx+nx*side*1.35f,cz+nz*side*1.35f,4.5f+v*2,6.2f+v*2.4f,.22f+v*.27f,yaw);
-                    if(placement%3!=1)add(cx+nx*side*5.9f,cz+nz*side*5.9f,8.0f+v*3,10+v*3,1.0f+v*1.6f,yaw+.13f);
+                    // Sandstone parts into steps rather than glacial pavement,
+                    // so redrock's trailside pieces are narrower and taller.
+                    if(m==6){
+                        add(cx+nx*side*1.55f,cz+nz*side*1.55f,2.8f+v*1.6f,4.4f+v*2.2f,.34f+v*.42f,yaw,near_profile);
+                        if(placement%3!=1)add(cx+nx*side*5.4f,cz+nz*side*5.4f,5.0f+v*2.4f,7.0f+v*3.0f,1.5f+v*2.1f,yaw+.13f,far_profile);
+                    }else{
+                        add(cx+nx*side*1.35f,cz+nz*side*1.35f,4.5f+v*2,6.2f+v*2.4f,.22f+v*.27f,yaw,near_profile);
+                        if(placement%3!=1)add(cx+nx*side*5.9f,cz+nz*side*5.9f,8.0f+v*3,10+v*3,1.0f+v*1.6f,yaw+.13f,far_profile);
+                    }
                 }else{
                     float offset=a.width+4.1f+v*2.0f;
-                    add(cx+nx*side*offset,cz+nz*side*offset,4.5f+v*4,6+v*5,.55f+v*1.7f,yaw);
+                    if(m==6)add(cx+nx*side*offset,cz+nz*side*offset,3.4f+v*2.6f,4.6f+v*3.4f,1.1f+v*2.4f,yaw,far_profile);
+                    else add(cx+nx*side*offset,cz+nz*side*offset,4.5f+v*4,6+v*5,.55f+v*1.7f,yaw,far_profile);
                 }
-                next_rock+=(a.route>=2?11.5f:24.f)*(0.78f+v*.55f);++placement;
+                // Redrock carries a third more route than the boreal maps, so
+                // it spaces its trailside rock out to keep the hull count and
+                // the drawn triangle budget in the same place they are there.
+                const float spacing=technical_route(m,a.route)?(m==6?19.f:11.5f):(m==6?42.f:24.f);
+                next_rock+=spacing*(0.78f+v*.55f);++placement;
             }
             along+=length;
         }
@@ -132,14 +176,31 @@ inline const std::vector<CrawlRock>& expedition_rocks(int mode) {
         // first view leaving camp, not a distant test obstacle area.
         const float clusters4[8][2]={{20,-62},{-48,-173},{-92,-248},{-219,-216},{115,-120},{156,-44},{-176,5},{-108,67}};
         const float clusters5[8][2]={{-53,-23},{-220,19},{-189,122},{126,178},{-102,-163},{90,-207},{153,-134},{185,-5}};
+        const float clusters6[8][2]={{78,-96},{196,-158},{224,-238},{62,-236},{-118,-30},{-244,-116},{158,150},{-52,236}};
         for(int cluster=0;cluster<8;++cluster)for(int j=0;j<7;++j){
-            const float *center=m==5?clusters5[cluster]:clusters4[cluster];
+            const float *center=m==6?clusters6[cluster]:(m==5?clusters5[cluster]:clusters4[cluster]);
             float angle=j*2.399963f+cluster*.43f,radius=3+std::sqrt(float(j))*4.8f;
             float x=center[0]+std::cos(angle)*radius,z=center[1]+std::sin(angle)*radius;
             auto trail=nearest_trail(m,x,z);if(trail.distance<trail.width+3.3f)continue;
             if(lake_distance(m,x,z)<1.02f)continue;
             float v=hash(cluster*37+11,j*31+m);
-            add(x,z,4.5f+v*5,6+v*6,.8f+v*2.7f,(m==5?.35f:-.3f)+v*.35f);
+            if(m==6)add(x,z,3.6f+v*3.2f,4.8f+v*4.0f,1.4f+v*3.2f,-.3f+v*.35f,far_profile);
+            else add(x,z,4.5f+v*5,6+v*6,.8f+v*2.7f,(m==5?.35f:-.3f)+v*.35f,far_profile);
+        }
+        // The fin field. Standing walls follow the same north-east bedding the
+        // heightfield corrugates, spaced so the gaps between them are the line
+        // rather than an obstacle laid across one. Each is a single convex
+        // hull, so a wall a tire leans on is exactly the wall that is drawn.
+        if(m==6)for(int crest=-4;crest<=4;++crest)for(int step=-4;step<=4;++step){
+            const float across=13.7f+crest*27.4f,along=step*28.f;
+            const float x=-178+(along+across)*.7071f,z=198+(along-across)*.7071f;
+            if(std::hypot((x+178)*.92f,(z-198)*1.05f)>124.f)continue;
+            const float v=hash(crest*53+7,step*29+3);
+            if(v>.78f)continue;                       // gaps break the walls into runs
+            const auto trail=nearest_trail(m,x,z);
+            if(trail.distance<trail.width+3.4f)continue;
+            add(x+std::cos(v*6.2832f)*2.4f,z+std::sin(v*6.2832f)*2.4f,
+                3.4f+v*2.4f,15.f+v*13.f,3.2f+v*3.4f,.7854f+(v-.5f)*.10f,&fin);
         }
         // Low lakeside skerries make the Russian shoreline distinct from the
         // alpine tarn. They merge into its shallows and remain real collision.
@@ -163,5 +224,7 @@ inline const std::vector<CrawlRock>& expedition_rocks(int mode) {
         }),out.end());
         return out;
     };
-    if(mode==5){static const auto r=make(5);return r;}static const auto r=make(4);return r;
+    if(mode==6){static const auto r=make(6);return r;}
+    if(mode==5){static const auto r=make(5);return r;}
+    static const auto r=make(4);return r;
 }

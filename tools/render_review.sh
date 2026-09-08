@@ -75,7 +75,7 @@ render_suite() {
 
 render_suite suspension_visuals "SUSPENSION VISUALS: 40 checks, 0 failures" 120
 render_suite camera_views 'CAMERA VIEW: camera-rig-portrait.png' 300
-render_suite expedition_worlds 'EXPEDITION WORLD CHECKS: [0-9]+ checks / 0 failures' 180
+render_suite expedition_worlds 'EXPEDITION WORLD CHECKS: [0-9]+ checks / 0 failures' 300
 if [[ -f tests/tire_contact_visuals.gd ]]; then
   render_suite tire_contact_visuals 'TIRE CONTACT VISUALS:' 120
 fi
@@ -83,4 +83,7 @@ test -s build/camera-rig-portrait.png
 test -s build/expedition-rockies-contact-scale.png
 test -s build/expedition-russia-contact-scale.png
 test -s build/expedition-russia-lake.png
+test -s build/expedition-redrock-trailhead.png
+test -s build/expedition-redrock-rock-trail.png
+test -s build/expedition-redrock-contact-scale.png
 printf 'RENDER REVIEW: stills saved in %s seconds\n' "$((SECONDS-review_started))"

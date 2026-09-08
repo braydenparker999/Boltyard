@@ -62,7 +62,7 @@ public:
     int awake_count() const {int n=0;for(const auto&b:bodies_)if(!b.sleeping)++n;return n;}
 
     void set_terrain(int mode) {
-        terrain_mode_=std::clamp(mode,0,5); static_bodies_.clear();
+        terrain_mode_=std::clamp(mode,0,expedition_detail::last_terrain_mode); static_bodies_.clear();
     }
     void clear(){bodies_.clear();pairs_.clear();ground_.clear();contacts_=0;}
     void reset(){

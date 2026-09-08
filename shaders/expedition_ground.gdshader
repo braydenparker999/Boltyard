@@ -8,6 +8,7 @@ uniform sampler2D detail_normal : hint_normal, repeat_enable, filter_linear_mipm
 uniform sampler2D soil_normal : hint_normal, repeat_enable, filter_linear_mipmap;
 uniform bool detailed_surface = true;
 uniform float taiga = 0.0;
+uniform float desert = 0.0;
 varying vec3 world_position;
 varying vec3 world_normal;
 
@@ -30,6 +31,14 @@ void fragment() {
     vec3 floor_b = texture(forest_floor, rotated*.117 + vec2(.27,.71)).rgb;
     vec3 floor_color = mix(floor_a, floor_b, .18) * mix(vec3(.82,.82,.68),vec3(.66,.80,.57),broad);
     floor_color *= mix(1.0,.94,taiga);
+    // On redrock this third channel is wind-blown sand, not forest floor. Keep
+    // the photograph's grain as luminance and re-key it, so the ripple detail
+    // survives while none of the needles or moss colour does.
+    if (desert > 0.0) {
+        float sand_grain = dot(mix(floor_a, floor_b, .18), vec3(.30,.52,.18));
+        vec3 sand = mix(vec3(.520,.452,.362), vec3(.680,.605,.492), patches);
+        floor_color = mix(floor_color, sand * (.74 + sand_grain * .58), desert);
+    }
 
     // Different, rotated scales break the square repeat without manufacturing
     // rocks or ruts that have no corresponding native contact surface.
@@ -37,7 +46,7 @@ void fragment() {
     vec3 dirt_b = texture(trail_gravel, vec2(-p.y,p.x)*.143 + vec2(.31,.63)).rgb;
     vec3 dirt = mix(dirt_a,dirt_b,.25 + patches*.13);
     dirt = mix(dirt,vec3(dot(dirt,vec3(.3,.5,.2))),.21);
-    dirt *= mix(vec3(.87,.88,.83),vec3(.70,.76,.69),taiga) * mix(.84,1.10,broad);
+    dirt *= mix(mix(vec3(.87,.88,.83),vec3(.70,.76,.69),taiga),vec3(.80,.66,.53),desert) * mix(.84,1.10,broad);
     float loose_gravel = clamp(UV.x,0.,1.);
     dirt = mix(dirt,dirt*vec3(1.09,1.10,1.12),loose_gravel);
     if (detailed_surface && distance(CAMERA_POSITION_WORLD,world_position) < 42.) {
@@ -53,6 +62,14 @@ void fragment() {
             + texture(granite,world_position.xy*.34).rgb * weights.z;
     }
     stone *= mix(vec3(.59,.60,.59),vec3(.68,.67,.62),broad);
+    // Slickrock. Bedding follows world height so it bands the domes and bench
+    // risers along their contours, the way cross-bedded sandstone weathers.
+    if (desert > 0.0) {
+        float rock_grain = dot(stone, vec3(.30,.52,.18));
+        float bedding = sin(world_position.y * 1.45 + broad * 5.1 + patches * 1.3);
+        vec3 slickrock = mix(vec3(.335,.196,.140), vec3(.492,.325,.232), broad);
+        stone = mix(stone, slickrock * (.66 + rock_grain * .78) * (.93 + bedding * .07), desert);
+    }
 
     // RGB are the exact native rock/dirt/forest proportions used for grip.
     // Texture variation changes a material's grain, never its classification.

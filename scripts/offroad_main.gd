@@ -13,8 +13,12 @@ const CAMP = Vector3(0, 1.5, 8)
 
 const EXPEDITIONS = {
 	"rockies": {"name": "SILVERPINE RANGE", "region": "ROCKY MOUNTAINS", "mode": 4, "color": "829b88", "description": "Granite shelves, pine forest and high mountain passes. Find your line through the landscape."},
-	"russia": {"name": "KARELIAN TAIGA", "region": "RUSSIA", "mode": 5, "color": "a2af82", "description": "Wet forest tracks, glacial stone and quiet lakes. Crawl through birch and spruce country."}
+	"russia": {"name": "KARELIAN TAIGA", "region": "RUSSIA", "mode": 5, "color": "a2af82", "description": "Wet forest tracks, glacial stone and quiet lakes. Crawl through birch and spruce country."},
+	"redrock": {"name": "REDROCK BASIN", "region": "HIGH DESERT", "mode": 6, "color": "c08258", "description": "Six connected ways through slickrock: a sandy wash loop, bare domes, standing fins, a stacked ledge climb and the rim road above it."}
 }
+## Every saved region key. Progress is stored per region, so this is also the
+## migration list an older save is read through.
+const SAVED_MAPS := ["rockies", "russia", "redrock", "legacy"]
 var selected_map = "rockies"
 var exploration_progress: Dictionary = {}
 var map_buttons: Dictionary = {}
@@ -1215,11 +1219,11 @@ func load_settings() -> void:
 		if active is String and VehicleCatalog.VEHICLES.has(active):
 			selected_vehicle = active
 		var map_id = parsed.get("selected_map", "rockies")
-		if map_id is String and map_id in ["rockies", "russia", "legacy"]:
+		if map_id is String and map_id in SAVED_MAPS:
 			selected_map = map_id
 		var per_map = parsed.get("map_progress", {})
 		if per_map is Dictionary:
-			for id in ["rockies", "russia", "legacy"]:
+			for id in SAVED_MAPS:
 				if per_map.get(id) is Dictionary:
 					exploration_progress[id] = per_map[id].duplicate(true)
 		var old_progress_map = selected_map if parsed.has("selected_map") else "legacy"
@@ -1622,7 +1626,7 @@ func refresh_map_destinations() -> void:
 	update_map()
 
 func select_map(id: String) -> void:
-	if driving or id == selected_map or not id in ["rockies", "russia", "copperline", "legacy"]:
+	if driving or id == selected_map or not (id in SAVED_MAPS or id == "copperline"):
 		return
 	clear_controls()
 	store_exploration_progress()
@@ -1663,7 +1667,7 @@ func select_map(id: String) -> void:
 
 func toggle_course() -> void:
 	# Retained for the legacy course regression fixture. Primary navigation is
-	# the two named exploration regions; no hidden boolean selects their core.
+	# the named exploration regions; no hidden boolean selects their core.
 	select_map("legacy" if crawl_mode else "copperline")
 
 func fit_crawl_setup() -> void:

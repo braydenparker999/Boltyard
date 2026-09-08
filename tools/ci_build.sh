@@ -90,7 +90,7 @@ if grep -Eq 'SCRIPT ERROR|Parse Error|ERROR:' build/crawl-views.log; then exit 1
 timeout 300 xvfb-run -a "$godot_bin" --path . --audio-driver Dummy --rendering-method gl_compatibility --fixed-fps 30 --script tests/camera_views.gd 2>&1 | tee build/camera-views.log
 if grep -Eq 'SCRIPT ERROR|Parse Error|ERROR:' build/camera-views.log; then exit 1; fi
 for suite in expedition_worlds; do
-  timeout 300 xvfb-run -a "$godot_bin" --path . --audio-driver Dummy --rendering-method gl_compatibility --fixed-fps 30 --script "tests/$suite.gd" 2>&1 | tee "build/$suite.log"
+  timeout 420 xvfb-run -a "$godot_bin" --path . --audio-driver Dummy --rendering-method gl_compatibility --fixed-fps 30 --script "tests/$suite.gd" 2>&1 | tee "build/$suite.log"
   grep -Eq 'EXPEDITION WORLD CHECKS: [0-9]+ checks / 0 failures' "build/$suite.log"
   if grep -Eq 'SCRIPT ERROR|Parse Error|ERROR:' "build/$suite.log"; then exit 1; fi
 done
