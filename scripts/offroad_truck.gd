@@ -9,6 +9,7 @@ var core: RefCounted
 var throttle: float = 0.0
 var steering: float = 0.0
 var brake: bool = false
+var brake_pressure: float = 1.0
 var wireframe: bool = false
 var body_color: Color = Color("d88844")
 var _body: MeshInstance3D
@@ -66,6 +67,7 @@ const RED := 5
 const RUBBER := 6
 const TREAD := 7
 const AMBER := 8
+const ALUMINUM := 9
 const RING_SEGMENTS := 10
 const RENDER_SEGMENTS := 24
 const BODY_SHADER = preload("res://shaders/vehicle_body.gdshader")
@@ -154,6 +156,7 @@ func _physics_process(delta: float) -> void:
 	if not _configured or core == null:
 		return
 	var begin_usec := Time.get_ticks_usec()
+	core.set_brake_pressure(brake_pressure)
 	core.step(delta, throttle, steering, brake)
 	_sim_ms = float(Time.get_ticks_usec() - begin_usec) / 1000.0
 	_physics_frame_ms += _sim_ms
@@ -168,11 +171,11 @@ func _process(delta: float) -> void:
 func _build_materials() -> void:
 	var colors: Array[Color] = [body_color, Color("202728"), Color("29434b"),
 		Color("b2babd"), Color("f5ebd7"), Color("92252a"), Color("202729"),
-		Color("2a3232"), Color("bd9659")]
-	var roughness: Array[float] = [0.34, 0.61, 0.085, 0.25, 0.17, 0.22, 0.87, 0.82, 0.32]
-	var metallic: Array[float] = [0.04, 0.18, 0.0, 0.93, 0.0, 0.0, 0.0, 0.0, 0.82]
+		Color("2a3232"), Color("bd9659"), Color("dbddd5")]
+	var roughness: Array[float] = [0.62, 0.61, 0.085, 0.25, 0.17, 0.22, 0.87, 0.82, 0.32, 0.55]
+	var metallic: Array[float] = [0.04, 0.18, 0.0, 0.93, 0.0, 0.0, 0.0, 0.0, 0.82, 0.35]
 	_materials.clear()
-	for i in range(9):
+	for i in range(10):
 		var material := ShaderMaterial.new()
 		material.shader = GLASS_SHADER if i == GLASS else BODY_SHADER
 		material.set_shader_parameter("surface_color", Color(0.085, 0.14, 0.17, 0.70) if i == GLASS else colors[i])
@@ -180,7 +183,7 @@ func _build_materials() -> void:
 			material.set_shader_parameter("surface_kind", i)
 			material.set_shader_parameter("material_roughness", roughness[i])
 			material.set_shader_parameter("material_metallic", metallic[i])
-			material.set_shader_parameter("paint_coat", 0.76 if i == PAINT else 0.0)
+			material.set_shader_parameter("paint_coat", 0.0 if i == PAINT else 0.0)
 			material.set_shader_parameter("lamp_energy", 0.24 if i == LIGHT else (0.055 if i == RED else 0.0))
 		_materials.append(material)
 	_graph_material = StandardMaterial3D.new()
@@ -281,7 +284,7 @@ func _build_vehicle_mesh() -> void:
 	_arch_center_y = -ride + minf(travel * 1.273, ride * 0.72)
 	_waist = maxf(0.60, _arch_center_y + _arch_radius + 0.13)
 	_buckets.clear()
-	for unused in range(9):
+	for unused in range(10):
 		_buckets.append(MeshBucket.new())
 	_build_frame()
 	if _vehicle_type == 2:
@@ -294,7 +297,7 @@ func _build_vehicle_mesh() -> void:
 	_build_suspension()
 	_body_mesh = ArrayMesh.new()
 	_triangle_count = 0
-	for material_id in range(9):
+	for material_id in range(10):
 		var bucket: MeshBucket = _buckets[material_id]
 		if bucket.vertices.is_empty():
 			continue
@@ -340,7 +343,7 @@ func _panel(material_id: int, a: Vector3, b: Vector3, c: Vector3, d: Vector3) ->
 func _build_closed_body(suv: bool) -> void:
 	var cab_front := 0.14 if suv else 0.22
 	var cab_rear := 1.12 if suv else 0.64
-	var roof_front := cab_front + (0.12 if suv else 0.085)
+	var roof_front := cab_front + (0.12 if suv else 0.060)
 	var roof_rear := cab_rear - 0.055
 	var roof_y := maxf(_rest[12].y - _rest[0].y + 0.035, _waist + 0.43)
 	# A complete continuous lower shell: aperture-shaped outer panels, inner
@@ -473,8 +476,8 @@ func _build_front_face(suv: bool) -> void:
 		for x in [0.23, 0.34, 0.45, 0.56, 0.67, 0.78]:
 			_solid(METAL, Vector3(x - 0.017, bottom + 0.025, -0.179), Vector3(x + 0.017, top - 0.025, -0.174), 0.006)
 	else:
-		for j in range(3):
-			var y := bottom + 0.038 + float(j) * (top - bottom - 0.064) / 2.0
+		for j in range(4):
+			var y := bottom + 0.026 + float(j) * (top - bottom - 0.054) / 3.0
 			_solid(METAL, Vector3(0.19, y, -0.179), Vector3(0.81, y + 0.012, -0.174), 0.004)
 	for x in [0.035, 0.965]:
 		_solid(DARK, Vector3(x - 0.122, bottom - 0.003, -0.177), Vector3(x + 0.122, top + 0.002, -0.160), 0.021)
@@ -527,65 +530,88 @@ func _build_pickup_bed() -> void:
 	for x in [0.26, 0.38, 0.50, 0.62, 0.74]:
 		_solid(TREAD, Vector3(x, 0.19, 0.66), Vector3(x + 0.022, 0.207, 1.11), 0.006)
 	_solid(DARK, Vector3(0.43, _waist - 0.13, 1.17), Vector3(0.57, _waist - 0.09, 1.175), 0.006)
+	for side in [-.106,1.106]:
+		for z in [.69,1.09]:
+			_bar(METAL, Vector3(side,_waist+.014,z-.025), Vector3(side,_waist+.042,z), .008, 3)
+		# Recessed lower body strip emphasizes the long square pickup profile.
+		_panel(DARK, Vector3(side,.235,.28), Vector3(side,.235,.74), Vector3(side,.26,.74), Vector3(side,.26,.28))
+	for x in [.15,.85]:
+		_panel(METAL, Vector3(x-.025,.15,1.18), Vector3(x+.025,.15,1.18), Vector3(x+.025,.18,1.18), Vector3(x-.025,.18,1.18))
+
 
 func _build_buggy() -> void:
-	# A complete tub with one coherent cage. Every brace terminates at another
-	# structural tube, including the door diagonals and engine-bay stays.
-	_solid(DARK, Vector3(0.09, 0.025, 0.20), Vector3(0.91, 0.12, 0.89), 0.018)
-	_solid(PAINT, Vector3(0.12, 0.10, 0.25), Vector3(0.88, 0.43, 0.278), 0.018)
-	_solid(DARK, Vector3(0.12, 0.12, 0.76), Vector3(0.88, 0.57, 0.79), 0.018)
-	# Sculpted, capped nose with recessed grille and enclosed round lamps.
-	_panel(PAINT, Vector3(0.14, 0.18, -0.13), Vector3(0.27, 0.43, 0.25), Vector3(0.73, 0.43, 0.25), Vector3(0.86, 0.18, -0.13))
-	_panel(PAINT, Vector3(0.14, 0.08, -0.13), Vector3(0.86, 0.08, -0.13), Vector3(0.86, 0.18, -0.13), Vector3(0.14, 0.18, -0.13))
-	_panel(DARK, Vector3(0.14, 0.08, -0.13), Vector3(0.27, 0.12, 0.26), Vector3(0.73, 0.12, 0.26), Vector3(0.86, 0.08, -0.13))
-	for side in [0, 1]:
-		var x := 0.14 if side == 0 else 0.86
-		var upper_x := 0.27 if side == 0 else 0.73
-		_panel(PAINT, Vector3(x, 0.08, -0.13), Vector3(x, 0.18, -0.13), Vector3(upper_x, 0.43, 0.25), Vector3(upper_x, 0.12, 0.26))
-	_solid(DARK, Vector3(0.35, 0.12, -0.142), Vector3(0.65, 0.21, -0.13), 0.015)
-	for x in [0.24, 0.76]:
-		_solid(DARK, Vector3(x - 0.055, 0.11, -0.147), Vector3(x + 0.055, 0.29, -0.108), 0.024)
-		_front_disc(METAL, _v(x, 0.225, -0.149), 0.077, 16)
-		_front_disc(LIGHT, _v(x, 0.225, -0.151), 0.061, 16)
-	var roof_y := _rest[12].y - _rest[0].y + 0.08
-	for side in [0, 1]:
-		var x := 0.09 if side == 0 else 0.91
-		var roof_x := 0.18 if side == 0 else 0.82
-		var a := Vector3(x, 0.17, 0.23)
-		var at := Vector3(roof_x, roof_y, 0.39)
-		var c := Vector3(x, 0.17, 0.89)
-		var ct := Vector3(roof_x, roof_y, 0.71)
-		var am := a.lerp(at, 0.40)
-		var cm := c.lerp(ct, 0.53)
-		for edge in [[a,at],[at,ct],[ct,c],[a,c],[a,cm],[c,am]]:
-			_bar(PAINT, edge[0], edge[1], 0.036)
-		_bar(PAINT, ct, Vector3(x, 0.17, 0.74), 0.034)
-		_panel(PAINT, a, c, c.lerp(ct, 0.27), a.lerp(at, 0.27))
-		for z in [0.23, 0.74, 0.89]:
-			_bar(DARK, Vector3(x, 0.04, z), Vector3(x, 0.185, z), 0.036)
-		_bar(DARK, Vector3(x, 0.17, 0.89), Vector3(0.24 if side == 0 else 0.76, 0.17, 1.10), 0.032)
-	for z in [0.39, 0.71]:
-		_bar(PAINT, Vector3(0.18, roof_y, z), Vector3(0.82, roof_y, z), 0.036)
-	_bar(PAINT, Vector3(0.18, roof_y, 0.39), Vector3(0.82, roof_y, 0.71), 0.028)
-	_bar(DARK, Vector3(0.125, 0.43, 0.292), Vector3(0.875, 0.43, 0.292), 0.030)
-	_bar(PAINT, Vector3(0.09, 0.17, 0.89), Vector3(0.91, 0.17, 0.89), 0.034)
-	_build_interior(false)
-	for x in [0.25, 0.75]:
-		_solid(DARK, Vector3(x - 0.12, 0.12, 0.44), Vector3(x + 0.12, 0.25, 0.59), 0.018)
-		_bar(AMBER, Vector3(x - 0.065, 0.54, 0.59), Vector3(x + 0.065, 0.32, 0.57), 0.013, 4)
-		_bar(AMBER, Vector3(x + 0.065, 0.54, 0.59), Vector3(x - 0.065, 0.32, 0.57), 0.013, 4)
-	# Rear engine has a sump and mounts, cylinder covers and a supported exhaust.
-	_solid(DARK, Vector3(0.30, 0.12, 0.80), Vector3(0.70, 0.20, 1.12), 0.022)
-	_solid(METAL, Vector3(0.33, 0.19, 0.82), Vector3(0.67, 0.43, 1.09), 0.03)
-	for x in [0.28, 0.60]:
-		_solid(DARK, Vector3(x, 0.29, 0.84), Vector3(x + 0.12, 0.39, 1.065), 0.015)
-		for z in [0.86, 0.91, 0.96, 1.01]:
-			_solid(METAL, Vector3(x - 0.005, 0.39, z), Vector3(x + 0.125, 0.403, z + 0.012), 0.004)
-	_bar(METAL, Vector3(0.31, 0.25, 0.87), Vector3(0.17, 0.21, 1.14), 0.033)
-	_bar(DARK, Vector3(0.17, 0.21, 1.12), Vector3(0.22, 0.065, 1.10), 0.018)
-	for x in [0.22, 0.78]:
-		_solid(DARK, Vector3(x - 0.073, 0.12, 1.135), Vector3(x + 0.073, 0.23, 1.15), 0.015)
-		_solid(RED, Vector3(x - 0.057, 0.146, 1.15), Vector3(x + 0.057, 0.211, 1.155), 0.01)
+	# Compact fabricated hood, open tires and a dark welded cage around a
+	# complete tub. Body panels and cage share the existing deformation field.
+	var roof_y := _rest[12].y - _rest[0].y + .08
+	_solid(DARK, Vector3(.10,.025,.20), Vector3(.90,.13,.85), .018)
+	_solid(DARK, Vector3(.16,.12,.245), Vector3(.84,.50,.28), .015)
+	_solid(DARK, Vector3(.13,.12,.73), Vector3(.87,.56,.76), .012)
+	_panel(PAINT, Vector3(.17,.37,-.115), Vector3(.21,.52,.25), Vector3(.79,.52,.25), Vector3(.83,.37,-.115))
+	_solid(PAINT, Vector3(.16,.12,-.126), Vector3(.84,.37,-.104), .014)
+	_solid(DARK, Vector3(.29,.17,-.137), Vector3(.71,.32,-.128), .012)
+	for j in range(5):
+		var y := .188 + j*.026
+		_panel(METAL, Vector3(.32,y,-.139), Vector3(.68,y,-.139), Vector3(.68,y+.006,-.139), Vector3(.32,y+.006,-.139))
+	for side in [0,1]:
+		var x := .17 if side == 0 else .83
+		var inner := .21 if side == 0 else .79
+		_panel(PAINT, Vector3(x,.12,-.115), Vector3(x,.37,-.115), Vector3(inner,.52,.25), Vector3(inner,.12,.25))
+		# Inboard aluminum fender plates leave the tread and shocks exposed.
+		var outside := -.015 if side == 0 else 1.015
+		_panel(ALUMINUM, Vector3(x,.37,-.08), Vector3(outside,.29,.12), Vector3(outside,.22,.31), Vector3(inner,.50,.25))
+		_bar(DARK, Vector3(x,.37,-.08), Vector3(outside,.29,.12), .021)
+		var lamp_x := .225 if side == 0 else .775
+		_front_disc(DARK, _v(lamp_x,.265,-.143), .089, 16)
+		_front_disc(METAL, _v(lamp_x,.265,-.145), .075, 16)
+		_front_disc(LIGHT, _v(lamp_x,.265,-.147), .058, 16)
+		var foot := Vector3(.09 if side == 0 else .91,.16,.25)
+		var front := Vector3(.16 if side == 0 else .84,roof_y,.38)
+		var rear := Vector3(front.x,roof_y,.71)
+		var sill := Vector3(foot.x,.16,.86)
+		var shoulder := Vector3(foot.x,.56,.72)
+		for edge in [[foot,front],[front,rear],[rear,sill],[foot,sill],[front,shoulder],[shoulder,sill]]:
+			_bar(DARK, edge[0], edge[1], .034)
+		_bar(DARK, rear, Vector3(.21 if side == 0 else .79,.17,1.09), .032)
+		_panel(PAINT, foot, sill, shoulder, foot.lerp(front,.28))
+		_bar(DARK, foot, shoulder, .024)
+		# Fastener heads are small flat metal stamps, not extra moving nodes.
+		for z in [.30,.46,.62,.76]:
+			_solid(METAL, Vector3(foot.x-.009,.19,z), Vector3(foot.x+.009,.205,z+.01), .002)
+	for z in [.38,.71]:
+		_bar(DARK, Vector3(.16,roof_y,z), Vector3(.84,roof_y,z), .034)
+	_bar(DARK, Vector3(.16,roof_y,.38), Vector3(.84,roof_y,.71), .025)
+	_bar(DARK, Vector3(.84,roof_y,.38), Vector3(.16,roof_y,.71), .025)
+	_bar(DARK, Vector3(.09,.56,.72), Vector3(.91,.56,.72), .030)
+	# A thin aluminum roof visor, with most of the cockpit and cage still open.
+	_panel(ALUMINUM, Vector3(.17,roof_y+.008,.39), Vector3(.17,roof_y+.008,.49), Vector3(.83,roof_y+.008,.49), Vector3(.83,roof_y+.008,.39))
+	_solid(DARK, Vector3(.18,.38,.28), Vector3(.82,.49,.34), .012)
+	for x in [.29,.71]:
+		_solid(DARK, Vector3(x-.13,.13,.44), Vector3(x+.13,.26,.61), .03)
+		_solid(DARK, Vector3(x-.12,.24,.59), Vector3(x+.12,.68,.65), .025)
+		_solid(DARK, Vector3(x-.07,.64,.61), Vector3(x+.07,.79,.66), .025)
+		for offset in [-.055,.055]:
+			_bar(RED, Vector3(x+offset,.65,.583), Vector3(x+offset,.26,.49), .014, 4)
+	var steering_center := Vector3(.29,.47,.395)
+	for j in range(12):
+		var aa := j*TAU/12.0
+		var ab := (j+1)*TAU/12.0
+		_bar(DARK, steering_center+Vector3(cos(aa)*.08,sin(aa)*.11,0), steering_center+Vector3(cos(ab)*.08,sin(ab)*.11,0), .009, 5)
+	_bar(METAL, steering_center, Vector3(.29,.42,.31), .016)
+	_solid(DARK, Vector3(.43,.12,.34), Vector3(.57,.28,.64), .018)
+	_bar(METAL, Vector3(.50,.28,.46), Vector3(.50,.42,.44), .012)
+	_solid(DARK, Vector3(.477,.40,.425), Vector3(.523,.44,.455), .01)
+	# Exposed rear drivetrain remains inside the frame and rear cage stays.
+	_solid(DARK, Vector3(.30,.12,.79), Vector3(.70,.20,1.10), .018)
+	_solid(METAL, Vector3(.33,.19,.82), Vector3(.67,.43,1.065), .025)
+	for x in [.28,.60]:
+		_solid(DARK, Vector3(x,.29,.84), Vector3(x+.12,.40,1.055), .014)
+		for z in [.86,.92,.98,1.04]:
+			_panel(METAL, Vector3(x,.401,z), Vector3(x+.12,.401,z), Vector3(x+.12,.401,z+.01), Vector3(x,.401,z+.01))
+	_bar(METAL, Vector3(.31,.25,.87), Vector3(.17,.21,1.12), .030)
+	_bar(DARK, Vector3(.09,.16,.86), Vector3(.91,.16,.86), .033)
+	for x in [.22,.78]:
+		_solid(DARK, Vector3(x-.07,.13,1.10), Vector3(x+.07,.23,1.13), .012)
+		_solid(RED, Vector3(x-.05,.15,1.13), Vector3(x+.05,.21,1.135), .008)
 
 func _build_bumpers() -> void:
 	var bumper := str(_parts.get("front_bumper", "stock"))
@@ -743,10 +769,11 @@ func _build_wheels() -> void:
 						Vector3(t + 0.007, side + sign_x * 0.052, 0.47), Vector3(t + 0.007, side + sign_x * 0.052, 0.515),
 						Vector3(t - 0.007, side + sign_x * 0.052, 0.515), Vector3(0, sign_x, 0))
 			# Molded sidewall ridges are subtle real geometry around the carcass.
-			for j in range(12):
-				var t := float(j) / 12.0
-				_wheel_quad(TREAD, hub, Vector3(t, side, 0.78), Vector3(t + 0.012, side, 0.79),
-					Vector3(t + 0.012, side, 0.91), Vector3(t, side, 0.90), Vector3(0, sign_x, 0), Color(0.58, 0.61, 0.60))
+			for j in range(18 if tire == "rock" else 12):
+				var t := float(j) / (18.0 if tire == "rock" else 12.0)
+				var lug := .027 if tire == "rock" else .012
+				_wheel_quad(TREAD, hub, Vector3(t, side, .76), Vector3(t+lug, side, .79),
+					Vector3(t+lug+.006, side, .94), Vector3(t+.005, side, .92), Vector3(0,sign_x,0), Color(.74,.75,.73))
 
 func _link_cylinder(material_id: int, binding: int, start: float, end: float, radius: float, sides: int = 8) -> void:
 	for j in range(sides):

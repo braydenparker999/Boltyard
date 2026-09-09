@@ -69,6 +69,10 @@ done
 timeout 120 "$godot_bin" --headless --path . --script tests/crawling.gd 2>&1 | tee build/crawl-integration-tests.log
 grep -Eq 'CRAWL INTEGRATION: [0-9]+ checks, 0 failures' build/crawl-integration-tests.log
 if grep -Eq 'SCRIPT ERROR|Parse Error|FAIL:' build/crawl-integration-tests.log; then exit 1; fi
+for bedrock_suite in bedrock_contract bedrock_drive; do
+  timeout 120 "$godot_bin" --headless --path . --script "tests/$bedrock_suite.gd" 2>&1 | tee "build/$bedrock_suite.log"
+  if grep -Eq 'SCRIPT ERROR|ERROR:|FAIL' "build/$bedrock_suite.log"; then exit 1; fi
+done
 for suite in camera_gestures camera_integration crawlworks_visuals expedition_ui suspension_visuals; do
   timeout 120 "$godot_bin" --headless --path . --script "tests/$suite.gd" 2>&1 | tee "build/$suite-tests.log"
   if grep -Eq 'SCRIPT ERROR|Parse Error|FAIL:' "build/$suite-tests.log"; then exit 1; fi
@@ -99,6 +103,13 @@ grep -q 'TIRE CONTACT VISUALS:' build/tire-contact-visuals.log
 if grep -Eq 'SCRIPT ERROR|Parse Error|ERROR:' build/tire-contact-visuals.log; then exit 1; fi
 timeout 120 xvfb-run -a "$godot_bin" --path . --audio-driver Dummy --rendering-method gl_compatibility --fixed-fps 30 --script tests/suspension_visuals.gd 2>&1 | tee build/suspension-visuals.log
 grep -q "SUSPENSION VISUALS: 40 checks, 0 failures" build/suspension-visuals.log
+timeout 180 xvfb-run -a "$godot_bin" --path . --audio-driver Dummy --rendering-method gl_compatibility --disable-vsync --fixed-fps 30 --script tests/bedrock_review.gd 2>&1 | tee build/bedrock-review.log
+grep -q "BEDROCK REVIEW: arch" build/bedrock-review.log
+timeout 180 xvfb-run -a "$godot_bin" --path . --audio-driver Dummy --rendering-method gl_compatibility --disable-vsync --fixed-fps 30 --script tests/bedrock_portrait.gd 2>&1 | tee build/bedrock-portrait.log
+grep -q "BEDROCK PORTRAIT:" build/bedrock-portrait.log
+timeout 240 xvfb-run -a "$godot_bin" --path . --audio-driver Dummy --rendering-method gl_compatibility --disable-vsync --fixed-fps 30 --script tests/redstone_review.gd 2>&1 | tee build/redstone-review.log
+grep -q 'REDSTONE REVIEW:' build/redstone-review.log
+if grep -Eq 'SCRIPT ERROR|Parse Error|ERROR:' build/redstone-review.log; then exit 1; fi
 # Movie capture is opt-in; UI updates use the rendered portrait/landscape stills.
 if [[ "${BOLT_RECORD_MOVIE:-0}" == 1 ]]; then
 timeout 1200 xvfb-run -a "$godot_bin" --path . --audio-driver Dummy --rendering-method gl_compatibility --disable-vsync --fixed-fps 30 --write-movie build/expedition-gameplay.avi --script tests/expedition_video.gd 2>&1 | tee build/expedition-gameplay.log
@@ -107,18 +118,18 @@ if grep -Eq 'SCRIPT ERROR|Parse Error|ERROR:' build/expedition-gameplay.log; the
 ffmpeg -y -i build/expedition-gameplay.avi -an -c:v libx264 -preset fast -crf 22 -pix_fmt yuv420p -movflags +faststart build/expedition-gameplay.mp4 > build/expedition-video-encode.log 2>&1
 rm build/expedition-gameplay.avi
 fi
-"$godot_bin" --headless --path . --export-debug Android build/bolt-yard-2.3.0-thumbdrive.apk 2>&1 | tee build/export.log
-test -s build/bolt-yard-2.3.0-thumbdrive.apk
+"$godot_bin" --headless --path . --export-debug Android build/bolt-yard-3.3.0-crawling.apk 2>&1 | tee build/export.log
+test -s build/bolt-yard-3.3.0-crawling.apk
 python3 - <<'PY'
 import zipfile
-with zipfile.ZipFile('build/bolt-yard-2.3.0-thumbdrive.apk') as archive:
+with zipfile.ZipFile('build/bolt-yard-3.3.0-crawling.apk') as archive:
     assert any(p.startswith('lib/arm64-v8a/') and 'boltyard' in p and p.endswith('.so') for p in archive.namelist()), 'Native softbody solver missing from APK'
     assert 'lib/arm64-v8a/libc++_shared.so' in archive.namelist(), 'C++ runtime missing from APK'
     assert any(p.endswith('boltyard.gdextension') for p in archive.namelist()), 'GDExtension registration missing from APK'
 print('APK includes the native ARM64 soft-body solver.')
 PY
-"$ANDROID_HOME/build-tools/34.0.0/apksigner" verify --verbose build/bolt-yard-2.3.0-thumbdrive.apk | tee build/signature.log
-"$ANDROID_HOME/build-tools/34.0.0/aapt" dump badging build/bolt-yard-2.3.0-thumbdrive.apk > build/package-info.log
+"$ANDROID_HOME/build-tools/34.0.0/apksigner" verify --verbose build/bolt-yard-3.3.0-crawling.apk | tee build/signature.log
+"$ANDROID_HOME/build-tools/34.0.0/aapt" dump badging build/bolt-yard-3.3.0-crawling.apk > build/package-info.log
 # Preserve the official verifier with evidence for independent downloaded-APK validation.
 cp "$ANDROID_HOME/build-tools/34.0.0/lib/apksigner.jar" build/apksigner.jar
-sha256sum build/bolt-yard-2.3.0-thumbdrive.apk > build/SHA256SUMS.txt
+sha256sum build/bolt-yard-3.3.0-crawling.apk > build/SHA256SUMS.txt

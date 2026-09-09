@@ -19,7 +19,7 @@ int main() {
             r.step(1.0f / 60, 1, 0, false);
             const float vy = r.velocity().y;
             if (frame > 60) { squared_vertical += vy * vy; ++samples; }
-            minimum_up = std::min(minimum_up, r.up().y); max_vertical = std::max(max_vertical, std::abs(vy));
+            minimum_up = std::min<float>(minimum_up, r.up().y); max_vertical = std::max(max_vertical, std::abs(vy));
             if (frame == 119 || frame == 299 || frame == 599)
                 std::printf("terrain=%d time=%.0fs speed=%.3fm/s (%.2fkm/h) distance=%.2fm lateral=%.3fm damage=%.5f\n",
                     terrain, (frame + 1) / 60.f, r.speed(), r.speed() * 3.6f, (r.center() - start).length(),
@@ -32,7 +32,7 @@ int main() {
     for (float steer : {0.35f, 1.0f}) {
         SoftRig r; advance(r, 3, 0, 0, true); advance(r, 5, 1);
         float minimum_up = 1;
-        for (int frame = 0; frame < 360; ++frame) { r.step(1.f / 60, 0.7f, steer, false); minimum_up = std::min(minimum_up, r.up().y); }
+        for (int frame = 0; frame < 360; ++frame) { r.step(1.f / 60, 0.7f, steer, false); minimum_up = std::min<float>(minimum_up, r.up().y); }
         const float initial_speed = r.speed(); const Vec3 start = r.center(); advance(r, 3, 0, 0, true);
         std::printf("steer=%.2f turn_min_up=%.5f brake_from=%.3fm/s brake_distance=%.3fm speed_after_3s=%.5fm/s damage=%.5f\n",
             steer, minimum_up, initial_speed, (r.center() - start).length(), r.speed(), r.damage());

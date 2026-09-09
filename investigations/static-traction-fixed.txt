@@ -1,0 +1,7 @@
+grip=0.12 brake=0 side=1 deg=20 throttle=0.0 dx=-47.217 forward=0.113 speed=14.158 slip=4.402 normal_load=15286 up=0.930
+grip=0.12 brake=1 side=1 deg=20 throttle=0.0 dx=-47.301 forward=-0.014 speed=14.367 slip=0.000 normal_load=15286 up=0.930
+grip=1.10 brake=0 side=1 deg=20 throttle=0.0 dx=-0.020 forward=0.011 speed=0.002 slip=0.001 normal_load=15434 up=0.920
+grip=1.10 brake=1 side=1 deg=20 throttle=0.0 dx=0.000 forward=-0.000 speed=0.000 slip=0.000 normal_load=15434 up=0.946
+grip=2.20 brake=0 side=1 deg=20 throttle=0.0 dx=-0.051 forward=-0.010 speed=0.002 slip=0.001 normal_load=15432 up=0.920
+grip=2.20 brake=1 side=1 deg=20 throttle=0.0 dx=0.000 forward=-0.000 speed=0.000 slip=0.000 normal_load=15432 up=0.954
+STATIC TRACTION: 6 slope controls and 2 steering directions passed

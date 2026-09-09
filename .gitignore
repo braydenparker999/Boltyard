@@ -9,3 +9,20 @@ native/godot-cpp/
 native/.sconsign*
 native/*.o
 native/*.os
+
+# Supplied Utah Extra content stays in private evaluation packages.
+assets/utah/*.png
+assets/utah/*.jpg
+data/utah/*.bin
+data/utah/*.json
+
+assets/utah/scenery/
+
+assets/utah/materials/
+assets/utah/roads/
+
+# Private Gridmap Refresh conversion; third-party art is not redistributed in git.
+assets/gridmap/
+data/gridmap/
+*.uid
+*.import

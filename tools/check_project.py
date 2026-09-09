@@ -20,6 +20,11 @@ for path in list(root.rglob('*.gd')) + [root / 'project.godot', root / 'main.tsc
     # and concatenated texture names are resolved by the engine runtime gate.
     pattern = r'\b(?:load|preload)\(\s*[\"\']res://([^\"\']+)[\"\']\s*\)' if path.suffix == '.gd' else r'res://([^"\n]+)'
     for resource in re.findall(pattern, path.read_text()):
+        # Imported maps are optional private content. The map picker checks
+        # height.bin before offering them; validate their art when installed.
+        optional = next((name for name in ('utah', 'gridmap') if resource.startswith(f'assets/{name}/')), None)
+        if optional and not (root / f'data/{optional}/height.bin').is_file():
+            continue
         assert (root / resource).is_file(), f'Missing resource {resource} in {path.name}'
         refs += 1
 for path in (root / 'shaders').glob('*.gdshader*'):

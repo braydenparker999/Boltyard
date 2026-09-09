@@ -4,6 +4,7 @@ signal action_requested(action: String)
 var steering := 0.0
 var throttle := 0.0
 var braking := false
+var brake_pressure := 1.0
 var reverse := false
 var control_scale := 1.0
 var thumb_offset := 0.0
@@ -113,7 +114,9 @@ func update_axis(id: String, point: Vector2) -> void:
 		var r: Rect2 = rects.throttle
 		var raw := clampf((r.end.y - 26 - point.y) / (r.size.y - 54), 0, 1)
 		throttle = raw * raw
-	elif id == "brake": braking = true
+	elif id == "brake":
+		braking = true
+		brake_pressure = clampf((rects.brake.end.y - point.y) / rects.brake.size.y, .12, 1.0)
 	queue_redraw()
 
 func _draw() -> void:
@@ -139,7 +142,8 @@ func _draw() -> void:
 	draw_rect(fill, Color("e7bf7d88"))
 	caption(p, "%d%%" % roundi(throttle * 100), 20, 30)
 	caption(p, "GAS", 15, p.size.y - 12)
-	caption(rects.brake, "BRAKE", 16, rects.brake.size.y * .58, accent if braking else Color.WHITE)
+	caption(rects.brake, "%d%%" % roundi(brake_pressure * 100) if braking else "", 18, rects.brake.size.y * .34, accent)
+	caption(rects.brake, "BRAKE", 16, rects.brake.size.y * .70, accent if braking else Color.WHITE)
 	caption(rects.direction, "REV" if reverse else "FWD", 18, rects.direction.size.y * .62, accent)
 
 func caption(r: Rect2, text: String, font_size: int, y: float, color := Color("d9e2dd")) -> void:

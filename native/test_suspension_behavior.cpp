@@ -7,7 +7,7 @@ int main(){
     float sag[2];
     for(int tuning=0;tuning<2;++tuning){
         Config c;c.ride_height=.45f;c.suspension_travel=.35f;c.spring_rate=tuning?40000:20000;
-        SoftRig r;r.configure(c);r.set_terrain(3);r.set_test_rocks({});r.reset({0,1.5f,0});r.dynamic_objects().clear();
+        SoftRig r;r.configure(c);r.set_terrain(3);r.set_test_rocks({});r.reset({0,1.5f,0});r.dynamic_objects().clear();r.set_neutral(true);
         for(int i=0;i<600;++i)r.step(1.f/120,0,0,false);
         sag[tuning]=0;
         for(int w=0;w<4;++w){

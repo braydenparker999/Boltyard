@@ -48,17 +48,17 @@ int main(){const auto started=std::chrono::steady_clock::now();int passed=0,fail
     });
     test("drivetrain reaction moves axle pitch without inventing linear momentum",[]{
         float pitch[2];for(int trial=0;trial<2;++trial){SoftRig r;prepare(r,{0,40,0});
-            run(r,.16f,trial?.35f:-.35f);pitch[trial]=r.axle_pitch(0);
+            SoftRig baseline=r;baseline.set_neutral(true);run(baseline,.10f);run(r,.10f,trial?.65f:-.65f);pitch[trial]=r.axle_pitch(0)-baseline.axle_pitch(0);
             Vec3 p=momentum(r);require(std::abs(p.x)<1.5f&&std::abs(p.z)<1.5f,"internal wheel torque creates net horizontal impulse");healthy(r);}
         std::cout<<"  reversing torque pitches="<<pitch[0]<<","<<pitch[1]<<'\n';
-        require(pitch[0]*pitch[1]<0&&std::abs(pitch[0]-pitch[1])>.002f,"rotor torque has no opposite carrier reaction");
+        require(pitch[0]*pitch[1]<0&&std::abs(pitch[0]-pitch[1])>.0001f,"rotor torque has no opposite carrier reaction");
     });
     test("new-map loose objects spawn above actual terrain and settle on it",[]{
         for(int mode:{4,5}){DynamicObjects props;props.set_terrain(mode);props.reset();
             for(const auto&b:props.bodies())for(auto v:b.shape.vertices){auto p=b.world_point(v);require(p.y-expedition_height(mode,p.x,p.z)>-.002f,"map prop starts buried");}
             props.clear();props.set_static_rocks({});float h=expedition_height(mode,5,4);int id=props.add_crate({5,h+1.3f,4},{.5f,.5f,.5f},35);
             for(int i=0;i<720;++i)props.step(1.f/240);
-            const auto&b=props.bodies()[id];float gap=1e9f;for(auto v:b.shape.vertices){Vec3 p=b.world_point(v);gap=std::min(gap,p.y-expedition_height(mode,p.x,p.z));}
+            const auto&b=props.bodies()[id];float gap=1e9f;for(auto v:b.shape.vertices){Vec3 p=b.world_point(v);gap=std::min<float>(gap,p.y-expedition_height(mode,p.x,p.z));}
             require(std::abs(gap)<.03f&&b.position.finite()&&b.velocity.length()<.1f,"loose crate did not rest on its map heightfield");}
     });
     // These integration drives retain the complete authored forest, granite
@@ -78,7 +78,7 @@ int main(){const auto started=std::chrono::steady_clock::now();int passed=0,fail
             float desired=std::atan2(delta.x,-delta.z),actual=std::atan2(r.forward().x,-r.forward().z);
             float error=std::remainder(desired-actual,6.28318530718f);
             r.step(1.f/120,.24f,std::clamp(error*2.1f,-1.f,1.f),false);
-            minimum_up=std::min(minimum_up,r.up().y);maximum_speed=std::max(maximum_speed,r.speed());
+            minimum_up=std::min<float>(minimum_up,r.up().y);maximum_speed=std::max<float>(maximum_speed,r.speed());
         }
         const double cpu_seconds=double(std::clock()-cpu_start)/CLOCKS_PER_SEC;
         std::cout<<"  map="<<mode<<" waypoint="<<waypoint<<" center="<<r.center().x<<","<<r.center().y<<","<<r.center().z

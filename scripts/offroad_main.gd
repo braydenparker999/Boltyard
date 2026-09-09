@@ -2,7 +2,7 @@ extends Node3D
 
 const LEGACY_PATH = "user://offroad_setup.json"
 const GARAGE_PATH = "user://offroad_garage_v3.json"
-const PAINTS = ["c96c38", "c9b78e", "647263", "537781", "ede7d6", "383f47"]
+const PAINTS = ["e88724", "28554d", "c96c38", "c9b78e", "647263", "537781", "ede7d6", "383f47"]
 const INK = Color("111a1d")
 const PANEL = Color("111d22eb")
 const MUTED = Color("a1b4b3")
@@ -12,10 +12,13 @@ const ACTIONS = ["off_left", "off_right", "off_go", "off_reverse", "off_brake"]
 const CAMP = Vector3(0, 1.5, 8)
 
 const EXPEDITIONS = {
+	"gridmap": {"name": "GRIDMAP REFRESH", "region": "PROVING GROUND", "mode": 7, "color": "adb8c0", "description": "Original ramps, suspension obstacles, pipes, oval and surface tests. A few shared scenery assets are unavailable."},
+	"utah": {"name": "UTAH EXTRA", "region": "UTAH / CANYON COUNTRY", "mode": 7, "color": "d5ac80", "description": "Full 2 km terrain with imported cliffs, boulders and junipers. Some newer bridges and structures remain unavailable."},
+    "canyon": {"name": "REDSTONE CANYON", "region": "SANDSTONE COUNTRY", "mode": 6, "color": "d99b6b", "description": "Layered red cliffs, slickrock ledges and an open arch. Choose the rim traverse or the broad return trail."},
 	"rockies": {"name": "SILVERPINE RANGE", "region": "ROCKY MOUNTAINS", "mode": 4, "color": "829b88", "description": "Granite shelves, pine forest and high mountain passes. Find your line through the landscape."},
 	"russia": {"name": "KARELIAN TAIGA", "region": "RUSSIA", "mode": 5, "color": "a2af82", "description": "Wet forest tracks, glacial stone and quiet lakes. Crawl through birch and spruce country."}
 }
-var selected_map = "rockies"
+var selected_map = "gridmap"
 var exploration_progress: Dictionary = {}
 var map_buttons: Dictionary = {}
 var garage_tabs: Dictionary = {}
@@ -100,6 +103,11 @@ var toast_remaining = 0.0
 var tuning_delay = -1.0
 var telemetry_delay = 0.0
 var recovery_cooldown = 0.0
+var physics_trace: Array = []
+var transmission_neutral := false
+var parking_brake := false
+var trace_timer := 0.0
+var automatic_recovery_attempted := false
 var orbit = 2.24
 var orbit_distance = 9.3
 var orbit_pitch = 0.49
@@ -126,6 +134,8 @@ func _ready() -> void:
 	get_tree().auto_accept_quit = false
 	setup_input()
 	load_settings()
+	if selected_map in ["utah", "gridmap"] and not FileAccess.file_exists("res://data/%s/height.bin" % selected_map):
+		selected_map = "rockies"
 	settings = VehicleCatalog.compose(builds[selected_vehicle])
 	truck = OffroadTruck.new()
 	truck.name = "Truck"
@@ -138,13 +148,15 @@ func _ready() -> void:
 	world.set_quality(quality)
 	add_child(world)
 	add_child(truck)
+	if selected_map in ["utah", "gridmap"]:
+		truck.reset(recovery_point())
 	landmarks = world.get_landmarks()
 	restore_exploration_progress()
 	camera = Camera3D.new()
 	camera.current = true
 	camera.fov = 52.0
 	camera.near = 0.08
-	camera.far = 800.0
+	camera.far = 3000.0 if selected_map in ["utah", "gridmap"] else 800.0
 	add_child(camera)
 	trail_dust = preload("res://scripts/trail_dust.gd").new()
 	add_child(trail_dust)
@@ -326,6 +338,8 @@ func build_garage() -> void:
 	var trails = column(options, 9)
 	garage_pages.trails = trails
 	for id in EXPEDITIONS:
+		if id in ["utah", "gridmap"] and not FileAccess.file_exists("res://data/%s/height.bin" % id):
+			continue
 		var descriptor: Dictionary = EXPEDITIONS[id]
 		var item = button(trails, descriptor.region + "  ↗\n" + descriptor.name, select_map.bind(id), 0)
 		item.custom_minimum_size.y = 82
@@ -335,8 +349,9 @@ func build_garage() -> void:
 	var details = label(trails, "", 13, MUTED)
 	details.name = "MapDetails"
 	details.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	button(trails, "DRIVE BEDROCK NARROWS  ›", start_bedrock_narrows, 0)
 	course_button = button(trails, "EQUIP CRAWLER SETUP", fit_crawl_setup, 0)
-	label(trails, "OPEN EXPLORATION  /  640 m REGIONS", 11, ACCENT)
+	label(trails, "OPEN EXPLORATION  /  CHOOSE YOUR REGION", 11, ACCENT)
 	var equipment_page = column(options, 7)
 	garage_pages.rig = equipment_page
 	section(equipment_page, "PAINT")
@@ -347,7 +362,7 @@ func build_garage() -> void:
 		swatch.custom_minimum_size.y = 38
 		swatch.add_theme_stylebox_override("normal", box(Color(color), 8, 4))
 		swatch.add_theme_stylebox_override("hover", box(Color(color).lightened(0.2), 8, 4))
-		swatch.tooltip_text = ["Rust orange", "Sand", "Forest", "Blue slate", "Ivory", "Graphite"][PAINTS.find(color)]
+		swatch.tooltip_text = ["Canyon orange", "Deep green", "Rust orange", "Sand", "Forest", "Blue slate", "Ivory", "Graphite"][PAINTS.find(color)]
 		paint_buttons[color] = swatch
 	section(equipment_page, "INSTALLED EQUIPMENT")
 	for slot in VehicleCatalog.SLOTS:
@@ -374,7 +389,7 @@ func build_garage() -> void:
 	tuning_content = column(setup_page, 5)
 	tuning_content.hide()
 	tuning_slider(tuning_content, "tire_radius", "Tire diameter", "Larger tires add clearance and require more wheel torque.", 0.01)
-	tuning_slider(tuning_content, "tire_pressure", "Relative tire pressure", "Carcass stiffness and grip multiplier, not a calibrated pressure.", 0.05)
+	tuning_slider(tuning_content, "tire_pressure", "Tire pressure", "Changes carcass stiffness and footprint. Lower pressure allows more deflection.", 0.05)
 	tuning_slider(tuning_content, "ride_height", "Suspension height", "More clearance raises the center of gravity.", 0.01)
 	tuning_slider(tuning_content, "spring_rate", "Spring rate", "Softer springs flex; stiffer springs carry load.", 1000.0)
 	tuning_slider(tuning_content, "damping", "Base damping", "Sets both damper directions until you adjust them individually.", 250.0)
@@ -520,6 +535,14 @@ func build_driving() -> void:
 	crawl_controls.hide()
 	crawl_loads = label(crawl_controls, "", 11, MUTED)
 	button(crawl_controls, "Copy performance report", copy_performance_report, 254)
+	var neutral_toggle := CheckButton.new()
+	neutral_toggle.text = "Neutral"
+	neutral_toggle.toggled.connect(func(on): transmission_neutral = on; truck.core.set_neutral(on))
+	crawl_controls.add_child(neutral_toggle)
+	var parking_toggle := CheckButton.new()
+	parking_toggle.text = "Parking brake"
+	parking_toggle.toggled.connect(func(on): parking_brake = on; truck.core.set_parking_brake(on))
+	crawl_controls.add_child(parking_toggle)
 	recovery_panel = PanelContainer.new()
 	recovery_panel.name = "RecoveryPanel"
 	recovery_panel.add_theme_stylebox_override("panel", box(Color("142127fa"), 18, 16))
@@ -730,8 +753,8 @@ func build_map() -> void:
 	map_canvas = ExplorationMap.new()
 	map_canvas.custom_minimum_size = Vector2(180, 180)
 	map_canvas.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	map_canvas.extent = 384.0 if selected_map == "legacy" else 320.0
-	map_canvas.configure(truck.core, landmarks)
+	map_canvas.extent = 1024.0 if selected_map in ["utah", "gridmap"] else (384.0 if selected_map == "legacy" else 320.0)
+	map_canvas.configure(truck.core, landmarks, world.get_map_routes() if world.has_method("get_map_routes") else [])
 	map_canvas.destination_selected.connect(select_destination)
 	content.add_child(map_canvas)
 	var info = label(content, "Tap a marker or destination. Follow the compass; discover each place by driving there.", 12, MUTED)
@@ -797,9 +820,10 @@ func place_ui() -> void:
 	mobile_controls.sensitivity = float(controls_preferences.sensitivity)
 	mobile_controls.arrange()
 	var bar_y: float = mobile_controls.bar.position.y
-	crawl_controls.position = Vector2(margin + 12, maxf(170, bar_y - 280))
+	var rig_height := maxf(300.0, crawl_controls.get_combined_minimum_size().y + 24.0)
+	crawl_controls.position = Vector2(margin + 12, maxf(160, bar_y - rig_height - 16))
 	drive_panel.get_node("RigBackdrop").position = crawl_controls.position - Vector2(12, 12)
-	drive_panel.get_node("RigBackdrop").size = Vector2(280, 264)
+	drive_panel.get_node("RigBackdrop").size = Vector2(280, rig_height)
 	recovery_panel.size = Vector2(292, 216)
 	recovery_panel.position = Vector2(extent.x - 310, bar_y - 228)
 	dashboard.position = Vector2(extent.x - margin - 98, 160)
@@ -820,7 +844,7 @@ func format_value(key: String) -> String:
 	var value = float(settings.get(key, 0.0))
 	match key:
 		"tire_radius": return "%.1f in" % (value * 2.0 / 0.0254)
-		"tire_pressure": return "%.2f×" % value
+		"tire_pressure": return "%.0f psi" % (value * 20.0)
 		"ride_height": return "%d cm" % roundi(value * 100)
 		"spring_rate": return "%.0f kN/m" % (value / 1000.0)
 		"damping", "compression_damping", "rebound_damping": return "%.2f kNs/m" % (value / 1000.0)
@@ -1215,11 +1239,11 @@ func load_settings() -> void:
 		if active is String and VehicleCatalog.VEHICLES.has(active):
 			selected_vehicle = active
 		var map_id = parsed.get("selected_map", "rockies")
-		if map_id is String and map_id in ["rockies", "russia", "legacy"]:
+		if map_id is String and map_id in ["gridmap", "utah", "canyon", "rockies", "russia", "legacy"]:
 			selected_map = map_id
 		var per_map = parsed.get("map_progress", {})
 		if per_map is Dictionary:
-			for id in ["rockies", "russia", "legacy"]:
+			for id in ["gridmap", "utah", "canyon", "rockies", "russia", "legacy"]:
 				if per_map.get(id) is Dictionary:
 					exploration_progress[id] = per_map[id].duplicate(true)
 		var old_progress_map = selected_map if parsed.has("selected_map") else "legacy"
@@ -1319,6 +1343,9 @@ func _physics_process(_delta: float) -> void:
 		return
 	truck.throttle = (mobile_controls.throttle * (-1.0 if mobile_controls.reverse else 1.0) if mobile_controls.throttle > 0 else Input.get_axis("off_reverse", "off_go") * (throttle_limit if settings.low_range else 1.0)) if driving and not recovery_panel.visible and not crawl_controls.visible else 0.0
 	truck.steering = (mobile_controls.steering if absf(mobile_controls.steering) > 0 else Input.get_axis("off_left", "off_right")) if driving else 0.0
+	truck.core.set_neutral(transmission_neutral)
+	truck.core.set_parking_brake(parking_brake)
+	truck.brake_pressure = mobile_controls.brake_pressure if mobile_controls.braking and not recovery_panel.visible and not crawl_controls.visible else 1.0
 	truck.brake = mobile_controls.braking or Input.is_action_pressed("off_brake") or recovery_panel.visible or crawl_controls.visible if driving else true
 
 func _process(delta: float) -> void:
@@ -1361,8 +1388,17 @@ func _process(delta: float) -> void:
 			if safe_spots.is_empty() or position.distance_to(safe_spots.back().position) > 5:
 				safe_spots.append({"position": position, "forward": current_telemetry.get("forward", Vector3.FORWARD)})
 				if safe_spots.size() > 20: safe_spots.pop_front()
-	if recovery_cooldown <= 0 and driving and (position.y < -50 or absf(position.x) > (365 if selected_map == "legacy" else 316) or absf(position.z) > (365 if selected_map == "legacy" else 316)):
+	var outside := automatic_recovery_needed(position, selected_map)
+	if not outside and recovery_cooldown <= 0:
+		automatic_recovery_attempted = false
+	if outside and driving and recovery_cooldown <= 0 and not automatic_recovery_attempted:
+		automatic_recovery_attempted = true
 		recover_safe()
+
+static func automatic_recovery_needed(at: Vector3, map_id: String) -> bool:
+	var limit := 1020.0 if map_id in ["utah", "gridmap"] else (365.0 if map_id == "legacy" else 316.0)
+	var fall_floor := -120.0 if map_id == "gridmap" else -50.0
+	return not at.is_finite() or at.y < fall_floor or absf(at.x) > limit or absf(at.z) > limit
 
 func update_camera(delta: float) -> void:
 	var position: Vector3 = current_telemetry.get("position", CAMP)
@@ -1431,18 +1467,24 @@ func update_camera(delta: float) -> void:
 		camera.look_at(camera_target, Vector3.UP)
 
 func copy_performance_report() -> void:
-	var report := {"version": "2.3.0", "device": OS.get_model_name(), "os": OS.get_name(),
+	var report := {"version": ProjectSettings.get_setting("application/config/version", "unknown"), "device": OS.get_model_name(), "os": OS.get_name(),
 		"renderer": RenderingServer.get_current_rendering_method(), "quality": quality,
 		"render_scale": get_viewport().scaling_3d_scale, "viewport": str(get_viewport().get_visible_rect().size),
 		"map": selected_map, "settings": settings, "telemetry": truck.get_telemetry(),
 		"samples": truck.frame_pacing.count, "frame_ms": Array(truck.frame_pacing.frames.slice(0, truck.frame_pacing.count)),
 		"physics_ms": Array(truck.frame_pacing.physics.slice(0, truck.frame_pacing.count)),
 		"skin_ms": Array(truck.frame_pacing.preparation.slice(0, truck.frame_pacing.count)),
+		"physics_trace": physics_trace,
 		"scope": "Wall-clock frame intervals include vsync/cap wait; physics and skin are CPU. GPU not measured."}
 	DisplayServer.clipboard_set(JSON.stringify(report))
 	toast("Performance report copied")
 
 func update_telemetry() -> void:
+	var now := Time.get_ticks_msec() / 1000.0
+	if now - trace_timer >= 2.0:
+		trace_timer = now
+		physics_trace.append({"t": now, "map": selected_map, "rpm": current_telemetry.get("engine_rpm", 0), "speed": current_telemetry.get("speed", 0), "up": str(current_telemetry.get("up", Vector3.UP)), "side_slip": Array(current_telemetry.get("wheel_lateral_slip", [])), "loads": Array(current_telemetry.get("wheel_normal_loads", [])), "physics_ms": current_telemetry.get("sim_ms", 0)})
+		if physics_trace.size() > 600: physics_trace.pop_front()
 	var speed = absf(float(current_telemetry.get("speed", 0.0))) * 3.6
 	var damage = clampf(float(current_telemetry.get("damage", 0.0)), 0.0, 1.0)
 	var broken = int(current_telemetry.get("broken_beams", 0))
@@ -1450,7 +1492,7 @@ func update_telemetry() -> void:
 	speed_label.text = "%.1f" % speed if speed < 10.0 else "%02d" % roundi(speed)
 	speed_dial.speed = speed
 	speed_dial.queue_redraw()
-	drive_status.text = "%s · %d/4" % ["LOW" if settings.low_range else "HIGH", grounded]
+	drive_status.text = "%s · %d RPM" % ["PARK" if parking_brake else ("N" if transmission_neutral else ("LOW" if settings.low_range else "HIGH")), roundi(float(current_telemetry.get("engine_rpm", 0)))]
 	speed_dial.grounded = grounded
 	speed_dial.damage = damage
 	drive_damage.text = "RIG %d%%" % roundi((1.0 - damage) * 100.0)
@@ -1461,6 +1503,9 @@ func update_telemetry() -> void:
 		var squash = current_telemetry.get("wheel_compression", PackedFloat32Array([0, 0, 0, 0]))
 		var flex = current_telemetry.get("axle_articulation", PackedFloat32Array([0, 0]))
 		crawl_loads.text = "TIRE LOAD / kN  %.1f · %.1f / %.1f · %.1f\nCOMPRESSION / mm  %.0f · %.0f / %.0f · %.0f\nAXLE FLEX  F %.0f° / R %.0f°" % [loads[0] / 1000.0, loads[1] / 1000.0, loads[2] / 1000.0, loads[3] / 1000.0, squash[0] * 1000.0, squash[1] * 1000.0, squash[2] * 1000.0, squash[3] * 1000.0, rad_to_deg(flex[0]), rad_to_deg(flex[1])]
+		var side = current_telemetry.get("wheel_lateral_slip", PackedFloat32Array([0, 0, 0, 0]))
+		var grip_use = current_telemetry.get("wheel_friction_usage", PackedFloat32Array([0, 0, 0, 0]))
+		crawl_loads.text += "\nSIDE SLIP m/s  %.2f · %.2f / %.2f · %.2f\nGRIP USED %%  %.0f · %.0f / %.0f · %.0f" % [side[0], side[1], side[2], side[3], grip_use[0]*100, grip_use[1]*100, grip_use[2]*100, grip_use[3]*100]
 		var pacing: Dictionary = current_telemetry.get("frame_pacing", {})
 		if not pacing.is_empty():
 			var rock_wheels := 0
@@ -1542,11 +1587,17 @@ func _notification(what: int) -> void:
 		get_tree().quit()
 
 func recovery_point() -> Vector3:
+	if selected_map in ["utah", "gridmap"]:
+		return world.get_spawn_position()
 	if not crawl_mode:
 		return Vector3(0, float(truck.core.terrain_height(0, 8)) + 1.5, 8)
 	return Vector3(0, 1.5, [8.0, -11.0, -24.0, -41.5, -55.0, -80.0][crawl_section])
 
 func create_world(id: String):
+	if id == "gridmap":
+		return load("res://scripts/gridmap_world.gd").new()
+	if id == "utah":
+		return load("res://scripts/imported_utah_world.gd").new()
 	if id == "copperline":
 		return load("res://scripts/crawl_world.gd").new()
 	if id == "legacy":
@@ -1604,8 +1655,8 @@ func restore_exploration_progress() -> void:
 	validate_exploration()
 
 func refresh_map_destinations() -> void:
-	map_canvas.extent = 384.0 if selected_map == "legacy" else 320.0
-	map_canvas.configure(truck.core, landmarks)
+	map_canvas.extent = 1024.0 if selected_map in ["utah", "gridmap"] else (384.0 if selected_map == "legacy" else 320.0)
+	map_canvas.configure(truck.core, landmarks, world.get_map_routes() if world.has_method("get_map_routes") else [])
 	map_title.text = str(EXPEDITIONS[selected_map].name) if EXPEDITIONS.has(selected_map) else "WORKSHOP MAP"
 	var grid: GridContainer = map_overlay.get_child(0).get_node("Destinations")
 	for child in grid.get_children():
@@ -1622,11 +1673,14 @@ func refresh_map_destinations() -> void:
 	update_map()
 
 func select_map(id: String) -> void:
-	if driving or id == selected_map or not id in ["rockies", "russia", "copperline", "legacy"]:
+	if id in ["utah", "gridmap"] and not FileAccess.file_exists("res://data/%s/height.bin" % id):
+		return
+	if driving or id == selected_map or not id in ["gridmap", "utah", "canyon", "rockies", "russia", "copperline", "legacy"]:
 		return
 	clear_controls()
 	store_exploration_progress()
 	selected_map = id
+	camera.far = 3000.0 if selected_map in ["utah", "gridmap"] else 800.0
 	crawl_mode = selected_map == "copperline"
 	crawl_section = 0
 	var previous = world
@@ -1676,3 +1730,19 @@ func fit_crawl_setup() -> void:
 	sync_controls()
 	apply_tuning()
 	toast("Billygoat tires, Almost Level lift and Low Expectations gears fitted.")
+
+func start_bedrock_narrows() -> void:
+	if driving:
+		return
+	select_map("canyon")
+	clear_controls()
+	toggle_mode()
+	var at := Vector3(8, 0, -30)
+	at.y = truck.core.terrain_height(at.x, at.z) + 1.4
+	truck.reset(at)
+	safe_spots.clear()
+	safe_time = 0
+	world.update_focus(at)
+	set_camera_preset("follow")
+	did_position_camera = false
+	toast("BEDROCK NARROWS · Pick your line through the rock shelves")
