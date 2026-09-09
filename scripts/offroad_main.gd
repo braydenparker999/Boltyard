@@ -106,6 +106,7 @@ var recovery_cooldown = 0.0
 var physics_trace: Array = []
 var transmission_neutral := false
 var parking_brake := false
+var auto_hold_enabled := true
 var trace_timer := 0.0
 var automatic_recovery_attempted := false
 var orbit = 2.24
@@ -141,6 +142,7 @@ func _ready() -> void:
 	truck.name = "Truck"
 	truck.process_mode = Node.PROCESS_MODE_PAUSABLE
 	truck.configure(settings)
+	truck.core.set_auto_hold(auto_hold_enabled)
 	world = create_world(selected_map)
 	world.name = "Trail"
 	world.process_mode = Node.PROCESS_MODE_PAUSABLE
@@ -401,7 +403,6 @@ func build_garage() -> void:
 	tuning_slider(tuning_content, "mass", "Vehicle mass", "Total mass, including the selected equipment.", 25.0)
 	tuning_slider(tuning_content, "track_width", "Track width", "Wider stance improves stability on side slopes.", 0.05)
 	tuning_slider(tuning_content, "wheelbase", "Wheelbase", "A shorter wheelbase clears crests more easily.", 0.05)
-	tuning_slider(tuning_content, "body_stiffness", "Chassis stiffness", "Changes how the physical frame resists bending.", 0.05)
 	tuning_toggle(tuning_content, "low_range", "Low range")
 	tuning_toggle(tuning_content, "locked_diffs", "Locked differentials")
 	button(tuning_content, "Use installed parts' tuning", clear_tuning, 100)
@@ -417,7 +418,7 @@ func build_garage() -> void:
 	quality_note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	garage_footer = row(content, 7)
 	button(garage_footer, "SAVE BUILD", save_with_toast, 90).size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	button(garage_footer, "REPAIR RIG", recover, 110).size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	button(garage_footer, "RETURN TO CAMP", recover, 110).size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	garage_overlay = Control.new()
 	garage_overlay.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	ui.add_child(garage_overlay)
@@ -498,7 +499,7 @@ func build_driving() -> void:
 	drive_status.position = Vector2(0, 98)
 	drive_status.size.x = 136
 	drive_status.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	drive_damage = label(dashboard, "RIG 100%", 10, MUTED)
+	drive_damage = label(dashboard, "4 / 4 CONTACT", 10, MUTED)
 	drive_damage.position = Vector2(0, 120)
 	drive_damage.size.x = 136
 	drive_damage.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -539,10 +540,17 @@ func build_driving() -> void:
 	neutral_toggle.text = "Neutral"
 	neutral_toggle.toggled.connect(func(on): transmission_neutral = on; truck.core.set_neutral(on))
 	crawl_controls.add_child(neutral_toggle)
+	var brake_controls := HBoxContainer.new()
+	crawl_controls.add_child(brake_controls)
 	var parking_toggle := CheckButton.new()
 	parking_toggle.text = "Parking brake"
 	parking_toggle.toggled.connect(func(on): parking_brake = on; truck.core.set_parking_brake(on))
-	crawl_controls.add_child(parking_toggle)
+	brake_controls.add_child(parking_toggle)
+	var hold_toggle := CheckButton.new()
+	hold_toggle.text = "Auto-hold"
+	hold_toggle.button_pressed = true
+	hold_toggle.toggled.connect(func(on): auto_hold_enabled = on; truck.core.set_auto_hold(on))
+	brake_controls.add_child(hold_toggle)
 	recovery_panel = PanelContainer.new()
 	recovery_panel.name = "RecoveryPanel"
 	recovery_panel.add_theme_stylebox_override("panel", box(Color("142127fa"), 18, 16))
@@ -988,6 +996,7 @@ func apply_tuning() -> void:
 	clear_controls()
 	settings = VehicleCatalog.compose(active_build())
 	truck.configure(settings)
+	truck.core.set_auto_hold(auto_hold_enabled)
 	world.configure(truck.core)
 	truck.reset(recovery_point())
 	safe_spots.clear()
@@ -1069,7 +1078,8 @@ func perform_local_recovery(at: Vector3, heading: Vector3) -> bool:
 	truck._refresh_visuals()
 	current_telemetry = truck.get_telemetry()
 	did_position_camera = false
-	toast("Back on your wheels. Vehicle damage and setup kept.")
+	truck.reset_visual_history()
+	toast("Back on your wheels. Setup kept.")
 	return true
 
 func recover_safe() -> void:
@@ -1208,7 +1218,7 @@ func show_help() -> void:
 	var dialog = AcceptDialog.new()
 	dialog.title = "Crawlworks · Field guide"
 	dialog.process_mode = Node.PROCESS_MODE_ALWAYS
-	dialog.dialog_text = "BUILD YOUR RIG\nPickup, Scout and Buggy each keep a separate build.\nEquipment changes compatible parts and their matching settings.\nFine tuning overrides those settings. Reset tuning restores installed parts.\n\nEXPLORE\nSelect a destination on the map, then follow the compass.\nPlaces are discovered when you actually drive close to them.\nCamp repairs the vehicle and returns you to the workshop.\nSlide the left pad to steer. Slide GAS upward for more power. FWD / REV selects direction; BRAKE stops the rig.\nLow range and locked differentials help with slow climbs.\nRange, axle locks and local recovery sit above your thumbs. Pause adjusts control size, height and sensitivity. RIG opens diagnostics.\nKeyboard: WASD / arrows, Space brake, R camp, M map, Tab garage.\n\nCAMERA · FOLLOW / TRAIL / FREE\nThe camera button cycles locked Follow, closer Trail and Free.\nFollow and Trail ignore scenery drags. Two fingers pinch to zoom only.\nChoose Free to orbit and tilt with one finger; Pan moves the view sideways or up/down.\nCenter returns to locked Follow.\nButtons and pedals keep their touches. Lift fingers before changing modes.\n\nDISPLAY & SAVES\nBoth portrait and landscape layouts work; rotate at any time.\nPerformance, Balanced and High adjust scenery and shadows.\nAll builds and discoveries save on this device. The old setup is retained.\n\nPHYSICS\nThe frame and cabin deform. Loaded tires compress and flex against the ground and rocks.\nLower pressure softens the tire and widens its footprint; higher pressure reduces flex.\nPressure values are relative settings, not bar or PSI.\nTire, suspension and drivetrain models remain simplified."
+	dialog.dialog_text = "BUILD YOUR RIG\nPickup, Scout and Buggy each keep a separate build.\nEquipment changes compatible parts and their matching settings.\nFine tuning overrides those settings. Reset tuning restores installed parts.\n\nEXPLORE\nSelect a destination on the map, then follow the compass.\nPlaces are discovered when you actually drive close to them.\nCamp returns the vehicle to the workshop.\nSlide the left pad to steer. Slide GAS upward for more power. FWD / REV selects direction; BRAKE stops the rig.\nLow range and locked differentials help with slow climbs.\nRange, axle locks and local recovery sit above your thumbs. Pause adjusts control size, height and sensitivity. RIG opens diagnostics.\nKeyboard: WASD / arrows, Space brake, R camp, M map, Tab garage.\n\nCAMERA · FOLLOW / TRAIL / FREE\nThe camera button cycles locked Follow, closer Trail and Free.\nFollow and Trail ignore scenery drags. Two fingers pinch to zoom only.\nChoose Free to orbit and tilt with one finger; Pan moves the view sideways or up/down.\nCenter returns to locked Follow.\nButtons and pedals keep their touches. Lift fingers before changing modes.\n\nDISPLAY & SAVES\nBoth portrait and landscape layouts work; rotate at any time.\nPerformance, Balanced and High adjust scenery and shadows.\nAll builds and discoveries save on this device. The old setup is retained.\n\nPHYSICS\nThe chassis and cabin stay rigid. Loaded tires compress and flex against the ground and rocks. Four-link axles and coilovers follow their physical mounts.\nLower pressure softens the tire and widens its footprint; higher pressure reduces flex.\nAuto-hold keeps brake pressure after a stop; throttle releases it. It is limited by available tire grip. Tire pressure is shown in PSI.\nTire, suspension and drivetrain models remain simplified."
 	ui.add_child(dialog)
 	dialog.confirmed.connect(dialog.queue_free)
 	dialog.canceled.connect(dialog.queue_free)
@@ -1401,12 +1411,14 @@ static func automatic_recovery_needed(at: Vector3, map_id: String) -> bool:
 	return not at.is_finite() or at.y < fall_floor or absf(at.x) > limit or absf(at.z) > limit
 
 func update_camera(delta: float) -> void:
-	var position: Vector3 = current_telemetry.get("position", CAMP)
+	var pose: Dictionary = truck.get_render_pose()
+	var position := Vector3.ZERO
+	for i in range(8): position += pose.nodes[i] / 8.0
 	var target = position + Vector3.UP * 0.3
 	var desired: Vector3
 	if driving:
 		var speed: float = absf(float(current_telemetry.get("speed", 0.0)))
-		var forward: Vector3 = current_telemetry.get("forward", Vector3.FORWARD)
+		var forward: Vector3 = -pose.body.basis.z
 		forward.y = 0.0
 		if forward.length_squared() > 0.01:
 			# Angular interpolation stays defined during a 180-degree reversal.
@@ -1474,6 +1486,8 @@ func copy_performance_report() -> void:
 		"samples": truck.frame_pacing.count, "frame_ms": Array(truck.frame_pacing.frames.slice(0, truck.frame_pacing.count)),
 		"physics_ms": Array(truck.frame_pacing.physics.slice(0, truck.frame_pacing.count)),
 		"skin_ms": Array(truck.frame_pacing.preparation.slice(0, truck.frame_pacing.count)),
+		"physics_ticks": Array(truck.frame_pacing.ticks.slice(0, truck.frame_pacing.count)),
+		"simulated_seconds": Array(truck.frame_pacing.simulated.slice(0, truck.frame_pacing.count)),
 		"physics_trace": physics_trace,
 		"scope": "Wall-clock frame intervals include vsync/cap wait; physics and skin are CPU. GPU not measured."}
 	DisplayServer.clipboard_set(JSON.stringify(report))
@@ -1486,18 +1500,16 @@ func update_telemetry() -> void:
 		physics_trace.append({"t": now, "map": selected_map, "rpm": current_telemetry.get("engine_rpm", 0), "speed": current_telemetry.get("speed", 0), "up": str(current_telemetry.get("up", Vector3.UP)), "side_slip": Array(current_telemetry.get("wheel_lateral_slip", [])), "loads": Array(current_telemetry.get("wheel_normal_loads", [])), "physics_ms": current_telemetry.get("sim_ms", 0)})
 		if physics_trace.size() > 600: physics_trace.pop_front()
 	var speed = absf(float(current_telemetry.get("speed", 0.0))) * 3.6
-	var damage = clampf(float(current_telemetry.get("damage", 0.0)), 0.0, 1.0)
-	var broken = int(current_telemetry.get("broken_beams", 0))
 	var grounded = clampi(int(current_telemetry.get("wheels_grounded", 0)), 0, 4)
 	speed_label.text = "%.1f" % speed if speed < 10.0 else "%02d" % roundi(speed)
 	speed_dial.speed = speed
 	speed_dial.queue_redraw()
 	drive_status.text = "%s · %d RPM" % ["PARK" if parking_brake else ("N" if transmission_neutral else ("LOW" if settings.low_range else "HIGH")), roundi(float(current_telemetry.get("engine_rpm", 0)))]
 	speed_dial.grounded = grounded
-	speed_dial.damage = damage
-	drive_damage.text = "RIG %d%%" % roundi((1.0 - damage) * 100.0)
-	drive_damage.add_theme_color_override("font_color", Color("f09375") if damage > 0.25 or broken > 0 else ACCENT)
-	garage_status.text = "%d%% chassis · %d broken beams\n%d / %d places discovered" % [roundi((1.0 - damage) * 100.0), broken, discovered.size(), landmarks.size()]
+	speed_dial.damage = 0.0
+	drive_damage.text = "AUTO HOLD" if current_telemetry.get("auto_hold_active", false) else "%d / 4 CONTACT" % grounded
+	drive_damage.add_theme_color_override("font_color", ACCENT)
+	garage_status.text = "Ready to crawl\n%d / %d places discovered" % [discovered.size(), landmarks.size()]
 	if crawl_controls.visible or crawl_mode:
 		var loads = current_telemetry.get("wheel_normal_loads", current_telemetry.get("wheel_loads", PackedFloat32Array([0, 0, 0, 0])))
 		var squash = current_telemetry.get("wheel_compression", PackedFloat32Array([0, 0, 0, 0]))

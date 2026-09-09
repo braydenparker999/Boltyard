@@ -66,7 +66,7 @@ func run() -> void:
 	check(scene.settings.engine_torque == 625.0 and is_equal_approx(scene.settings.tire_radius, 0.51) and scene.settings.paint == "537781", "migration retains the previous physical tune and paint")
 	check(FileAccess.get_file_as_bytes(LEGACY) == legacy_bytes, "migration leaves the original setup file intact")
 	check(scene.builds.scout.tuning.is_empty() and scene.builds.buggy.tuning.is_empty(), "legacy pickup tune does not overwrite the other vehicles")
-	check(scene.slider_nodes.size() == 14 and scene.part_selectors.size() == 6, "garage exposes fourteen tuning controls and six equipment slots")
+	check(scene.slider_nodes.size() == 13 and scene.part_selectors.size() == 6, "garage exposes thirteen tuning controls and six equipment slots")
 
 	scene.select_vehicle("scout")
 	scene.select_part("tires", "rock")

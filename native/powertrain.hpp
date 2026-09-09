@@ -51,7 +51,11 @@ struct Powertrain {
         }else{
             const float speed_ratio=std::clamp(turbine/std::max(20.f,engine_speed),0.f,1.f);
             converter_ratio=1.f+.8f*(1-speed_ratio);
-            const float coupling=(peak_torque/450.f)*(slip>=0?.55f:.3f);
+            // Pump capacity grows with speed: at stall this gives the usual
+            // quadratic torque/speed relation. Lower idle capacity makes the
+            // mobile launch gentler; negative slip keeps overrun coupling.
+            const float pump_capacity=std::clamp(engine_speed/260.f,.15f,2.2f);
+            const float coupling=(peak_torque/450.f)*(slip>=0?.55f*pump_capacity:.3f);
             float input=coupling*slip/(1+coupling*dt*(1/engine_inertia+reflected*converter_ratio));
             input=std::clamp(input,-peak_torque*.4f,peak_torque*1.2f);
             engine_speed=std::max(0.f,engine_speed-input*dt/engine_inertia);

@@ -1,6 +1,6 @@
 #pragma once
 
-// Crawlworks Expedition: deformable XPBD frame, compliant tire contacts,
+// Crawlworks Expedition: rigid mass-weighted chassis, compliant tire contacts,
 // tetrahedral axle carriers on triangulated four-links, and coupled
 // movable convex obstacles. All maps share the same vehicle and driveline equations.
 // SI units. The 16 frame/cab particles, four wheel assemblies and four
@@ -8,7 +8,7 @@
 // mass, gravity, suspension loads, contact traction and collision impulses.
 // The 80 sidewall samples preserve render bindings; they follow the round tire
 // contact model and are not independently integrated mass nodes. Structural
-// beams still yield and break, so impacts permanently deform the actual body.
+// frame/cab attachment nodes belong to one rigid cluster; there is no crash damage.
 // Bounded mobile model: no self-contact, fluid mud, thermal/wear simulation,
 // or full tire finite elements. Bounded contact patches deform a compliant rubber
 // envelope; the hub/rim remains rigid. Pressure changes carcass and shear compliance.
@@ -70,11 +70,12 @@ struct Config {
     bool locked_diffs = true;       // compatibility master; set_drivetrain updates both axles
     bool front_locked = true;
     bool rear_locked = true;
+    bool inboard_coilovers = false; // Optional compact pickup packaging, same wheel-rate tune.
     bool solid_axles = true;        // coupled four-link geometry in crawl/exploration modes
     float mass = 1200.0f;           // kg, entire vehicle including wheels
     float track_width = 1.90f;      // m between hub centers
     float wheelbase = 2.70f;        // m
-    float body_stiffness = 1.0f;    // dimensionless structural stiffness scale
+    float body_stiffness = 1.0f;    // legacy save compatibility; chassis is rigid
     int vehicle_type = 0;           // 0 pickup, 1 enclosed SUV, 2 rear-engine buggy
     float tire_grip = 1.0f;         // compound coefficient relative to trail tire
     float tire_width_scale = 1.0f;  // physical sidewall spacing relative to radius
@@ -106,6 +107,8 @@ struct Beam {
     float peak_delta = 0;
     float plastic_strain = 0;
 };
+
+#include "rigid_chassis.hpp"
 
 class SoftRig {
 public:
@@ -168,7 +171,7 @@ public:
         if (!origin.finite()) origin = {0, 1.5f, 8};
         particles.clear(); beams.clear(); rest_positions.clear();
         accumulator_ = 0; steering_ = 0; contact_count_ = 0;
-        powertrain_.reset(); for(auto &states:tread_states_)states.clear();
+        powertrain_.reset(); hold_latched_=auto_hold_; for(auto &states:tread_states_)states.clear();
         velocity_limit_count_ = 0; nonfinite_count_ = 0; dropped_time_ = 0;
         wheel_contact_counts_.fill(0); wheel_spin_.fill(0); wheel_phase_.fill(0); wheel_slip_.fill(0);
         near_rocks_.clear(); rock_lambdas_.clear();
@@ -203,7 +206,7 @@ public:
             particles[i].inv_mass = 1.0f / (1.0f / particles[i].inv_mass + cfg_.roof_accessory_mass * 0.25f);
         brace_box(0, CHASSIS, 1.0f / (2800000.0f * cfg_.body_stiffness));
         brace_box(8, CAB, 1.0f / (950000.0f * cfg_.body_stiffness));
-        // Cab-floor attachments are triangulated. They bend/yield with the cab.
+        // Retain the structural outline for diagnostics; it is not an elastic solver.
         for (int i = 0; i < 4; ++i) {
             add_beam(i + 8, i, CAB, 1.0f / (1700000.0f * cfg_.body_stiffness));
             add_beam(i + 8, i + 4, CAB, 1.0f / (1700000.0f * cfg_.body_stiffness));
@@ -256,6 +259,7 @@ public:
             // stops and a damper acting on the whole unsprung assembly.
             add_beam(w, wheel_hubs[w], SUSPENSION, 1.0f / cfg_.spring_rate);
         }
+        chassis_.initialize(particles);
         if (solid_axles_active()) initialize_axle_carriers();
         contact_lambdas_.assign(particles.size(), 0);
         friction_offsets_.assign(particles.size(), Vec3{});
@@ -265,7 +269,7 @@ public:
         beam_contact_lambdas_.clear(); beam_contact_t_.clear(); beam_contact_normals_.clear();
     }
 
-    // Recovery is a rigid relocation of the existing damaged rig, never reset().
+    // Recovery is a rigid relocation of the existing rig, never reset().
     // Search clear, gently sloped ground near the request; reject occupied sites.
     bool recover_near(Vec3 requested, Vec3 heading) {
         if (!requested.finite() || !heading.finite() || particles.size()<8) return false;
@@ -323,7 +327,7 @@ public:
             }
             if(occupied)continue;
             for(size_t i=0;i<particles.size();++i){particles[i].pos=particles[i].prev=at+offsets[i];particles[i].velocity={};}
-            powertrain_.reset();for(auto &states:tread_states_)states.clear();
+            powertrain_.reset();hold_latched_=auto_hold_;for(auto &states:tread_states_)states.clear();
             accumulator_=0; wheel_spin_.fill(0);wheel_slip_.fill(0);wheel_shear_.fill({});wheel_contact_counts_.fill(0);contact_count_=0;
             for(auto&c:wheel_manifolds_)c.clear();
             find_nearby_obstacles();
@@ -471,11 +475,17 @@ public:
     Vec3 shock_end(int w) const { return valid_wheel(w) ? (solid_axles_active() ? attachment_position(shock_axle_[w]) : particles[wheel_hubs[w]].pos) : Vec3{}; }
     float shock_length(int w) const { return (shock_end(w)-shock_start(w)).length(); }
     float shock_rest_length(int w) const { return valid_wheel(w)&&solid_axles_active()?coilovers_[w].rest:shock_length(w); }
-    float shock_max_length(int w) const { return shock_rest_length(w)+cfg_.suspension_travel; }
+    float shock_travel_length(int w,float travel) const {
+        const float rest=shock_rest_length(w);
+        if(!cfg_.inboard_coilovers||!solid_axles_active())return rest+travel;
+        const float vertical=rest*shock_motion_ratio_[w];
+        return std::sqrt(std::max(0.f,rest*rest-vertical*vertical)+(vertical+travel)*(vertical+travel));
+    }
+    float shock_max_length(int w) const { return shock_travel_length(w,cfg_.suspension_travel); }
     float shock_min_length(int w) const {
         // A single telescoping damper must house its whole stroke plus eyes
         // and piston overlap. Limit bump by real packaging, not stretched art.
-        return std::max(shock_rest_length(w)-compression_allowance(),(shock_max_length(w)+.18f)*.5f);
+        return std::max(shock_travel_length(w,-compression_allowance()),(shock_max_length(w)+.18f)*.5f);
     }
     float shock_body_length(int w) const { return shock_min_length(w)-.10f; }
     // Compatibility endpoints: the triangulated upper pair provides lateral
@@ -548,17 +558,8 @@ public:
         for (int i = 0; i < 8 && i < int(particles.size()); ++i) v += particles[i].velocity;
         return v / 8.0f;
     }
-    float damage() const {
-        float sum = 0; int count = 0;
-        for (const auto &b : beams) if (b.kind == CHASSIS || b.kind == CAB) {
-            sum += b.broken ? 1.0f : std::min(1.0f, b.plastic_strain * 4.0f);
-            ++count;
-        }
-        return count ? sum / count : 0;
-    }
-    int broken_count() const {
-        int n = 0; for (const auto &b : beams) if (b.broken) ++n; return n;
-    }
+    float damage() const { return 0; } // Legacy diagnostics remain readable.
+    int broken_count() const { return 0; }
     int safety_clamp_count() const { return velocity_limit_count_; }
     int rejected_state_count() const { return nonfinite_count_; }
     float time_dropped() const { return dropped_time_; }
@@ -566,11 +567,9 @@ public:
     int wheel_contact_count(int wheel) const { return wheel >= 0 && wheel < 4 ? wheel_contact_counts_[wheel] : 0; }
     int node_count() const { return 100; }
     int physical_node_count() const { return solid_axles_active() ? 24 : 20; }
-    int physical_beam_count() const {
-        int count = solid_axles_active() ? 20 : 0;
-        for (const auto &b : beams) if (b.kind != TIRE) ++count;
-        return count;
-    }
+    int physical_beam_count() const { return solid_axles_active() ? 24 : 12; }
+    // Twenty carrier/link distances plus four coilovers; the body is one
+    // additional rigid cluster, not the diagnostic outline's elastic beams.
     int render_node_count() const { return 100; }
     float steering_angle() const { return steering_; }
     float engine_rpm() const {return powertrain_.rpm();}
@@ -579,6 +578,11 @@ public:
     bool converter_locked() const {return powertrain_.locked;}
     void set_neutral(bool neutral){powertrain_.neutral=neutral;}
     void set_parking_brake(bool enabled){parking_brake_=enabled;}
+    void set_auto_hold(bool enabled){
+        if(enabled&&!auto_hold_&&speed()<.08f)hold_latched_=true;
+        auto_hold_=enabled;if(!enabled)hold_latched_=false;
+    }
+    bool auto_hold_active() const {return auto_hold_&&hold_latched_;}
     void set_brake_pressure(float value){brake_pressure_=safe_clamp(value,0,1,1);}
     float wheel_lateral_slip(int w) const {return valid_wheel(w)?lateral_slip_[w]:0;}
     float wheel_friction_usage(int w) const {return valid_wheel(w)?friction_usage_[w]:0;}
@@ -614,6 +618,10 @@ public:
         if (l > 5) displacement *= 5 / l;
         particles[node].pos += displacement;
         particles[node].prev += displacement;
+        if(node<16){
+            chassis_.project_positions(particles);
+            for(int i=0;i<16;++i)particles[i].prev=particles[i].pos;
+        }
     }
 
 private:
@@ -670,10 +678,12 @@ private:
     Powertrain powertrain_;
     float brake_demand_=0, brake_pressure_=1;
     bool parking_brake_=false;
+    bool auto_hold_=false, hold_latched_=false;
     bool parking_contact_=false;
     std::array<float,4> lateral_slip_{}, friction_usage_{};
     struct TreadState { Vec3 normal, point, deflection; int body=-1, surface=0;const CrawlRock *source=nullptr; bool used=false; };
     std::array<std::vector<TreadState>,4> tread_states_, next_tread_states_;
+    RigidChassis chassis_;
     Config cfg_;
     int terrain_mode_ = 0;
     double accumulator_ = 0;
@@ -697,6 +707,7 @@ private:
     std::array<MountConstraint,4> coilovers_;
     std::array<MountConstraint,12> carrier_edges_;
     std::array<float, 4> spring_stop_lambdas_{};
+    std::array<float, 4> shock_motion_ratio_{{1,1,1,1}};
     std::vector<float> axle_contact_lambdas_;
     std::vector<Vec3> axle_contact_friction_;
     struct NearbyObstacle { Vec3 base; float radius, height; };
@@ -947,19 +958,6 @@ private:
         }
     }
 
-    void solve_beam(Beam &b) {
-        if (b.broken || b.kind == SUSPENSION || b.kind == TIRE) return;
-        auto &a = particles[b.a]; auto &c = particles[b.b];
-        Vec3 delta = c.pos - a.pos; float len = delta.length();
-        if (len < 1e-7f) return;
-        float error = len - b.rest;
-        if (std::abs(error) > std::abs(b.peak_delta)) b.peak_delta = error;
-        float alpha = b.compliance / (fixed_dt * fixed_dt);
-        float dl = (-error - alpha * b.lambda) / (a.inv_mass + c.inv_mass + alpha);
-        b.lambda += dl;
-        Vec3 corr = delta * (dl / len);
-        a.pos -= corr * a.inv_mass; c.pos += corr * c.inv_mass;
-    }
     void solve_axis(int a_idx, int b_idx, Vec3 axis, float target,
                     float compliance, float &lambda) {
         auto &a = particles[a_idx]; auto &b = particles[b_idx];
@@ -1043,13 +1041,23 @@ private:
             upper_axle_[w]=axle_mount(axle,side*cfg_.track_width*.065f,.17f,0);
             // Raise the actual tower when a long-stroke package needs room. This
             // preserves requested bump/droop instead of silently removing travel.
-            const float tower_height=std::max(cfg_.vehicle_type==2?.32f:.40f,
+            float tower_height=std::max(cfg_.vehicle_type==2?.32f:.40f,
                 2*compression_allowance()+cfg_.suspension_travel+.215f-cfg_.ride_height);
-            shock_frame_[w]=frame_mount(side*cfg_.track_width*.39f,tower_height,z+direction*.10f);
+            float tower_x=.39f, tower_z=.10f;
+            if(cfg_.inboard_coilovers){
+                // Angle the real coilover into a chassis-mounted tower inside
+                // the Ranger body. Preserve bump/droop and physical shaft fit.
+                tower_x=.25f;tower_z=.55f;
+                const float horizontal2=std::pow(cfg_.track_width*(.405f-tower_x),2)+std::pow(tower_z-.02f,2);
+                const float length=2*compression_allowance()+cfg_.suspension_travel+.215f;
+                tower_height=std::max(.32f,std::sqrt(std::max(.01f,length*length-horizontal2))-cfg_.ride_height+.035f);
+            }
+            shock_frame_[w]=frame_mount(side*cfg_.track_width*tower_x,tower_height,z+direction*tower_z);
             shock_axle_[w]=axle_mount(axle,side*cfg_.track_width*.405f,.035f,direction*.02f);
             four_links_[w]=mount_constraint(lower_frame_[w],lower_axle_[w]);
             four_links_[w+4]=mount_constraint(upper_frame_[w],upper_axle_[w]);
             coilovers_[w]=mount_constraint(shock_frame_[w],shock_axle_[w]);
+            shock_motion_ratio_[w]=cfg_.inboard_coilovers?std::clamp((tower_height+cfg_.ride_height-.035f)/coilovers_[w].rest,.35f,1.f):1.f;
         }
         // reset() fills all rest positions afterward; mode transitions append
         // the four carrier bind positions without changing the skin's first100.
@@ -1080,7 +1088,7 @@ private:
         for(auto &c:four_links_) solve_mount(c,c.rest,1.f/18000000.f,c.lambda);
         for(int w=0;w<4;++w) {
             auto &c=coilovers_[w];
-            solve_mount(c,c.rest,1.f/cfg_.spring_rate,c.lambda,true);
+            solve_mount(c,c.rest,shock_motion_ratio_[w]*shock_motion_ratio_[w]/cfg_.spring_rate,c.lambda,true);
             const float length=constraint_delta(c).length(), low=shock_min_length(w), high=shock_max_length(w);
             if(length<low || length>high) {
                 // Progressive jounce bumper / extension strap, then a firm
@@ -1273,6 +1281,16 @@ private:
         const auto& rocks = custom_rocks_ ? test_rocks_ : (terrain_mode_>=4?expedition_rocks(terrain_mode_):crawl_course());
         if(!custom_rocks_ && terrain_mode_==7) imported_scenery::near(center(),7,near_rocks_);
         else if(custom_rocks_ || terrain_mode_>=3) for(const auto&r:rocks) if((r.center-center()).length()<r.reach+7)near_rocks_.push_back(&r);
+        // Large imported objects may enclose the whole map in their AABB.
+        // Refine against the actual unchanged mesh before per-node/iteration work.
+#ifndef BOLT_DISABLE_LOCAL_CULL
+        if(!custom_rocks_ && terrain_mode_==7){
+            const Vec3 focus=center();
+            near_rocks_.erase(std::remove_if(near_rocks_.begin(),near_rocks_.end(),[&](const CrawlRock* rock){
+                return rock_distance(*rock,focus).distance>7.0001f;
+            }),near_rocks_.end());
+        }
+#endif
         skid_lambdas_.assign(near_rocks_.size()*9,0);skid_friction_.assign(near_rocks_.size()*9,{});
         axle_contact_lambdas_.assign(solid_axles_active() ? (near_rocks_.size() + 1) * 10 : 0, 0);
         axle_contact_friction_.assign(axle_contact_lambdas_.size(), {});
@@ -1577,17 +1595,6 @@ private:
         }
     }
     void material_damping() {
-        // Pair impulses remove axial vibration while preserving pair momentum and
-        // rigid translation/rotation. They cannot arbitrarily damp the whole car.
-        for (const auto &b : beams) {
-            if (b.broken || b.kind == SUSPENSION || b.kind == TIRE) continue;
-            auto &a = particles[b.a]; auto &c = particles[b.b];
-            Vec3 n = (c.pos - a.pos).normalized();
-            float rel = (c.velocity - a.velocity).dot(n);
-            float amount = b.kind == TIRE ? 0.026f : 0.018f;
-            float impulse = -rel * amount / (a.inv_mass + c.inv_mass);
-            a.velocity -= n * (impulse * a.inv_mass); c.velocity += n * (impulse * c.inv_mass);
-        }
         Vec3 u = up();
         for (int w = 0; w < 4; ++w) {
             auto &a = particles[w];
@@ -1601,7 +1608,7 @@ private:
                 for(int i=0;i<c.count;++i)relative+=particles[c.nodes[i]].velocity*c.weights[i];
                 const float axial_speed=relative.dot(axis);
                 const float selected=axial_speed<0?cfg_.compression_damping:cfg_.rebound_damping;
-                float damper=selected>0?selected:cfg_.damping;
+                float damper=(selected>0?selected:cfg_.damping)/(shock_motion_ratio_[w]*shock_motion_ratio_[w]);
                 // Compression blow-off softens sharp impacts above 0.6 m/s.
                 // The independently selected rebound circuit remains linear;
                 // sharing blow-off with it undermines extension control.
@@ -1623,31 +1630,19 @@ private:
             wheel.velocity += u * (impulse * unsprung_inv_mass);
         }
     }
-    void update_damage() {
-        for (auto &b : beams) {
-            if (b.broken || (b.kind != CHASSIS && b.kind != CAB)) continue;
-            float trial = std::abs(b.peak_delta) / std::max(0.02f, b.original_rest);
-            const float yield = b.kind == CHASSIS ? 0.115f : 0.095f;
-            // Plastic rest length records real permanent shape changes in the
-            // same constraints that carry the vehicle's loads after a collision.
-            if (trial > yield) {
-                float plastic = std::copysign((trial - yield) * 0.22f, b.peak_delta);
-                plastic = std::clamp(plastic, -0.025f, 0.025f);
-                float before = b.rest;
-                b.rest = std::clamp(b.rest + b.original_rest * plastic,
-                                   b.original_rest * 0.45f, b.original_rest * 1.65f);
-                b.plastic_strain = std::min(1.0f, b.plastic_strain + std::abs(b.rest - before) / b.original_rest);
-            }
-            if (trial > 0.72f || (b.plastic_strain > 0.50f && trial > yield * 1.5f)) b.broken = true;
-        }
-    }
     void substep(float throttle, float steer, bool brake) {
         // A direction change first uses the tire brakes, then engages reverse
         // near walking speed. It must not wait for a reverse speed limiter to
         // coast the vehicle down from forward trail speed.
-        const bool braking = brake || throttle * linear_velocity().dot(forward()) < -0.35f;
-        brake_demand_=braking?(brake?brake_pressure_:1.f):0.f;
         float max_spin=0;for(float spin:wheel_spin_)max_spin=std::max(max_spin,std::abs(spin));
+        // Auto-hold retains service brake pressure after a deliberate stop.
+        // It does not cancel gravity or change available tire friction.
+        if(auto_hold_&&brake&&brake_pressure_>.1f&&speed()<.08f&&max_spin<.3f)hold_latched_=true;
+        if(std::abs(throttle)>=.12f)hold_latched_=false;
+        const float hold=auto_hold_&&hold_latched_?1.f-std::clamp(std::abs(throttle)/.12f,0.f,1.f):0.f;
+        const bool reversal=throttle * linear_velocity().dot(forward()) < -.35f;
+        brake_demand_=std::max(hold,brake?brake_pressure_:(reversal?1.f:0.f));
+        const bool braking=brake_demand_>0;
         // Low-speed support is solved alongside suspension positions to avoid
         // delayed brake reaction exciting stiff axle links. Torque and mu*N
         // still cap every correction; weak brakes must roll back.
@@ -1667,7 +1662,6 @@ private:
             p.prev = p.pos;
             p.pos += p.velocity * fixed_dt;
         }
-        for (auto &b : beams) { b.lambda = 0; b.peak_delta = 0; }
         std::fill(contact_lambdas_.begin(), contact_lambdas_.end(), 0);
         std::fill(friction_offsets_.begin(), friction_offsets_.end(), Vec3{});
         for (auto &l : suspension_lambdas_) l.fill(0);
@@ -1678,8 +1672,7 @@ private:
         build_wheel_manifolds();
         constexpr int iterations = 9;
         for (int iteration = 0; iteration < iterations; ++iteration) {
-            if (iteration % 2 == 0) for (auto &b : beams) solve_beam(b);
-            else for (auto it = beams.rbegin(); it != beams.rend(); ++it) solve_beam(*it);
+            chassis_.project_positions(particles);
             solve_suspension();
             solve_contacts();
             solve_obstacle_contacts(parking_contact_);
@@ -1694,7 +1687,7 @@ private:
             solve_axle_contacts();
             solve_structural_obstacle_contacts();
         }
-        update_damage();
+        chassis_.project_positions(particles);
         contact_count_ = 0; wheel_contact_counts_.fill(0);
         for (std::size_t i = 0; i < particles.size(); ++i) {
             auto &p = particles[i];
@@ -1745,8 +1738,10 @@ private:
             for(const auto &c:carrier_edges_)damp_mount(c,650);
             for(const auto &c:four_links_)damp_mount(c,120);
         }
+        chassis_.project_velocities(particles);
         material_damping();
         solve_tire_traction(throttle, braking||parking_brake_);
+        chassis_.project_velocities(particles);
         update_wheel_skin();
     }
 };

@@ -15,7 +15,7 @@ func _initialize() -> void:
 		var min_up := 1.0
 		var peak_articulation := 0.0
 		for i in range(960):
-			core.step(1.0/120.0,.22,0,false)
+			core.step(1.0/120.0,.35,0,false)
 			if i%30==0:
 				var state: Dictionary = core.get_stats()
 				min_up=minf(min_up,state.up.y)

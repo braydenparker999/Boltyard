@@ -86,7 +86,7 @@ int main() {
         require(c.tire_radius == 0.46f && c.engine_torque == 450 && c.mass == 1200 && c.damping == 3000,
                 "native defaults diverged from Android garage defaults");
         require(rig.node_count() == 100 && rig.beam_count() == 392, "unexpected renderer topology");
-        require(rig.physical_node_count() == 24 && rig.physical_beam_count() == 92,
+        require(rig.physical_node_count() == 24 && rig.physical_beam_count() == 24,
                 "render wheel samples incorrectly counted as dynamic assemblies");
         require(rig.wheel_hubs == std::array<int, 4>{16, 37, 58, 79}, "hub indices changed");
         float mass = 0;
@@ -122,41 +122,41 @@ int main() {
         healthy(rig);
     });
 
-    test("elastic chassis displacement recovers without permanent damage", [] {
+    test("body editing preserves one rigid chassis transform", [] {
         SoftRig rig; rig.reset({0, 50, 8});
         rig.displace_node(12, {0.06f, 0, 0});
         float before = structural_error(rig);
-        require(before > 0.10f, "disturbance did not deform the actual beam network");
+        require(before < .0001f, "body edit introduced frame/cab flex");
         simulate(rig, 0.5f);
-        require(structural_error(rig) < before * 0.03f, "elastic deformation did not recover");
+        require(structural_error(rig) < .0001f, "body edit did not retain rigidity");
         require(changed_rest_lengths(rig) == 0 && rig.damage() == 0, "elastic event permanently yielded beams");
         healthy(rig);
     });
 
-    test("above-yield deformation permanently changes structural rest lengths", [] {
+    test("large chassis disturbance cannot create permanent deformation", [] {
         SoftRig rig; rig.reset({0, 50, 8});
         rig.displace_node(12, {0.50f, 0, 0});
         simulate(rig, 0.5f);
         float permanent = changed_rest_lengths(rig);
-        require(permanent > 0.03f && rig.damage() > 0.001f, "large strain did not yield");
+        require(permanent == 0 && rig.damage() == 0 && structural_error(rig)<.0001f, "rigid cluster did not restore its shape");
         simulate(rig, 0.5f);
         require(changed_rest_lengths(rig) >= permanent * 0.999f, "plastic deformation spontaneously repaired");
         require(rig.broken_count() == 0, "moderate permanent deformation tore the entire cab");
         healthy(rig);
     });
 
-    test("severe beam failure remains bounded without numerical intervention", [] {
+    test("large pose edit remains bounded without numerical intervention", [] {
         SoftRig rig; rig.reset({0, 8, 8}); rig.displace_node(12, {1.50f, 0, 0});
         simulate(rig, 8);
-        require(rig.broken_count() > 0, "severe strain did not break beams");
-        require(rig.damage() > 0 && rig.damage() <= 1, "invalid damage metric");
+        require(rig.broken_count() == 0 && structural_error(rig)<.0001f, "rigid chassis retained a deformation");
+        require(rig.damage() == 0, "damage is still enabled");
         healthy(rig);
     });
 
-    test("garage crash impulse produces physical permanent damage", [] {
+    test("impact transmits physical momentum without body damage", [] {
         SoftRig rig; simulate(rig, 5, 0, 0, true);
         rig.apply_impact({16000, 0, 4000}); simulate(rig, 2);
-        require(rig.damage() > 0.01f && changed_rest_lengths(rig) > 0.1f, "crash tool is only cosmetic");
+        require(rig.damage() == 0 && changed_rest_lengths(rig) == 0 && structural_error(rig)<.0001f, "impact changed rigid body shape");
         require(rig.center().x > 1, "impact did not transmit real momentum");
         healthy(rig);
     });
@@ -329,9 +329,9 @@ int main() {
         });
     }
 
-    test("repair explicitly rebuilds original undamaged state", [] {
+    test("reset returns the rigid vehicle to its original pose", [] {
         SoftRig rig; rig.displace_node(12, {1.5f, 0, 0}); simulate(rig, 1);
-        require(rig.damage() > 0, "repair precondition missing"); rig.reset();
+        require(rig.damage() == 0, "damage is still enabled"); rig.reset();
         require(rig.damage() == 0 && rig.broken_count() == 0 && changed_rest_lengths(rig) == 0,
                 "explicit repair retained broken/yielded beams");
         require(structural_error(rig) < 1e-5f, "repair failed to rebuild undeformed geometry");
@@ -490,7 +490,14 @@ int main() {
             simulate(rig, 4, 0, 0, true); const Vec3 start = rig.center();
             simulate(rig, 10, 0.75f, 0); simulate(rig, 2, 0, 0, true);
             require(rig.center().z < start.z - 25, "equipped vehicle failed to progress on exploration road");
-            require(rig.up().y > 0.97f && rig.damage() == 0, "equipped vehicle destabilized on easy road");
+            std::cout << "  equipped type=" << type << " position=" << rig.center().x << "," << rig.center().y << "," << rig.center().z << " up=" << rig.up().y << " normal_dot=" << rig.up().dot(rig.terrain_normal(rig.center().x,rig.center().z)) << " speed=" << rig.speed() << "\n";
+            // The wheels straddle uneven ground at this endpoint. Body pitch
+            // should follow the support plane, not an absolute world-up angle.
+            auto wheel=[&](int w){return rig.particles[rig.wheel_hubs[w]].pos;};
+            Vec3 across=(wheel(1)-wheel(0))+(wheel(3)-wheel(2));
+            Vec3 along=(wheel(2)-wheel(0))+(wheel(3)-wheel(1));
+            require(rig.up().dot(along.cross(across).normalized())>.995f && rig.up().y>.90f && rig.damage()==0,
+                    "equipped vehicle destabilized relative to its wheel support plane");
             require(rig.speed() < 0.2f, "equipped vehicle failed to brake");
             healthy(rig);
         });

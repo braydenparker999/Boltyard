@@ -49,12 +49,21 @@ int main(){int failures=0;auto test=[&](const char*name,auto body){try{body();st
     check(travel[1]>travel[0]*3&&slip[0]>slip[1]*5,"material coefficients do not change real drive and spin");
  });
  test("longitudinal and lateral contact forces deform rubber tangentially",[]{
-    SoftRig r;prepare(r,Config{},{crawl_rock(0,0,14,40,2)});run(r,360);run(r,60,.65f,false);auto patch=r.wheel_contact_patches(0).front();const float driven=std::abs(patch.shear.z);
-    check(driven>.001f,"drive shear is missing");check(std::abs(patch.shear.dot(patch.normal))<1e-5f,"shear changes normal compression");
+    SoftRig r;prepare(r,Config{},{crawl_rock(0,0,14,40,2)});run(r,360);run(r,60,.65f,false);
+    float driven=0;for(int w=0;w<4;++w)for(const auto &p:r.wheel_contact_patches(w)){
+        driven=std::max(driven,float(std::abs(p.shear.z)));
+        check(std::abs(p.shear.dot(p.normal))<1e-5f,"shear changes normal compression");
+    }
+    check(driven>.001f,"drive shear is missing");
     for(auto&p:r.particles)if(!p.tire)p.velocity.x+=.6f;
-    float peak_side=0;for(int i=0;i<12;++i){run(r,1,0,false);peak_side=std::max<float>(peak_side,std::abs(r.wheel_contact_patches(0).front().shear.x));}patch=r.wheel_contact_patches(0).front();
-    std::cout<<"  driven shear="<<driven<<" lateral shear="<<patch.shear.x<<'\n';
-    check(peak_side>.002f&&patch.shear.length()<r.config().tire_radius*.13f,"lateral force does not create bounded rubber squirm");healthy(r);
+    // Weight transfer may unload an individual tire. Inspect the actual loaded
+    // patches rather than dereferencing an absent front-wheel contact.
+    float peak_side=0;for(int i=0;i<12;++i){run(r,1,0,false);for(int w=0;w<4;++w)for(const auto&p:r.wheel_contact_patches(w)){
+        peak_side=std::max(peak_side,float(std::abs(p.shear.x)));
+        check(p.shear.length()<r.config().tire_radius*.13f,"unbounded rubber squirm");
+    }}
+    std::cout<<"  driven shear="<<driven<<" peak lateral shear="<<peak_side<<'\n';
+    check(peak_side>.002f,"lateral force does not create rubber squirm");healthy(r);
  });
  test("one convex ledge supplies simultaneous loaded corner normals while climbing",[]{
     SoftRig r;Config cfg;cfg.tire_radius=.53f;cfg.tire_pressure=.5f;cfg.ride_height=.45f;cfg.suspension_travel=.3f;cfg.spring_rate=25500;

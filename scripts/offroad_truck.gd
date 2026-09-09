@@ -1,10 +1,8 @@
 class_name OffroadTruck
 extends Node3D
 
-## All bodywork uses one continuous rest-space deformation field. Coincident
-## panel edges stay coincident as the frame and cabin bend independently.
-## Twenty dynamic nodes drive the frame, cabin and hubs. Eighty derived wheel
-## guides provide round, rotating tires with limited contact squash.
+## Rigid body with physical axles, four-link suspension and compliant tires.
+## Render snapshots share one clock; they never alter physical contact states.
 var core: RefCounted
 var throttle: float = 0.0
 var steering: float = 0.0
@@ -12,6 +10,7 @@ var brake: bool = false
 var brake_pressure: float = 1.0
 var wireframe: bool = false
 var body_color: Color = Color("d88844")
+var _ranger: Node3D
 var _body: MeshInstance3D
 var _graph: MeshInstance3D
 var _body_mesh := ArrayMesh.new()
@@ -39,6 +38,13 @@ var _settings: Dictionary = {}
 var _parts: Dictionary = {}
 var _sim_ms: float = 0.0
 var _physics_frame_ms := 0.0
+var _physics_frame_ticks := 0
+var _physics_frame_seconds := 0.0
+const VehiclePose = preload("res://scripts/vehicle_pose.gd")
+var _previous_pose: Dictionary = {}
+var _current_pose: Dictionary = {}
+var _render_pose: Dictionary = {}
+var _render_frame := -1
 var frame_pacing = preload("res://scripts/frame_pacing.gd").new()
 var _configured: bool = false
 var _vehicle_type: int = 0
@@ -89,7 +95,8 @@ func configure(settings: Dictionary) -> void:
 	_parts = settings.get("parts", {}).duplicate(true)
 	_vehicle_type = clampi(int(settings.get("vehicle_type", 0)), 0, 2)
 	_tire_padding = clampf(float(settings.get("tire_radius", 0.46)), 0.32, 0.65) * 0.12
-	core.configure(settings)
+	_settings["inboard_coilovers"] = _vehicle_type == 0 and not bool(settings.get("procedural_body", false)) and ResourceLoader.exists("res://assets/ranger/ranger.glb")
+	core.configure(_settings)
 	core.set_terrain(2)
 	var paint_value: Variant = settings.get("paint", settings.get("body_color", "d88844"))
 	body_color = paint_value if paint_value is Color else Color(str(paint_value))
@@ -97,6 +104,7 @@ func configure(settings: Dictionary) -> void:
 	_nodes = core.get_nodes()
 	_rest = core.get_rest_nodes() if core.has_method("get_rest_nodes") else _nodes.duplicate()
 	_configured = true
+	reset_visual_history()
 	if is_inside_tree() and _body != null:
 		_build_vehicle_mesh()
 		_refresh_visuals()
@@ -126,6 +134,7 @@ func reset(origin: Vector3 = Vector3(0.0, 1.5, 8.0)) -> void:
 	if core != null:
 		core.reset(origin)
 		_rest = core.get_rest_nodes()
+		reset_visual_history()
 	throttle = 0.0
 	steering = 0.0
 	_refresh_visuals()
@@ -144,6 +153,7 @@ func get_telemetry() -> Dictionary:
 	_stats["sim_ms"] = _sim_ms
 	_stats["frame_pacing"] = frame_pacing.summary
 	_stats["render_triangles"] = _triangle_count
+	_stats["appearance"] = "NIX Ranger" if _ranger != null else "procedural"
 	if not _stats.has("position"):
 		_stats["position"] = Vector3(0, 1.5, 8)
 	if not _stats.has("forward"):
@@ -157,16 +167,23 @@ func _physics_process(delta: float) -> void:
 		return
 	var begin_usec := Time.get_ticks_usec()
 	core.set_brake_pressure(brake_pressure)
+	_previous_pose = _current_pose
 	core.step(delta, throttle, steering, brake)
+	_current_pose = VehiclePose.capture(core)
+	_render_frame = -1
 	_sim_ms = float(Time.get_ticks_usec() - begin_usec) / 1000.0
 	_physics_frame_ms += _sim_ms
+	_physics_frame_ticks += 1
+	_physics_frame_seconds += delta
 
 func _process(delta: float) -> void:
 	_graph_tick += delta
 	var started := Time.get_ticks_usec()
-	_refresh_visuals()
-	frame_pacing.sample(_physics_frame_ms, float(Time.get_ticks_usec() - started) / 1000.0)
+	_refresh_visuals(true)
+	frame_pacing.sample(_physics_frame_ms, float(Time.get_ticks_usec() - started) / 1000.0, _physics_frame_ticks, _physics_frame_seconds)
 	_physics_frame_ms = 0.0
+	_physics_frame_ticks = 0
+	_physics_frame_seconds = 0.0
 
 func _build_materials() -> void:
 	var colors: Array[Color] = [body_color, Color("202728"), Color("29434b"),
@@ -286,17 +303,31 @@ func _build_vehicle_mesh() -> void:
 	_buckets.clear()
 	for unused in range(10):
 		_buckets.append(MeshBucket.new())
-	_build_frame()
-	if _vehicle_type == 2:
+	if _ranger != null:
+		_ranger.free()
+		_ranger = null
+	if _vehicle_type == 0 and not bool(_settings.get("procedural_body", false)):
+		var appearance := preload("res://scripts/ranger_appearance.gd").new()
+		add_child(appearance)
+		if appearance.configure(_settings):
+			_ranger = appearance
+		else:
+			appearance.free()
+	if _ranger == null:
+		_build_frame()
+	if _ranger != null:
+		pass
+	elif _vehicle_type == 2:
 		_build_buggy()
 	else:
 		_build_closed_body(_vehicle_type == 1)
-	_build_bumpers()
-	_build_roof_parts()
+	if _ranger == null:
+		_build_bumpers()
+		_build_roof_parts()
 	_build_wheels()
 	_build_suspension()
 	_body_mesh = ArrayMesh.new()
-	_triangle_count = 0
+	_triangle_count = _ranger.triangles if _ranger != null else 0
 	for material_id in range(10):
 		var bucket: MeshBucket = _buckets[material_id]
 		if bucket.vertices.is_empty():
@@ -804,15 +835,38 @@ func _joint_eye(binding: int, bracket: bool = false) -> void:
 		_wheel_quad(METAL, binding, pa * 0.038 + Vector3(0, -.022, 0), pb * 0.038 + Vector3(0, -.022, 0),
 			pb * 0.038 + Vector3(0, .022, 0), pa * 0.038 + Vector3(0, .022, 0), (pa + pb).normalized())
 
+func _differential_housing(axle: int) -> void:
+	var profile: Array[Vector2] = [Vector2(-.21, .064), Vector2(-.14, .11), Vector2(-.08, .145), Vector2(.08, .145), Vector2(.14, .11), Vector2(.21, .064)]
+	var track := float(_settings.get("track_width", 1.9))
+	for i in range(profile.size() - 1):
+		for j in range(12):
+			var a := float(j) * TAU / 12.0
+			var b := float(j + 1) * TAU / 12.0
+			var left: Vector2 = profile[i]
+			var right: Vector2 = profile[i + 1]
+			_wheel_quad(DARK if i in [0, 4] else METAL, 108 + axle,
+				Vector3(.5 + left.x / track, cos(a) * left.y, sin(a) * left.y),
+				Vector3(.5 + left.x / track, cos(b) * left.y, sin(b) * left.y),
+				Vector3(.5 + right.x / track, cos(b) * right.y, sin(b) * right.y),
+				Vector3(.5 + right.x / track, cos(a) * right.y, sin(a) * right.y),
+				Vector3(0, cos((a + b) * .5), sin((a + b) * .5)))
+
 func _build_suspension() -> void:
+	_link_cylinder(METAL, 116, .02, .98, .019, 10)
+	_link_cylinder(DARK, 117, .02, .98, .022, 10)
 	for axle in range(2):
 		_link_cylinder(DARK, 114 + axle, 0.02, 0.97, 0.042)
 		_link_cylinder(METAL, 114 + axle, 0.73, 0.92, 0.052)
 		_link_cylinder(DARK, 108 + axle, 0.02, 0.98, 0.065)
-		_link_cylinder(METAL, 108 + axle, 0.43, 0.57, 0.13)
+		_differential_housing(axle)
 		for t in [0.025, 0.915]:
 			_link_cylinder(METAL, 108 + axle, t, t + 0.06, 0.083)
 	for w in range(4):
+		var inner := .88 if w % 2 == 0 else .12
+		_wheel_profile(METAL, 200 + w, [Vector2(inner - .025, .17), Vector2(inner - .025, .40), Vector2(inner + .025, .40), Vector2(inner + .025, .17)], 24)
+		_wheel_profile(DARK, 204 + w, [Vector2(inner - .10, .18), Vector2(inner + .10, .18), Vector2(inner + .10, .06)], 12)
+		for side in [inner - .065, inner + .065]:
+			_wheel_quad(RED, 204 + w, Vector3(.16, side, .28), Vector3(.26, side, .28), Vector3(.26, side, .44), Vector3(.16, side, .44), Vector3(0, 1, 0))
 		_link_cylinder(DARK, 156 + w, 0.0, 1.0, 0.028)
 		_link_cylinder(DARK, 160 + w, 0.0, 1.0, 0.025, 6)
 		# Body, piston gland and lower shaft have fixed manufactured lengths.
@@ -834,22 +888,43 @@ func _build_suspension() -> void:
 		# of pitch (UV2.y carries a metre offset), matching the CPU debug skin.
 		var spring_material := RED if str(_parts.get("suspension", "stock")) == "long_travel" else AMBER
 		for j in range(64):
-			for edge in range(3):
+			for edge in range(6):
 				for corner: Vector2 in [Vector2(j, edge), Vector2(j + 1, edge + 1), Vector2(j, edge + 1),
 					Vector2(j, edge), Vector2(j + 1, edge), Vector2(j + 1, edge + 1)]:
 					var t := corner.x / 64.0
 					var theta := t * TAU * 8.0
-					var around := corner.y * TAU / 3.0
+					var around := corner.y * TAU / 6.0
 					var radial := 0.053 + sin(around) * 0.008
 					_vertex(spring_material, 128 + w, Vector3(t, cos(theta) * radial, sin(theta) * radial),
 						Vector3(cos(around), sin(around) * cos(theta), sin(around) * sin(theta)), Color.WHITE)
 					var bucket: MeshBucket = _buckets[spring_material]
 					bucket.bindings[bucket.bindings.size() - 1].y = cos(around) * 0.008
 
-func _refresh_visuals() -> void:
+func reset_visual_history() -> void:
+	if core == null:
+		return
+	_current_pose = VehiclePose.capture(core)
+	_previous_pose = _current_pose
+	_render_pose = _current_pose
+	_render_frame = -1
+
+func get_render_pose() -> Dictionary:
+	if _current_pose.is_empty():
+		reset_visual_history()
+	if _render_frame != Engine.get_process_frames():
+		_render_pose = VehiclePose.interpolate(_previous_pose, _current_pose, Engine.get_physics_interpolation_fraction())
+		_render_frame = Engine.get_process_frames()
+	return _render_pose
+
+func _notification(what: int) -> void:
+	if what in [NOTIFICATION_UNPAUSED, NOTIFICATION_APPLICATION_RESUMED] and core != null:
+		reset_visual_history()
+
+func _refresh_visuals(interpolated: bool = false) -> void:
 	if core == null or _body == null:
 		return
-	_nodes = core.get_nodes()
+	var pose := get_render_pose() if interpolated else VehiclePose.capture(core)
+	_nodes = pose.nodes
 	if _nodes.size() < 100:
 		return
 	var center := Vector3.ZERO
@@ -858,7 +933,7 @@ func _refresh_visuals() -> void:
 	center /= 8.0
 	_body.global_position = center
 	_update_body_coefficients()
-	var wheels: Dictionary = core.get_wheel_visuals()
+	var wheels: Dictionary = pose.wheels
 	_wheel_axes = wheels.axes
 	_wheel_normals = wheels.normals
 	_wheel_points = wheels.points
@@ -871,6 +946,12 @@ func _refresh_visuals() -> void:
 	_link_ends = wheels.link_ends
 	_axle_ups = wheels.axle_ups
 	_shock_dimensions = wheels.shock_dimensions
+	var left_arm := _nodes[_hubs[0]] - _wheel_axes[0].cross(_wheel_up).normalized() * .16 - _wheel_up * .04
+	var right_arm := _nodes[_hubs[1]] - _wheel_axes[1].cross(_wheel_up).normalized() * .16 - _wheel_up * .04
+	_link_starts.append(left_arm)
+	_link_ends.append(right_arm)
+	_link_starts.append(_nodes[0] + _wheel_up * .12 + pose.body.basis.z * .22)
+	_link_ends.append(left_arm)
 	_ring_centers.resize(8)
 	for w in range(4):
 		for side in range(2):
@@ -903,6 +984,8 @@ func _refresh_visuals() -> void:
 	if body_color != _last_color:
 		_materials[PAINT].set_shader_parameter("surface_color", body_color)
 		_last_color = body_color
+	if _ranger != null:
+		_ranger.update_pose(_nodes, pose.body.basis, body_color, not wireframe)
 	_body.visible = not wireframe
 	_graph.visible = wireframe
 	if wireframe and _graph_tick > 0.045:
@@ -973,11 +1056,11 @@ func _debug_vertex(binding: int, p: Vector3, axial_offset: float = 0.0) -> Vecto
 	if binding < 16:
 		return debug_deform_point(_rest[0] + p * _frame_size)
 	if binding >= 200:
-		var w := binding - 200
+		var w := (binding - 200) % 4
 		var axle := _wheel_axes[w]
 		var up := _wheel_up
 		up = (up - axle * up.dot(axle)).normalized()
-		var angle := p.x * TAU + _wheel_phases[w]
+		var angle := p.x * TAU + (_wheel_phases[w] if binding < 204 else 0.0)
 		var radial := up * cos(angle) + axle.cross(up).normalized() * sin(angle)
 		var radius := _tire_padding / 0.12
 		return _nodes[_hubs[w]] + axle * ((p.y - 0.5) * radius * 0.58 * float(_settings.get("tire_width_scale", 1.0))) + radial * (radius * 0.88 * p.z)
@@ -996,7 +1079,9 @@ func _debug_vertex(binding: int, p: Vector3, axial_offset: float = 0.0) -> Vecto
 				upper = _nodes[w + 4].lerp(_nodes[(w + 2) % 4 + 4], .22)
 		var eye_length := upper.distance_to(lower)
 		var axis := (lower - upper).normalized()
-		var reference := Vector3.UP if absf(axis.y) < 0.90 else Vector3.BACK
+		var reference := (_nodes[1] - _nodes[0]).normalized()
+		if binding >= 132 and binding < 148:
+			reference = _wheel_up
 		var side := axis.cross(reference).normalized()
 		var other := axis.cross(side).normalized()
 		var axial := p.x
@@ -1030,7 +1115,7 @@ func _debug_vertex(binding: int, p: Vector3, axial_offset: float = 0.0) -> Vecto
 			upper = _nodes[_hubs[axle * 2]]
 			lower = _nodes[_hubs[axle * 2 + 1]]
 		var axis := (lower - upper).normalized()
-		var reference := Vector3.UP if absf(axis.y) < 0.90 else Vector3.BACK
+		var reference := _wheel_up
 		if binding in [108, 109]:
 			reference = _axle_ups[binding - 108]
 		var side := axis.cross(reference).normalized()
@@ -1069,8 +1154,15 @@ func _inspect_mesh() -> Dictionary:
 		for j in range(vertices.size()):
 			if not vertices[j].is_finite() or not normals[j].is_finite():
 				invalid += 1
+		# Spring wire stores a physical axial offset in UV2.y. Include it
+		# when testing encoded geometry; live-world checks run separately.
+		var decoded := vertices.duplicate()
+		var bindings: PackedVector2Array = arrays[Mesh.ARRAY_TEX_UV2]
+		for j in range(decoded.size()):
+			if bindings[j].x >= 128 and bindings[j].x < 132:
+				decoded[j].x += bindings[j].y
 		for j in range(0, vertices.size(), 3):
-			if (vertices[j + 1] - vertices[j]).cross(vertices[j + 2] - vertices[j]).length_squared() < 0.000000000000001:
+			if (decoded[j + 1] - decoded[j]).cross(decoded[j + 2] - decoded[j]).length_squared() < 0.000000000000001:
 				degenerate += 1
 	return {"triangles": _triangle_count, "nonfinite_vertices": invalid, "degenerate_triangles": degenerate,
 		"min_wheel_clearance": _arch_radius - _render_tire_radius}
@@ -1087,7 +1179,7 @@ func get_visual_validation() -> Dictionary:
 			if not _debug_vertex(roundi(bindings[j].x), vertices[j], bindings[j].y).is_finite():
 				nonfinite += 1
 	# Re-express shared structural seam samples in each original cell's rest
-	# coordinates. Both must produce the same world result despite cab damage.
+	# coordinates. Both must produce the same world result through suspension articulation.
 	var seam_gap := 0.0
 	for q in [Vector3(0.0, 0.4, 0.0), Vector3(1.0, 0.4, 0.0), Vector3(0.0, 0.4, 1.0), Vector3(1.0, 0.4, 1.0)]:
 		var from_cab := debug_rest_point(8, q)

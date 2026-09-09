@@ -9,8 +9,8 @@ uniform vec4 patch_planes[24];
 uniform vec4 patch_centers[24];
 uniform float wheel_phases[4];
 uniform vec3 wheel_up = vec3(0.0, 1.0, 0.0);
-uniform vec3 link_starts[14];
-uniform vec3 link_ends[14];
+uniform vec3 link_starts[16];
+uniform vec3 link_ends[16];
 uniform vec3 axle_ups[2];
 uniform vec4 shock_dimensions[4]; // free eye length, closed, extended, body length
 uniform float tire_radius = 0.46;
@@ -114,11 +114,11 @@ void vertex() {
         body_skin(VERTEX, NORMAL, point, mapped_normal);
         NORMAL = mapped_normal;
     } else if (binding >= 200) {
-        int w = binding - 200;
+        int w = (binding - 200) % 4;
         vec3 axle = wheel_axes[w];
         vec3 up = wheel_up;
         up = normalize(up - axle * dot(up, axle));
-        float angle = VERTEX.x * 6.28318530718 + wheel_phases[w];
+        float angle = VERTEX.x * 6.28318530718 + (binding < 204 ? wheel_phases[w] : 0.0);
         vec3 radial = up * cos(angle) + normalize(cross(axle, up)) * sin(angle);
         point = node_positions[16 + w * 21] + axle * ((VERTEX.y - 0.5) * tire_width) + radial * (tire_radius * 0.88 * VERTEX.z);
         NORMAL = normalize(cross(axle, radial) * NORMAL.x + axle * NORMAL.y + radial * NORMAL.z);
@@ -136,7 +136,8 @@ void vertex() {
         }
         float eye_length = length(lower - upper);
         vec3 axis = normalize(lower - upper);
-        vec3 reference = abs(axis.y) < 0.90 ? vec3(0.0, 1.0, 0.0) : vec3(0.0, 0.0, 1.0);
+        vec3 reference = normalize(node_positions[1] - node_positions[0]);
+        if (binding >= 132 && binding < 148) reference = wheel_up;
         vec3 side = normalize(cross(axis, reference));
         vec3 other = normalize(cross(axis, side));
         float axial = VERTEX.x;
@@ -170,7 +171,7 @@ void vertex() {
             lower = node_positions[37 + axle * 42];
         }
         vec3 axis = normalize(lower - upper);
-        vec3 reference = abs(axis.y) < 0.90 ? vec3(0.0, 1.0, 0.0) : vec3(0.0, 0.0, 1.0);
+        vec3 reference = wheel_up;
         if (binding == 108 || binding == 109) reference = axle_ups[binding - 108];
         vec3 side = normalize(cross(axis, reference));
         vec3 other = normalize(cross(axis, side));
