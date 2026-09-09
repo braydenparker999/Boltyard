@@ -3,6 +3,7 @@ render_mode diffuse_burley, specular_schlick_ggx;
 uniform vec4 deep_color : source_color = vec4(0.055, 0.15, 0.175, 1.0);
 uniform vec4 shallow_color : source_color = vec4(0.26, 0.31, 0.22, 1.0);
 uniform sampler2D ripple_normal : hint_normal, repeat_enable, filter_linear_mipmap;
+uniform bool ford = false;
 varying vec3 lake_position;
 void vertex() { lake_position = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz; }
 void fragment() {
@@ -17,6 +18,6 @@ void fragment() {
     float depth = smoothstep(0.0, 0.65, COLOR.r);
     ALBEDO = mix(shallow_color.rgb, deep_color.rgb, depth);
     METALLIC = mix(0.01, 0.06, depth);
-    ROUGHNESS = mix(0.36, 0.28, depth);
-    SPECULAR = 0.76;
+    ROUGHNESS = ford ? .73 : mix(0.36, 0.28, depth);
+    SPECULAR = ford ? .22 : .76;
 }

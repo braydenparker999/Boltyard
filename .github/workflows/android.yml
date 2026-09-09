@@ -36,6 +36,8 @@ jobs:
           key: bolt-native-cpp-4.4.1-profile-refcounted-os-v2
       - name: Validate and build native Android APK
         run: bash tools/ci_build.sh
+        env:
+          BOLT_RECORD_MOVIE: "0"
       - name: Save installable APK
         uses: actions/upload-artifact@v4
         with:
@@ -55,4 +57,5 @@ jobs:
             build/*.json
             build/*.mp4
             build/apksigner.jar
+            bin/libboltyard.linux.x86_64.so
           if-no-files-found: ignore

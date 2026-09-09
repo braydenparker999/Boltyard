@@ -19,9 +19,9 @@ struct DynamicQuaternion {
     }
     static DynamicQuaternion rotation_vector(Vec3 a) {
         const float angle=a.length();
-        if(angle<1e-7f)return DynamicQuaternion{a.x*.5f,a.y*.5f,a.z*.5f,1}.normalized();
+        if(angle<1e-7f)return DynamicQuaternion{float(a.x*.5f),float(a.y*.5f),float(a.z*.5f),1}.normalized();
         const float s=std::sin(angle*.5f)/angle;
-        return {a.x*s,a.y*s,a.z*s,std::cos(angle*.5f)};
+        return {float(a.x*s),float(a.y*s),float(a.z*s),std::cos(angle*.5f)};
     }
 };
 
@@ -62,11 +62,12 @@ public:
     int awake_count() const {int n=0;for(const auto&b:bodies_)if(!b.sleeping)++n;return n;}
 
     void set_terrain(int mode) {
-        terrain_mode_=std::clamp(mode,0,5); static_bodies_.clear();
+        terrain_mode_=std::clamp(mode,0,7); static_bodies_.clear();
     }
     void clear(){bodies_.clear();pairs_.clear();ground_.clear();contacts_=0;}
     void reset(){
         clear();
+        if(terrain_mode_==7)return;
         // Accessible optional loose line at x=8..10. The central test course
         // and bypass around x=4.5 remain unobstructed.
         add_stone({8.15f,.24f,-13.2f},{.68f,.46f,.83f},42,.16f);
@@ -82,7 +83,7 @@ public:
             // Initial placement clears every oriented vertex against the real
             // heightfield, including a log spanning a slope at the trail camp.
             float clearance=1e20f;
-            for(auto vertex:b.shape.vertices){Vec3 p=b.world_point(vertex);clearance=std::min(clearance,p.y-ground_height(p.x,p.z));}
+            for(auto vertex:b.shape.vertices){Vec3 p=b.world_point(vertex);clearance=std::min<float>(clearance,p.y-ground_height(p.x,p.z));}
             b.position.y+=.012f-clearance;b.previous_position=b.position;
         }
     }
@@ -146,7 +147,7 @@ public:
     // Tire drive/brake impulses must call apply_impulse with their opposite.
     void begin_step(float dt,Vec3 gravity={0,-9.81f,0}){
         if(!(dt>0)||!std::isfinite(dt))return;
-        if(world_enabled_&&static_bodies_.empty())for(const auto&r:world_rocks())static_bodies_.push_back(static_body(r));
+        if(world_enabled_&&!bodies_.empty()&&static_bodies_.empty())for(const auto&r:world_rocks())static_bodies_.push_back(static_body(r));
         contacts_=0;ground_.clear();pairs_.clear();
         for(auto&b:bodies_){
             b.previous_position=b.position;b.previous_rotation=b.rotation;
@@ -230,7 +231,7 @@ private:
     float ground_height(float x,float z)const{return terrain_mode_>=4?expedition_height(terrain_mode_,x,z):0;}
     Vec3 ground_normal(float x,float z)const{if(terrain_mode_<4)return {0,1,0};auto n=expedition_normal(terrain_mode_,x,z);return {n.x,n.y,n.z};}
     float ground_surface(float x,float z)const{return terrain_mode_>=4?expedition_surface(terrain_mode_,x,z):1.f;}
-    float lowest_ground_clearance(const DynamicBody &b)const{float d=1e20f;for(auto v:b.shape.vertices){Vec3 p=b.world_point(v);d=std::min(d,(p.y-ground_height(p.x,p.z))*ground_normal(p.x,p.z).y);}return d;}
+    float lowest_ground_clearance(const DynamicBody &b)const{float d=1e20f;for(auto v:b.shape.vertices){Vec3 p=b.world_point(v);d=std::min<float>(d,(p.y-ground_height(p.x,p.z))*ground_normal(p.x,p.z).y);}return d;}
     int contacts_=0;
     static constexpr float ground_compliance_=1.f/8000000.f;
     const std::vector<CrawlRock>&world_rocks()const{return custom_rocks_?test_rocks_:(terrain_mode_>=4?expedition_rocks(terrain_mode_):crawl_course());}
@@ -318,14 +319,27 @@ private:
         };
         // Clip the two support faces. Vertex-only contacts miss the overlapping
         // corners of rotated rectangles and make a resting stack tip itself.
-        auto polygon=[&](const DynamicBody&body,float support,bool minimum){
+        auto polygon=[&](const DynamicBody&body,bool minimum,Vec3&face_normal,float&face_offset){
+            // Clip actual support faces. Flattening every corner to the single
+            // most penetrating vertex invents contact depth on a tilted box
+            // and can pump energy into a resting stack.
+            const Vec3 desired=minimum?-n:n;float best=-1;
+            for(auto t:body.shape.triangles){
+                const Vec3 p=body.world_point(body.shape.vertices[t[0]]);
+                const Vec3 normal=body.rotation.rotate((body.shape.vertices[t[1]]-body.shape.vertices[t[0]])
+                    .cross(body.shape.vertices[t[2]]-body.shape.vertices[t[0]]).normalized());
+                if(normal.dot(desired)>best){best=normal.dot(desired);face_normal=normal;face_offset=normal.dot(p);}
+            }
             std::vector<Vec3> points;Vec3 center;
-            for(auto v:body.shape.vertices){Vec3 p=body.world_point(v);float gap=minimum?p.dot(n)-support:support-p.dot(n);if(gap<.005f){p-=n*p.dot(n);points.push_back(p);center+=p;}}
+            if(best<.9f)return points;
+            for(auto v:body.shape.vertices){Vec3 p=body.world_point(v);
+                if(std::abs(p.dot(face_normal)-face_offset)<.001f){p-=n*p.dot(n);points.push_back(p);center+=p;}}
             if(points.size()<3)return points;
             center*=1.f/points.size();const Vec3 u=(std::abs(n.y)<.8f?Vec3{0,1,0}:Vec3{1,0,0}).cross(n).normalized(),v=n.cross(u);
             std::sort(points.begin(),points.end(),[&](Vec3 x,Vec3 y){x-=center;y-=center;return std::atan2(x.dot(v),x.dot(u))<std::atan2(y.dot(v),y.dot(u));});return points;
         };
-        auto poly_a=polygon(a,amin,true),poly_b=polygon(b,bmax,false);
+        Vec3 normal_a,normal_b;float offset_a=0,offset_b=0;
+        auto poly_a=polygon(a,true,normal_a,offset_a),poly_b=polygon(b,false,normal_b,offset_b);
         if(poly_a.size()>=3&&poly_b.size()>=3){
             auto clipped=poly_a;
             for(int i=0;i<int(poly_b.size())&&!clipped.empty();++i){
@@ -338,10 +352,14 @@ private:
                 }
                 clipped=next;
             }
-            for(auto p:clipped)add(p+n*amin,p+n*bmax);
+            for(auto p:clipped){
+                const Vec3 pa=p+n*((offset_a-p.dot(normal_a))/n.dot(normal_a));
+                const Vec3 pb=p+n*((offset_b-p.dot(normal_b))/n.dot(normal_b));
+                if((pa-pb).dot(n)<.006f)add(pa,pb);
+            }
         }
-        for(auto v:a.shape.vertices){Vec3 pa=a.world_point(v);if(pa.dot(n)>amin+.02f)continue;Vec3 pb=pa+n*(bmax-pa.dot(n));if(inside(b,pb,.009f))add(pa,pb);}
-        for(auto v:b.shape.vertices){Vec3 pb=b.world_point(v);if(pb.dot(n)<bmax-.02f)continue;Vec3 pa=pb+n*(amin-pb.dot(n));if(inside(a,pa,.009f))add(pa,pb);}
+        if(c.empty())for(auto v:a.shape.vertices){Vec3 pa=a.world_point(v);if(pa.dot(n)>amin+.02f)continue;Vec3 pb=pa+n*(bmax-pa.dot(n));if(inside(b,pb,.009f))add(pa,pb);}
+        if(c.empty())for(auto v:b.shape.vertices){Vec3 pb=b.world_point(v);if(pb.dot(n)<bmax-.02f)continue;Vec3 pa=pb+n*(amin-pb.dot(n));if(inside(a,pa,.009f))add(pa,pb);}
         if(c.empty()){
             // Edge/edge support: closest support-feature midpoint gives a
             // common contact lever arm while retaining SAT separation depth.
@@ -360,8 +378,8 @@ private:
             const Vec3 n=c.normal;float C=(pa-pb).dot(n);
             const float inv=a.point_inverse_mass(p,n)+b.point_inverse_mass(p,n),alpha=ground_compliance_/(dt*dt);
             float dl=(-C-alpha*c.lambda)/(inv+alpha),next=std::max(0.f,c.lambda+dl);dl=next-c.lambda;c.lambda=next;
-            if(next<=0)continue;
             position_impulse(a,p,n*dl);position_impulse(b,p,-n*dl);
+            if(next<=0)continue;
             pa=a.world_point(c.local_a);pb=b.world_point(c.local_b);p=(pa+pb)*.5f;
             const Vec3 olda=a.previous_position+a.previous_rotation.rotate(c.local_a),oldb=b.previous_position+b.previous_rotation.rotate(c.local_b);
             Vec3 slip=(pa-olda)-(pb-oldb);slip-=n*slip.dot(n);const float length=slip.length();

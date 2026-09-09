@@ -136,7 +136,7 @@ int main(){
                 require((contact.point-face).length()<.0006f,"rock contact projects onto the exported hull surface");
             }
             float lo=10000;
-            for(auto p:rock.vertices)lo=std::min(lo,p.y-expedition_height(mode,p.x,p.z));
+            for(auto p:rock.vertices)lo=std::min<float>(lo,p.y-expedition_height(mode,p.x,p.z));
             require(lo<-.30f,"rock formation physically buried in ground");
         }
         require(max_violation<.001f,"all hull faces bound convex contact solid");

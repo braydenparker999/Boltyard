@@ -73,7 +73,7 @@ int main() {
                 // All-wheel parking friction otherwise binds the linkage and
                 // confounds the rebound coefficient with brake-induced jacking.
                 r.step(1.f/120,0,0,false);
-                if(i>45&&i<180) { max_up=std::max(max_up,r.velocity().y); squared+=r.velocity().y*r.velocity().y; ++count; }
+                if(i>45&&i<180) { max_up=std::max<float>(max_up,r.velocity().y); squared+=r.velocity().y*r.velocity().y; ++count; }
             }
             upward_speed[setting]=max_up; rms[setting]=std::sqrt(squared/count); healthy(r);
         }
@@ -108,7 +108,8 @@ int main() {
         Vec3 start=r.center(); float maximum_slip=0;
         for(int i=0;i<600;++i) { r.step(1.f/120,.008f,0,false); for(int w=0;w<4;++w) maximum_slip=std::max(maximum_slip,r.wheel_slip(w)); }
         float distance=start.z-r.center().z; std::cout<<"  creep distance="<<distance<<" slip="<<maximum_slip<<'\n';
-        check(distance>.03f&&distance<3.f&&maximum_slip<.7f,"near-rest tire coupling unstable or locked");
+        // Automatic first/low at idle allows roughly 1 m/s creep; braking meters slower progress.
+        check(distance>.03f&&distance<6.f&&maximum_slip<.7f,"near-rest tire coupling unstable or locked");
         run(r,2); start=r.center(); run(r,5); check((r.center()-start).length()<.006f,"parked brake creep"); healthy(r);
     });
     test("tire pushes a movable obstacle through contact impulses", [] {

@@ -33,11 +33,18 @@ class SoftBodyRig : public RefCounted {
 
 protected:
     static void _bind_methods() {
+        ClassDB::bind_method(D_METHOD("configure_imported_surface", "spacing", "grip", "ids"), &SoftBodyRig::configure_imported_surface);
+        ClassDB::bind_method(D_METHOD("load_imported_scenery", "data"), &SoftBodyRig::load_imported_scenery);
+        ClassDB::bind_method(D_METHOD("load_imported_terrain", "heights", "layers"), &SoftBodyRig::load_imported_terrain);
+        ClassDB::bind_method(D_METHOD("get_imported_chunk", "x", "z", "step"), &SoftBodyRig::get_imported_chunk);
         ClassDB::bind_method(D_METHOD("configure", "settings"), &SoftBodyRig::configure);
         ClassDB::bind_method(D_METHOD("reset", "origin"), &SoftBodyRig::reset, DEFVAL(Vector3(0,1.5,8)));
         ClassDB::bind_method(D_METHOD("recover_near", "origin", "heading"), &SoftBodyRig::recover_near);
         ClassDB::bind_method(D_METHOD("step", "dt", "throttle", "steer", "brake"), &SoftBodyRig::step);
         ClassDB::bind_method(D_METHOD("set_terrain", "mode"), &SoftBodyRig::set_terrain);
+        ClassDB::bind_method(D_METHOD("set_neutral", "neutral"), &SoftBodyRig::set_neutral);
+        ClassDB::bind_method(D_METHOD("set_parking_brake", "enabled"), &SoftBodyRig::set_parking_brake);
+        ClassDB::bind_method(D_METHOD("set_brake_pressure", "pressure"), &SoftBodyRig::set_brake_pressure);
         ClassDB::bind_method(D_METHOD("get_terrain_mode"), &SoftBodyRig::get_terrain_mode);
         ClassDB::bind_method(D_METHOD("get_expedition_heightfield", "mode"), &SoftBodyRig::get_expedition_heightfield, DEFVAL(-1));
         ClassDB::bind_method(D_METHOD("get_expedition_rocks", "mode"), &SoftBodyRig::get_expedition_rocks, DEFVAL(-1));
@@ -72,6 +79,46 @@ protected:
     }
 
 public:
+    void configure_imported_surface(float cell_spacing,const PackedFloat32Array &grip,const PackedInt32Array &ids) {
+        using namespace boltyard::imported_terrain;
+        if(!std::isfinite(cell_spacing)||cell_spacing<.25f||cell_spacing>8||grip.size()!=ids.size()||grip.size()>14)return;
+        for(int i=0;i<grip.size();++i)if(!std::isfinite(grip[i])||grip[i]<0||grip[i]>3||ids[i]<0||ids[i]>6)return;
+        spacing=cell_spacing;extent=512*spacing;surface_grip.clear();surface_ids.clear();
+        if(grip.size()){surface_grip.assign(grip.ptr(),grip.ptr()+grip.size());surface_ids.assign(ids.ptr(),ids.ptr()+ids.size());}
+    }
+    bool load_imported_scenery(const PackedByteArray &data) {return boltyard::imported_scenery::load(data.ptr(),data.size());}
+    bool load_imported_terrain(const PackedFloat32Array &h,const PackedByteArray &m) {
+        return boltyard::imported_terrain::load(h.ptr(),h.size(),m.ptr(),m.size());
+    }
+    Array get_imported_chunk(int cx,int cz,int step) const {
+        Array out;out.resize(13); // Mesh::ARRAY_MAX in Godot 4.4
+        if(cx<0||cz<0||cx>=8||cz>=8||(step!=1&&step!=4&&step!=8))return out;
+        using namespace boltyard::imported_terrain;
+        if(!ready())return out;
+        const int cells=128/step,n=cells+1;
+        PackedVector3Array vertices,normals;PackedInt32Array indices;
+        // Global coordinates avoid mismatched UVs at chunk borders.
+        for(int z=0;z<n;++z)for(int x=0;x<n;++x){
+            int gx=cx*128+x*step,gz=cz*128+z*step;
+            float px=gx*spacing-extent,pz=gz*spacing-extent;
+            vertices.push_back(Vector3(px,at(gx,gz),pz));
+            float dx=(at(gx+1,gz)-at(gx-1,gz))/(gx==0||gx==side-1?spacing:2*spacing);
+            float dz=(at(gx,gz+1)-at(gx,gz-1))/(gz==0||gz==side-1?spacing:2*spacing);
+            normals.push_back(Vector3(-dx,1,-dz).normalized());
+        }
+        auto tri=[&](int a,int b,int c){indices.push_back(a);indices.push_back(b);indices.push_back(c);};
+        for(int z=0;z<cells;++z)for(int x=0;x<cells;++x){int a=z*n+x,b=a+1,c=a+n,d=c+1;tri(a,b,c);tri(b,d,c);}
+        // Vertical skirts conceal cracks where adjacent chunks have different LODs.
+        std::vector<int> edge;for(int x=0;x<n;++x)edge.push_back(x);
+        for(int z=1;z<n;++z)edge.push_back(z*n+cells);
+        for(int x=cells-1;x>=0;--x)edge.push_back(cells*n+x);
+        for(int z=cells-1;z>0;--z)edge.push_back(z*n);
+        int base=vertices.size();
+        for(int i:edge){vertices.push_back(vertices[i]-Vector3(0,40,0));normals.push_back(normals[i]);}
+        for(int j=0;j<int(edge.size());++j){int k=(j+1)%edge.size();tri(edge[j],base+j,edge[k]);tri(edge[k],base+j,base+k);}
+        out[0]=vertices;out[1]=normals;out[12]=indices;return out;
+    }
+
     void configure(const Dictionary &d) {
         boltyard::Config c;
         c.tire_radius = number(d,"tire_radius",0.46f,0.32f,0.65f);
@@ -116,10 +163,15 @@ public:
         auto end = std::chrono::steady_clock::now();
         sim_ms = std::chrono::duration<double,std::milli>(end-start).count();
     }
-    void set_terrain(int mode) { rig.set_terrain(std::clamp(mode,0,5)); }
+    void set_terrain(int mode) { rig.set_terrain(std::clamp(mode,0,7)); }
     int get_terrain_mode() const { return rig.get_terrain_mode(); }
-    int expedition_mode(int mode) const { return (mode < 0 ? get_terrain_mode() : mode) == 5 ? 5 : 4; }
+    int expedition_mode(int mode) const { return std::clamp(mode < 0 ? get_terrain_mode() : mode, 4, 7); }
     Dictionary get_expedition_heightfield(int mode) const {
+        if(expedition_mode(mode)==7){
+            PackedFloat32Array heights;heights.resize(boltyard::imported_terrain::heights.size());
+            for(int i=0;i<heights.size();++i)heights.set(i,boltyard::imported_terrain::heights[i]);
+            Dictionary d;d["heights"]=heights;d["side"]=1025;d["spacing"]=2.0;d["origin"]=-1024.0;d["mode"]=7;return d;
+        }
         const auto &data=boltyard::expedition_detail::cache(expedition_mode(mode));
         PackedFloat32Array heights,surfaces,gravel;PackedColorArray materials;
         heights.resize(data.height.size());surfaces.resize(data.height.size());materials.resize(data.height.size());gravel.resize(data.height.size());
@@ -135,7 +187,7 @@ public:
     }
     Array get_expedition_landmarks(int mode) const {
         const int m=expedition_mode(mode);Array out;int i=0;
-        for(const auto&l:boltyard::expedition_landmarks(m)){Dictionary d;d["id"]=String(m==5?"russia_":"rockies_")+String::num_int64(i++);d["name"]=l.name;d["description"]=l.detail;d["position"]=Vector3(l.x,boltyard::expedition_height(m,l.x,l.z),l.z);d["radius"]=18.0;out.push_back(d);}return out;
+        for(const auto&l:boltyard::expedition_landmarks(m)){Dictionary d;d["id"]=String(m==6?"canyon_":(m==5?"russia_":"rockies_"))+String::num_int64(i++);d["name"]=l.name;d["description"]=l.detail;d["position"]=Vector3(l.x,boltyard::expedition_height(m,l.x,l.z),l.z);d["radius"]=18.0;out.push_back(d);}return out;
     }
     Array get_expedition_trails(int mode) const {
         if(mode<0&&get_terrain_mode()<4)return Array();
@@ -149,6 +201,9 @@ public:
     Dictionary get_expedition_water(int mode) const {
         const auto&w=boltyard::expedition_water(expedition_mode(mode));Dictionary d;d["x"]=w.x;d["z"]=w.z;d["rx"]=w.rx;d["rz"]=w.rz;d["height"]=w.height;return d;
     }
+    void set_neutral(bool neutral) {rig.set_neutral(neutral);}
+    void set_parking_brake(bool enabled) {rig.set_parking_brake(enabled);}
+    void set_brake_pressure(float value) {rig.set_brake_pressure(value);}
     void set_drivetrain(bool low, bool locked) { rig.set_drivetrain(low,locked); }
     void set_axle_drivetrain(bool low, bool front, bool rear) { rig.set_drivetrain(low,front,rear); }
     Array get_tire_contacts() const {
@@ -243,12 +298,14 @@ public:
         const auto &rocks=get_terrain_mode()>=4?boltyard::expedition_rocks(get_terrain_mode()):boltyard::crawl_course();
         std::vector<const boltyard::CrawlRock*> nearby;
         const auto initial_delta=candidate-start;const float initial_length=std::max(.00001f,initial_delta.length_squared());
-        for(const auto&r:rocks){const auto closest=start+initial_delta*std::clamp((r.center-start).dot(initial_delta)/initial_length,0.f,1.f);if((closest-r.center).length_squared()<(r.reach+padding+.5f)*(r.reach+padding+.5f))nearby.push_back(&r);}
+        if(get_terrain_mode()==7)boltyard::imported_scenery::near((start+candidate)*.5f,(candidate-start).length()*.5f+padding+.5f,nearby);
+        else for(const auto&r:rocks){const auto closest=start+initial_delta*std::clamp((r.center-start).dot(initial_delta)/initial_length,0.f,1.f);if((closest-r.center).length_squared()<(r.reach+padding+.5f)*(r.reach+padding+.5f))nearby.push_back(&r);}
         auto face_normal=[](const boltyard::CrawlRock &shape,size_t i){
             const auto &t=shape.triangles[i];const auto a=shape.vertices[t[0]];
             return shape.triangle_normals.size()==shape.triangles.size()?shape.triangle_normals[i]:(shape.vertices[t[1]]-a).cross(shape.vertices[t[2]]-a).normalized();
         };
         auto escape=[&](const boltyard::CrawlRock &shape,const boltyard::Vec3 &local_start,const boltyard::Vec3 &local_end){
+            if(shape.surface_mesh){auto hit=boltyard::rock_distance(shape,local_end);return hit.distance<padding?hit.normal*(padding+gap-hit.distance):boltyard::Vec3{};}
             float nearest=-std::numeric_limits<float>::infinity();boltyard::Vec3 normal;
             for(size_t i=0;i<shape.triangles.size();++i){
                 const auto a=shape.vertices[shape.triangles[i][0]],n=face_normal(shape,i);
@@ -267,6 +324,16 @@ public:
                 candidate+=b.rotation.rotate(escape(b.shape,b.local_point(start),b.local_point(candidate)));
             const auto delta=candidate-start;float fraction=1.f;
             auto clip=[&](const boltyard::CrawlRock &shape,const boltyard::Vec3 &local_start,const boltyard::Vec3 &local_delta){
+                if(shape.surface_mesh){
+                    const float length=local_delta.length();if(length<1e-5f)return;
+                    float t=0;
+                    for(int k=0;k<96 && t<fraction;++k){
+                        auto hit=boltyard::rock_distance(shape,local_start+local_delta*t);
+                        if(hit.distance<padding+gap){if(t>0)fraction=std::min(fraction,std::max(0.f,t-gap/length));return;}
+                        t+=std::max(.001f,(hit.distance-padding)*.85f)/length;
+                    }
+                    return;
+                }
                 float enter=0,leave=fraction;bool inside=true;
                 for(size_t i=0;i<shape.triangles.size();++i){
                     const auto a=shape.vertices[shape.triangles[i][0]],n=face_normal(shape,i);
@@ -352,6 +419,8 @@ public:
     Dictionary get_stats() const {
         Dictionary d;
         d["speed"]=rig.speed(); d["damage"]=rig.damage();
+        d["engine_rpm"]=rig.engine_rpm();d["gear"]=rig.drive_gear();d["drive_ratio"]=rig.drive_ratio();
+        d["converter_locked"]=rig.converter_locked();d["tire_pressure_psi"]=rig.tire_pressure_psi();
         d["broken_beams"]=rig.broken_count(); d["contacts"]=rig.contact_count();
         int wheels_grounded=0;
         for (int w=0;w<4;++w) if (rig.wheel_contact_count(w)>0) ++wheels_grounded;
@@ -360,9 +429,9 @@ public:
         d["physical_nodes"]=rig.physical_node_count(); d["render_nodes"]=rig.render_node_count();
         d["physical_beams"]=rig.physical_beam_count();
         d["velocity"]=gv(rig.linear_velocity()); d["steering_angle"]=rig.steering_angle();
-        PackedFloat32Array wheel_spin, suspension, loads, rock_loads, slip;
-        for (int w=0; w<4; ++w) { loads.push_back(rig.wheel_load(w));rock_loads.push_back(rig.wheel_rock_load(w));slip.push_back(rig.wheel_slip(w));wheel_spin.push_back(rig.wheel_angular_velocity(w)); suspension.push_back(rig.suspension_travel(w)); }
-        d["wheel_loads"]=loads;d["rock_loads"]=rock_loads;d["wheel_slip"]=slip;d["wheel_spin"]=wheel_spin; d["suspension"]=suspension;
+        PackedFloat32Array wheel_spin, suspension, loads, rock_loads, slip, lateral, usage;
+        for (int w=0; w<4; ++w) { lateral.push_back(rig.wheel_lateral_slip(w));usage.push_back(rig.wheel_friction_usage(w));loads.push_back(rig.wheel_load(w));rock_loads.push_back(rig.wheel_rock_load(w));slip.push_back(rig.wheel_slip(w));wheel_spin.push_back(rig.wheel_angular_velocity(w)); suspension.push_back(rig.suspension_travel(w)); }
+        d["wheel_lateral_slip"]=lateral;d["wheel_friction_usage"]=usage;d["wheel_loads"]=loads;d["rock_loads"]=rock_loads;d["wheel_slip"]=slip;d["wheel_spin"]=wheel_spin; d["suspension"]=suspension;
         PackedFloat32Array compression, normal_loads, patches, unsprung, articulation, clearance;
         for(int w=0;w<4;++w){compression.push_back(rig.wheel_compression(w));normal_loads.push_back(rig.wheel_normal_load(w));patches.push_back(rig.wheel_contact_patch_length(w));unsprung.push_back(rig.wheel_unsprung_mass(w));}
         for(int a=0;a<2;++a){articulation.push_back(rig.axle_articulation(a));clearance.push_back(rig.axle_clearance(a));}

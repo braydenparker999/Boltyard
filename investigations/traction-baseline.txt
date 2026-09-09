@@ -1,0 +1,6 @@
+grip=0.12 brake=0 side=1 deg=20 throttle=0.0 dx=-47.324 forward=-0.117 speed=14.276 slip=4.213 load=14364 up=0.929
+grip=0.12 brake=1 side=1 deg=20 throttle=0.0 dx=-47.301 forward=-0.014 speed=14.367 slip=0.000 load=14364 up=0.930
+grip=1.10 brake=0 side=1 deg=20 throttle=0.0 dx=-1.003 forward=0.007 speed=0.218 slip=0.002 load=14503 up=0.920
+grip=1.10 brake=1 side=1 deg=20 throttle=0.0 dx=0.000 forward=-0.000 speed=0.000 slip=0.000 load=14503 up=0.946
+grip=2.20 brake=0 side=1 deg=20 throttle=0.0 dx=-1.034 forward=-0.000 speed=0.218 slip=0.002 load=14502 up=0.920
+grip=2.20 brake=1 side=1 deg=20 throttle=0.0 dx=0.000 forward=-0.000 speed=0.000 slip=0.000 load=14502 up=0.954

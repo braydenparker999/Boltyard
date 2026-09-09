@@ -9,10 +9,18 @@ inline thread_local RockQueryCounters rock_query_counters;
 #define BOLT_ROCK_COUNT(field) ((void)0)
 #endif
 struct CrawlRock {
+    const CrawlRock* source=nullptr; // Immutable mesh shared by imported placements.
+    Vec3 basis[3]{{1,0,0},{0,1,0},{0,0,1}}, inverse[3], origin;
+    float minimum_scale_squared=1;
+    Vec3 world(Vec3 p) const {return origin+basis[0]*p.x+basis[1]*p.y+basis[2]*p.z;}
+    Vec3 local(Vec3 p) const {p-=origin;return {inverse[0].dot(p),inverse[1].dot(p),inverse[2].dot(p)};}
     std::vector<Vec3> vertices;
     std::vector<std::array<int,3>> triangles;
     Vec3 center;
     float reach=0, surface=1.15f;
+    bool authored_surface=false;
+    int surface_id=1;
+    bool surface_mesh=false; // Closed authored concave scenery; convex vehicle shapes keep their fast path.
     // Generated once with the hull; every physics query uses the same faces.
     std::vector<Vec3> triangle_normals;
     struct Bounds {
@@ -22,7 +30,7 @@ struct CrawlRock {
             high={std::max(high.x,p.x),std::max(high.y,p.y),std::max(high.z,p.z)};
         }
         float distance_squared(Vec3 p) const {
-            const Vec3 d{std::max({low.x-p.x,0.f,p.x-high.x}),std::max({low.y-p.y,0.f,p.y-high.y}),std::max({low.z-p.z,0.f,p.z-high.z})};
+            const Vec3 d{std::max({low.x-p.x,0.0,p.x-high.x}),std::max({low.y-p.y,0.0,p.y-high.y}),std::max({low.z-p.z,0.0,p.z-high.z})};
             return d.length_squared();
         }
     };
@@ -212,19 +220,148 @@ inline Vec3 closest_triangle(Vec3 p,Vec3 a,Vec3 b,Vec3 c){
     float inv=1/(va+vb+vc);return a+ab*(vb*inv)+ac*(vc*inv);
 }
 struct RockDistance {float distance;Vec3 normal,point;};
+// Closed triangle-mesh inside test, accelerated by the existing face BVH.
+// Crossings at a shared edge are counted once. No convex half-space shortcut
+// is valid for a concave cliff or an arch opening.
+inline bool rock_mesh_inside(const CrawlRock&r,Vec3 p) {
+    if(r.query_nodes.empty() || r.query_nodes[0].bounds.distance_squared(p)>0)return false;
+    // Reuse scratch storage across the many per-tire inside queries.
+    static thread_local std::vector<double> hits;hits.clear();
+    auto visit=[&](auto&&self,int id)->void {
+        const auto &node=r.query_nodes[id];const auto &b=node.bounds;
+        if(b.high.x<p.x||p.y<b.low.y||p.y>b.high.y||p.z<b.low.z||p.z>b.high.z)return;
+        if(node.left>=0){self(self,node.left);self(self,node.right);return;}
+        for(int k=node.begin;k<node.end;++k){int i=r.query_faces[k];auto t=r.triangles[i];
+            const auto a=r.vertices[t[0]],b=r.vertices[t[1]],c=r.vertices[t[2]];
+            // Double-precision barycentrics avoid missed intersections on
+            // near-parallel arch faces at large world coordinates.
+            const double by=double(b.y)-a.y,bz=double(b.z)-a.z,cy=double(c.y)-a.y,cz=double(c.z)-a.z;
+            const double py=double(p.y)-a.y,pz=double(p.z)-a.z,denom=by*cz-bz*cy;
+            if(std::abs(denom)<1e-14)continue;
+            const double u=(py*cz-pz*cy)/denom,v=(by*pz-bz*py)/denom;
+            if(u< -1e-10||v< -1e-10||u+v>1+1e-10)continue;
+            const double distance=double(a.x)-p.x+u*(double(b.x)-a.x)+v*(double(c.x)-a.x);
+            if(distance>=0)hits.push_back(distance);
+        }
+    };
+    visit(visit,0);std::sort(hits.begin(),hits.end());int crossings=0;double last=-1e20;
+    for(double h:hits)if(h-last>1e-7){++crossings;last=h;}
+    return crossings%2==1;
+}
 inline RockDistance rock_distance_reference(const CrawlRock&r,Vec3 p){
     BOLT_ROCK_COUNT(calls);
     float closest=1e20f,max_plane=-1e20f;Vec3 q,n,inside_n;
     for(size_t i=0;i<r.triangles.size();++i){auto t=r.triangles[i];Vec3 a=r.vertices[t[0]],b=r.vertices[t[1]],c=r.vertices[t[2]];Vec3 face=r.triangle_normals.size()==r.triangles.size()?r.triangle_normals[i]:(b-a).cross(c-a).normalized();float plane=(p-a).dot(face);if(plane>max_plane){max_plane=plane;inside_n=face;}
         BOLT_ROCK_COUNT(triangles); Vec3 v=closest_triangle(p,a,b,c);float d=(p-v).length_squared();if(d<closest){closest=d;q=v;n=face;}}
+    if(r.surface_mesh){float d=std::sqrt(closest);return rock_mesh_inside(r,p)?RockDistance{-d,n,q}:RockDistance{d,d>1e-7f?(p-q)/d:n,q};}
     if(max_plane<=0)return {max_plane,inside_n,p-inside_n*max_plane};
     float d=std::sqrt(closest);return {d,d>1e-7f?(p-q)/d:n,q};
 }
+// Exact world-space nearest face under rotation and nonuniform scale. The
+// shared local BVH uses a conservative inverse-matrix norm bound for pruning.
+inline RockDistance instanced_rock_distance_uncached(const CrawlRock& r,Vec3 p) {
+    BOLT_ROCK_COUNT(calls);
+    const auto& mesh=*r.source;Vec3 local=r.local(p),point,normal;
+    float closest=1e20f;
+    auto bound=[&](int id){return mesh.query_nodes[id].bounds.distance_squared(local)*r.minimum_scale_squared;};
+    auto visit=[&](auto&& self,int id)->void {
+        if(bound(id)>closest+1e-5f)return;
+        const auto& node=mesh.query_nodes[id];
+        if(node.left>=0){int a=node.left,b=node.right;if(bound(a)>bound(b))std::swap(a,b);self(self,a);self(self,b);return;}
+        for(int k=node.begin;k<node.end;++k){
+            auto t=mesh.triangles[mesh.query_faces[k]];BOLT_ROCK_COUNT(triangles);
+            Vec3 a=r.world(mesh.vertices[t[0]]),b=r.world(mesh.vertices[t[1]]),c=r.world(mesh.vertices[t[2]]);
+            Vec3 q=closest_triangle(p,a,b,c);float d=(p-q).length_squared();
+            if(d<closest){closest=d;point=q;normal=(b-a).cross(c-a).normalized();}
+        }
+    };
+    visit(visit,0);float d=std::sqrt(closest);
+    bool inside=mesh.surface_mesh&&rock_mesh_inside(mesh,local);
+    if(d>1e-6f)normal=(inside?point-p:p-point)/d;
+    return {inside?-d:d,normal,point};
+}
+// Cache exact transformed triangles and BVH bounds, never a simplified hull.
+// The LRU is bounded independently of the full map's instance count. Candidate
+// hints only establish an upper bound; the BVH still verifies the true nearest
+// face on every query, including ledges and changing tire contact patches.
+struct InstanceQueryCacheEntry {
+    const CrawlRock* owner=nullptr;
+    const CrawlRock* source=nullptr;
+    Vec3 basis[3],origin;
+    CrawlRock world;
+    int hint=-1;
+    size_t bytes=0;
+};
+struct InstanceQueryCache {
+    std::list<InstanceQueryCacheEntry> entries;
+    std::unordered_map<const CrawlRock*,std::list<InstanceQueryCacheEntry>::iterator> lookup;
+    size_t bytes=0;
+    static constexpr size_t budget=16*1024*1024;
+    static bool same(Vec3 a,Vec3 b){return a.x==b.x&&a.y==b.y&&a.z==b.z;}
+    InstanceQueryCacheEntry* get(const CrawlRock& r) {
+        auto found=lookup.find(&r);
+        if(found!=lookup.end()) {
+            auto e=found->second;
+            bool valid=e->source==r.source&&same(e->origin,r.origin);
+            for(int i=0;i<3;++i)valid=valid&&same(e->basis[i],r.basis[i]);
+            if(valid){entries.splice(entries.begin(),entries,e);return &entries.front();}
+            bytes-=e->bytes;entries.erase(e);lookup.erase(found);
+        }
+        const auto& src=*r.source;
+        const size_t needed=sizeof(InstanceQueryCacheEntry)+src.vertices.size()*sizeof(Vec3)+src.triangles.size()*(sizeof(std::array<int,3>)+sizeof(Vec3)+sizeof(int))+src.query_nodes.size()*sizeof(CrawlRock::QueryNode);
+        if(needed>budget)return nullptr;
+        while(!entries.empty()&&(bytes+needed>budget||entries.size()>=256)){
+            bytes-=entries.back().bytes;lookup.erase(entries.back().owner);entries.pop_back();
+        }
+        entries.emplace_front();auto& e=entries.front();e.owner=&r;e.source=r.source;e.origin=r.origin;e.bytes=needed;
+        for(int i=0;i<3;++i)e.basis[i]=r.basis[i];
+        auto& w=e.world;w.surface_mesh=true;w.triangles=src.triangles;w.query_faces=src.query_faces;w.query_nodes=src.query_nodes;
+        w.vertices.reserve(src.vertices.size());for(auto p:src.vertices)w.vertices.push_back(r.world(p));
+        w.triangle_normals.reserve(w.triangles.size());for(auto t:w.triangles)w.triangle_normals.push_back((w.vertices[t[1]]-w.vertices[t[0]]).cross(w.vertices[t[2]]-w.vertices[t[0]]).normalized());
+        // Refit each node from its exact transformed descendant vertices. A
+        // rotated source AABB would be conservative but needlessly loose.
+        for(int id=int(w.query_nodes.size())-1;id>=0;--id){auto& node=w.query_nodes[id];CrawlRock::Bounds b;
+            if(node.left<0){for(int k=node.begin;k<node.end;++k)for(int v:w.triangles[w.query_faces[k]])b.add(w.vertices[v]);}
+            else{b.add(w.query_nodes[node.left].bounds.low);b.add(w.query_nodes[node.left].bounds.high);b.add(w.query_nodes[node.right].bounds.low);b.add(w.query_nodes[node.right].bounds.high);}
+            node.bounds=b;
+        }
+        bytes+=needed;lookup[&r]=entries.begin();return &e;
+    }
+    void clear(){lookup.clear();entries.clear();bytes=0;}
+};
+inline thread_local InstanceQueryCache instance_query_cache;
+inline RockDistance instanced_rock_distance(const CrawlRock& r,Vec3 p) {
+#ifdef BOLT_UNCACHED_INSTANCES
+    return instanced_rock_distance_uncached(r,p);
+#else
+    auto* entry=instance_query_cache.get(r);
+    if(!entry)return instanced_rock_distance_uncached(r,p);
+    BOLT_ROCK_COUNT(calls);const auto& w=entry->world;
+    float closest=1e20f;int best=-1;Vec3 point,normal;
+    auto face=[&](int i){auto t=w.triangles[i];BOLT_ROCK_COUNT(triangles);
+        Vec3 q=closest_triangle(p,w.vertices[t[0]],w.vertices[t[1]],w.vertices[t[2]]);float d=(p-q).length_squared();
+        if(d<closest||(d==closest&&(best<0||i<best))){closest=d;best=i;point=q;normal=w.triangle_normals[i];}
+    };
+    if(entry->hint>=0)face(entry->hint);
+    auto visit=[&](auto&& self,int id)->void {const auto& node=w.query_nodes[id];
+        if(node.bounds.distance_squared(p)>closest+1e-5f)return;
+        if(node.left<0){for(int k=node.begin;k<node.end;++k){int f=w.query_faces[k];if(f!=entry->hint)face(f);}return;}
+        int a=node.left,b=node.right;if(w.query_nodes[a].bounds.distance_squared(p)>w.query_nodes[b].bounds.distance_squared(p))std::swap(a,b);
+        self(self,a);self(self,b);
+    };
+    visit(visit,0);entry->hint=best;float d=std::sqrt(closest);
+    // Keep the original local-space inside test and its precision contract.
+    bool inside=r.source->surface_mesh&&rock_mesh_inside(*r.source,r.local(p));
+    if(d>1e-6f)normal=(inside?point-p:p-point)/d;
+    return {inside?-d:d,normal,point};
+#endif
+}
 inline RockDistance rock_distance(const CrawlRock&r,Vec3 p){
+    if(r.source)return instanced_rock_distance(r,p);
     // Unindexed ad-hoc hulls remain correct. Production builders index once.
     if(r.query_nodes.empty() || r.triangle_normals.size()!=r.triangles.size())return rock_distance_reference(r,p);
     BOLT_ROCK_COUNT(calls);
-    if(r.query_nodes[0].bounds.distance_squared(p)==0) {
+    if(!r.surface_mesh && r.query_nodes[0].bounds.distance_squared(p)==0) {
         float plane=-1e20f;Vec3 normal;bool outside=false;
         for(size_t i=0;i<r.triangles.size();++i) {
             const float d=(p-r.vertices[r.triangles[i][0]]).dot(r.triangle_normals[i]);
@@ -250,5 +387,7 @@ inline RockDistance rock_distance(const CrawlRock&r,Vec3 p){
             self(self,first);self(self,second);
         }
     };
-    visit(visit,0);float d=std::sqrt(closest);return {d,d>1e-7f?(p-point)/d:normal,point};
+    visit(visit,0);float d=std::sqrt(closest);
+    if(r.surface_mesh && rock_mesh_inside(r,p))return {-d,normal,point};
+    return {d,d>1e-7f?(p-point)/d:normal,point};
 }

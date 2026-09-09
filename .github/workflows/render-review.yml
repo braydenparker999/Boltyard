@@ -3,7 +3,7 @@ name: Render Crawlworks review stills
 on:
   workflow_dispatch:
   push:
-    branches: [crawlworks-2.2-review]
+    branches: [crawlworks-2.4-redstone, crawlworks-2.5-bedrock]
 
 permissions:
   contents: read

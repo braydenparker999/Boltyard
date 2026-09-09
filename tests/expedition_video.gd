@@ -44,10 +44,10 @@ func run() -> void:
 	root.add_child(scene)
 	scene.builds.buggy = VehicleCatalog.default_build("buggy")
 	scene.select_vehicle("buggy")
-	scene.select_paint("ede7d6")
+	scene.select_paint("e88724")
 	scene.fit_crawl_setup()
 	scene.change_quality(1)
-	for id in ["rockies", "russia"]:
+	for id in ["canyon", "rockies"]:
 		await expedition(id)
 	check(peak_or_review("rock_wheels") >= 2, "Actual gameplay must show multiple wheels simultaneously loading rock")
 	check(peak_or_review("rock_load") > 500.0, "At least one real trail must load the tires against native granite contact")
@@ -90,13 +90,13 @@ func expedition(id: String) -> void:
 	scene.toggle_mode()
 	# These are declared scene cuts to two real trail locations. No poses or
 	# wheel positions are animated during either driving segment.
-	var at := Vector3(11, 0, -50) if id == "rockies" else Vector3(-89, 0, -119)
+	var at := Vector3(11, 0, -50) if id == "rockies" else Vector3(11, 0, -50)
 	at.y = float(scene.truck.core.terrain_height(at.x, at.z)) + 1.5
 	scene.truck.reset(at)
 	scene.world.update_focus(at)
 	scene.did_position_camera = false
 	scene.throttle_limit = .35
-	scene.toast("SILVERPINE RANGE · Split Granite trail" if id == "rockies" else "KARELIAN TAIGA · Lake Vetra forest trail")
+	scene.toast("SILVERPINE RANGE · Split Granite trail" if id == "rockies" else "REDSTONE CANYON · Warmup Ledges")
 	Input.action_press("off_brake")
 	stage = id + "_settle"
 	await advance(12, false)

@@ -1,7 +1,9 @@
 #pragma once
-// Two fictional expedition landscapes. The 2 m cache is the authoritative
+// Three fictional expedition landscapes. The 2 m cache is the authoritative
 // ground mesh: contact heights, normals, materials and rendering share it.
 #include "terrain_v03.hpp"
+#include "imported_terrain.hpp"
+#include "generated/canyon_floor.hpp"
 
 namespace boltyard {
 struct ExpeditionMaterial { float rock, dirt, grass, wet; };
@@ -50,7 +52,20 @@ inline const std::vector<ExpeditionTrailPoint>& trail_anchors(int mode) {
         {-18,-34,1,2.1f,3},{-40,-20,3,2.1f,3},{-63,-29,5,2.1f,3},
         {-79,-49,4,2.1f,3},{-63,-68,2,2.9f,3}
     };
-    return mode==5?taiga:mountain;
+    static const std::vector<ExpeditionTrailPoint> canyon{
+        {0,8,0,4,0},{-14,-35,2,3.4f,0},{-39,-72,7,3.3f,0},
+        {-79,-114,15,3.4f,0},{-127,-151,24,3.4f,0},{-157,-207,38,3.5f,0},
+        {-211,-232,45,4,0},{-258,-193,38,3.5f,0},{-255,-125,25,3.5f,0},
+        {-206,-64,15,3.4f,0},{-139,-23,8,3.5f,0},{-66,29,2,3.8f,0},{0,8,0,4,0},
+        {-39,-72,7,3.3f,1},{8,-106,11,3.4f,1},{63,-119,16,3.5f,1},
+        {108,-91,20,3.4f,1},{127,-35,16,3.5f,1},{98,23,8,3.5f,1},
+        {49,43,3,3.8f,1},{0,8,0,4,1},
+        {-14,-35,2,2.3f,2},{10,-53,4,2.1f,2},{14,-78,8,2.1f,2},
+        {-7,-92,10,2.3f,2},{-39,-72,7,3.3f,2},
+        {-79,-114,15,2.3f,3},{-57,-158,27,2.3f,3},{-84,-201,38,2.4f,3},
+        {-121,-229,43,2.5f,3},{-157,-207,38,3.5f,3}
+    };
+    return mode==6?canyon:(mode==5?taiga:mountain);
 }
 inline const std::vector<ExpeditionTrailPoint>& trails(int mode) {
     auto build=[](int map) {
@@ -92,6 +107,7 @@ inline const std::vector<ExpeditionTrailPoint>& trails(int mode) {
         }
         return out;
     };
+    if(mode==6){static const auto points=build(6);return points;}
     if(mode==5){static const auto points=build(5);return points;}
     static const auto points=build(4);return points;
 }
@@ -108,6 +124,7 @@ inline const std::vector<TrailSegment>& trail_segments(int mode) {
         }
         return out;
     };
+    if(mode==6){static const auto segments=build(6);return segments;}
     if(mode==5){static const auto segments=build(5);return segments;}
     static const auto segments=build(4);return segments;
 }
@@ -141,6 +158,7 @@ inline TrailSample nearest_trail(int mode,float x,float z) {
 }
 inline ExpeditionWater water(int mode) { return mode==5?ExpeditionWater{26,-147,83,66,-1.6f}:ExpeditionWater{108,-87,35,28,5}; }
 inline float lake_distance(int mode,float x,float z) {
+    if(mode==6)return 100;
     auto w=water(mode);float dx=(x-w.x)/w.rx,dz=(z-w.z)/w.rz,a=std::atan2(dz,dx);
     const float shore=1+.08f*std::sin(a*3+.6f)+.055f*std::sin(a*7-.4f);
     return std::sqrt(dx*dx+dz*dz)/shore;
@@ -153,7 +171,16 @@ inline float creek_distance(int mode,float x,float z) {
 }
 inline float authored_height(int mode,float x,float z) {
     float h;
-    if(mode==4) {
+    if(mode==6) {
+        // Broad eroded mesas around connected contour trails. The exact convex
+        // cliff faces and ledges are authored separately in expedition_rocks.
+        h=6+noise(x*.009f,z*.009f)*7+noise(x*.026f,z*.026f)*1.8f;
+        h+=mound(x,z,-178,-247,117,94,69)+mound(x,z,179,-225,91,118,80);
+        h+=mound(x,z,-292,-36,66,127,58)+mound(x,z,285,70,61,155,89);
+        h+=mound(x,z,0,268,230,65,67);
+        h+=smooth(265,330,std::max(std::abs(x),std::abs(z)))*34;
+        h+=noise(x*.072f,z*.072f)*.10f;
+    } else if(mode==4) {
         // Interlocking ridge spurs wrap around a broad glacial valley. Relief
         // grows coherently towards the massif, rather than random isolated hills.
         h=5+noise(x*.008f,z*.008f)*8+noise(x*.021f,z*.021f)*1.6f;
@@ -216,6 +243,12 @@ inline float authored_height(int mode,float x,float z) {
     const float rut=std::exp(-std::pow((r.distance-0.87f)/.29f,2.f));
     trail_h-=(mode==5?.065f:.035f)*rut;
     h=trail_h*influence+h*(1-influence);
+    if(mode==4) {
+        // A shallow, local ford on Split Granite, with a stable 5.3 m water
+        // level. Its bed is native terrain; a clipped water mesh adds no floor.
+        float ford=std::hypot((x-12)/10.f,(z+61)/6.f);
+        h=h*smooth(.38f,1.f,ford)+(5.10f+.04f*noise(x*.3f,z*.3f))*(1-smooth(.38f,1.f,ford));
+    }
     // The camp, garage and map handoff are the same level on both maps.
     float camp=std::sqrt(x*x+(z-8)*(z-8));
     float camp_blend=smooth(12,40,camp);
@@ -228,7 +261,7 @@ struct Cache {
     explicit Cache(int mode):height(side*side),surface(side*side),gravel(side*side),material(side*side) {
         for(int iz=0;iz<side;++iz)for(int ix=0;ix<side;++ix) {
             float x=-extent+ix*spacing,z=-extent+iz*spacing;size_t i=size_t(iz)*side+ix;
-            height[i]=authored_height(mode,x,z);
+            height[i]=(mode==6 && blender_canyon::contains(x,z))?blender_canyon::sample(x,z):authored_height(mode,x,z);
         }
         for(int iz=0;iz<side;++iz)for(int ix=0;ix<side;++ix) {
             float x=-extent+ix*spacing,z=-extent+iz*spacing;size_t i=size_t(iz)*side+ix;
@@ -249,13 +282,19 @@ struct Cache {
             // shore fans. Fine soil and moss retain less grip when saturated.
             gravel[i]=trail*(1-rock)*(mode==4?.93f:.68f)*
                 (.65f+.35f*noise(x*.031f+5,z*.027f))*(1-wet*.65f);
+            if(mode==6) {
+                rock=clamp(.32f+smooth(.10f,.75f,slope)*.60f+trail*(r.route>=2?.42f:.08f),0,.97f);
+                dirt=1-rock;wet=0;gravel[i]=0;
+            }
+            if(mode==4&&std::hypot((x-12)/10.f,(z+61)/6.f)<.65f)wet=.65f;
+            if(mode==6 && blender_canyon::contains(x,z)){rock=blender_canyon::sample(x,z,nullptr,nullptr,blender_canyon::rock_weights);dirt=1-rock;}
             material[i]={rock,dirt,1-rock-dirt,wet};
             surface[i]=clamp(rock*(1.10f-wet*.54f)+dirt*(.89f-wet*.35f)+
                 (1-rock-dirt)*(.83f-wet*.31f)-gravel[i]*.12f,.52f,1.12f);
         }
     }
 };
-inline const Cache& cache(int mode) { if(mode==5){static const Cache c(5);return c;}static const Cache c(4);return c; }
+inline const Cache& cache(int mode) { if(mode==6){static const Cache c(6);return c;} if(mode==5){static const Cache c(5);return c;}static const Cache c(4);return c; }
 inline float sample(const std::vector<float>&data,float x,float z) {
     float gx=clamp((x+extent)/spacing,0,float(side-1)),gz=clamp((z+extent)/spacing,0,float(side-1));
     int ix=std::min(side-2,int(gx)),iz=std::min(side-2,int(gz));float tx=gx-ix,tz=gz-iz;size_t i=size_t(iz)*side+ix;
@@ -264,12 +303,16 @@ inline float sample(const std::vector<float>&data,float x,float z) {
 }
 }
 inline float expedition_height(int mode,float x,float z) {
+    if(mode==7)return imported_terrain::sample(x,z);
     if(!std::isfinite(x)||!std::isfinite(z))return 0;
+    if(mode==6 && blender_canyon::contains(x,z))return blender_canyon::sample(x,z);
     return expedition_detail::sample(expedition_detail::cache(mode).height,x,z)+
         std::max(0.f,std::max(std::abs(x),std::abs(z))-expedition_detail::extent)*.65f;
 }
 inline ExplorationNormal expedition_normal(int mode,float x,float z) {
+    if(mode==7){float dx,dz;imported_terrain::sample(x,z,&dx,&dz);float l=std::sqrt(dx*dx+dz*dz+1);return {-dx/l,1/l,-dz/l};}
     if(!std::isfinite(x)||!std::isfinite(z))return {0,1,0};
+    if(mode==6 && blender_canyon::contains(x,z)){float dx,dz;blender_canyon::sample(x,z,&dx,&dz);float l=std::sqrt(dx*dx+dz*dz+1);return {-dx/l,1/l,-dz/l};}
     using namespace expedition_detail;const auto&data=cache(mode).height;
     float gx=clamp((x+extent)/spacing,0,float(side-1)),gz=clamp((z+extent)/spacing,0,float(side-1));
     int ix=std::min(side-2,int(gx)),iz=std::min(side-2,int(gz));size_t i=size_t(iz)*side+ix;
@@ -281,12 +324,16 @@ inline ExplorationNormal expedition_normal(int mode,float x,float z) {
     float length=std::sqrt(dx*dx+dz*dz+1);return {-dx/length,1/length,-dz/length};
 }
 inline float expedition_surface(int mode,float x,float z) {
+    if(mode==7)return imported_terrain::grip(x,z);
     if(!std::isfinite(x)||!std::isfinite(z))return .85f;
+    if(mode==6 && blender_canyon::contains(x,z)){float rock=blender_canyon::sample(x,z,nullptr,nullptr,blender_canyon::rock_weights);return rock*1.10f+(1-rock)*.78f;}
     return expedition_detail::sample(expedition_detail::cache(mode).surface,x,z);
 }
 inline ExpeditionMaterial expedition_material(int mode,float x,float z) {
+    if(mode==7){int l=imported_terrain::layer(x,z);if(l>=8&&l<=10)return {1,0,0,0};if(l>=4&&l<=7)return {0,.3f,.7f,0};return {0,1,0,l==13?1.f:0.f};}
     using namespace expedition_detail;
     if(!std::isfinite(x)||!std::isfinite(z))return {0,0,1,0};
+    if(mode==6 && blender_canyon::contains(x,z)){float r=blender_canyon::sample(x,z,nullptr,nullptr,blender_canyon::rock_weights);return {r,1-r,0,0};}
     const auto&data=cache(mode).material;
     float gx=clamp((x+extent)/spacing,0,float(side-1)),gz=clamp((z+extent)/spacing,0,float(side-1));
     int ix=std::min(side-2,int(gx)),iz=std::min(side-2,int(gz));
@@ -299,17 +346,20 @@ inline ExpeditionMaterial expedition_material(int mode,float x,float z) {
     return blend(data[i+side+1],data[i+side],data[i+1],tx+tz-1,1-tx,1-tz);
 }
 inline int expedition_surface_material(int mode,float x,float z) {
+    if(mode==7){int l=imported_terrain::layer(x,z);if(l<int(imported_terrain::surface_ids.size()))return imported_terrain::surface_ids[l];if(l>=8&&l<=10)return ExpeditionDryRock;if(l==1)return ExpeditionGravel;if(l==13)return ExpeditionMud;if(l==11||l==12)return ExpeditionSand;return ExpeditionDirt;}
     const auto m=expedition_material(mode,x,z);
     if(m.rock>=.50f)return m.wet>.30f?ExpeditionWetRock:ExpeditionDryRock;
     if(m.wet>.40f)return ExpeditionMud;
+    if(mode==6)return ExpeditionSand;
     if(std::isfinite(x)&&std::isfinite(z)&&
         expedition_detail::sample(expedition_detail::cache(mode).gravel,x,z)>.42f)return ExpeditionGravel;
     return ExpeditionDirt;
 }
-inline float expedition_trail_distance(int mode,float x,float z){return expedition_detail::nearest_trail(mode,x,z).distance;}
-inline const std::vector<ExpeditionTrailPoint>& expedition_trail_points(int mode){return expedition_detail::trails(mode);}
-inline ExpeditionWater expedition_water(int mode){return expedition_detail::water(mode);}
+inline float expedition_trail_distance(int mode,float x,float z){return mode==7?10000.f:expedition_detail::nearest_trail(mode,x,z).distance;}
+inline const std::vector<ExpeditionTrailPoint>& expedition_trail_points(int mode){if(mode==7){static const std::vector<ExpeditionTrailPoint> empty;return empty;}return expedition_detail::trails(mode);}
+inline ExpeditionWater expedition_water(int mode){if(mode==7)return {0,0,0,0,-10000};return expedition_detail::water(mode);}
 inline const std::vector<ExpeditionLandmark>& expedition_landmarks(int mode) {
+    if(mode==7){static const std::vector<ExpeditionLandmark> empty;return empty;}
     static const std::vector<ExpeditionLandmark> mountain{
         {0,8,"Silverpine Basecamp","Forest roads and granite lines"},
         {15,-75,"Split Granite","Short bedrock crawl above camp"},
@@ -326,9 +376,18 @@ inline const std::vector<ExpeditionLandmark>& expedition_landmarks(int mode) {
         {133,184,"Northern Lookout","Forest road over the long ridge"},
         {130,-153,"Stony Ford","Shallow drainage and loose stones"}
     };
-    return mode==5?taiga:mountain;
+    static const std::vector<ExpeditionLandmark> canyon{
+        {0,8,"Redstone Trailhead","Sandstone country / choose your line"},
+        {8,-40,"Bedrock Narrows","Blender-built rock chute / connected shelves"},
+        {8,-70,"Fracture Steps","Choose a line through continuous bedrock"},
+        {-57,-158,"Rim Traverse","Narrow elevated line / bypass on main trail"},
+        {-121,-229,"Slickrock Rise","Long grippy climb toward the arch"},
+        {-211,-232,"Window Arch","Open rock span and a sweeping return trail"}
+    };
+    return mode==6?canyon:(mode==5?taiga:mountain);
 }
 inline const std::vector<ExplorationObstacle>& expedition_obstacles(int mode) {
+    if(mode==7){static const std::vector<ExplorationObstacle> empty;return empty;}
     auto make=[](int m) {
         std::vector<ExplorationObstacle> out;
         using namespace expedition_detail;
@@ -337,7 +396,7 @@ inline const std::vector<ExplorationObstacle>& expedition_obstacles(int mode) {
         for(int iz=-37;iz<=37;++iz)for(int ix=-37;ix<=37;++ix) {
             float x=ix*8.15f+(hash(ix+213+m,iz-94)-.5f)*6.7f;
             float z=iz*8.15f+(hash(ix-57,iz+184+m)-.5f)*6.7f;
-            float density=.60f+.22f*noise(x*.026f,z*.026f);
+            float density=m==6?.025f:(.60f+.22f*noise(x*.026f,z*.026f));
             if(hash(ix*7+m*53,iz*11-19)>density)continue;
             const auto trail=nearest_trail(m,x,z);float h=expedition_height(m,x,z);
             if(trail.distance<trail.width+1.7f||x*x+(z-8)*(z-8)<21*21)continue;
@@ -346,10 +405,12 @@ inline const std::vector<ExplorationObstacle>& expedition_obstacles(int mode) {
             float v=hash(ix+73,iz-17),height=(m==5?9.f:11.f)+v*(m==5?9.f:12.f);
             int type=m==5&&hash(ix-387,iz+22)>.54f?3:0;
             if(type==3)height*=.82f;
+            if(m==6){height=1.3f+v*2.8f; if(h>58)continue;}
             out.push_back({x,z,(type==3?.17f:.22f)+v*.18f,height,type});
         }
         return out;
     };
+    if(mode==6){static const auto trees=make(6);return trees;}
     if(mode==5){static const auto trees=make(5);return trees;}static const auto trees=make(4);return trees;
 }
 } // namespace boltyard

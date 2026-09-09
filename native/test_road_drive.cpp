@@ -21,7 +21,7 @@ static bool drive_loop(float cruise_speed) {
         for (std::size_t j = 1; j < road.size(); ++j) {
             if (lengths[j] < progress - 8 || lengths[j - 1] > progress + 30) continue;
             const float dx = road[j].x - road[j - 1].x, dz = road[j].z - road[j - 1].z;
-            const float t = std::clamp(((center.x - road[j - 1].x) * dx + (center.z - road[j - 1].z) * dz) /
+            const float t = std::clamp<float>(((center.x - road[j - 1].x) * dx + (center.z - road[j - 1].z) * dz) /
                                        (dx * dx + dz * dz), 0.f, 1.f);
             const float distance = std::hypot(center.x - road[j - 1].x - dx * t, center.z - road[j - 1].z - dz * t);
             if (distance < closest) { closest = distance; near_progress = lengths[j - 1] + t * (lengths[j] - lengths[j - 1]); }
@@ -54,7 +54,7 @@ static bool drive_loop(float cruise_speed) {
         const bool brake = rig.speed() > planned_speed + 0.35f;
         const float throttle = brake ? 0 : std::clamp((planned_speed - rig.speed()) * 0.6f + 0.18f, 0.f, 1.f);
         rig.step(1.f / 120, throttle, std::clamp(steer, -1.f, 1.f), brake);
-        maximum_error = std::max(maximum_error, closest); minimum_up = std::min(minimum_up, rig.up().y);
+        maximum_error = std::max<float>(maximum_error, closest); minimum_up = std::min<float>(minimum_up, rig.up().y);
         max_speed = std::max(max_speed, rig.speed());
         if (!rig.center().finite() || closest > 6 || rig.up().y < 0.80f) break;
     }
