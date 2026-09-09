@@ -43,6 +43,7 @@ protected:
         ClassDB::bind_method(D_METHOD("step", "dt", "throttle", "steer", "brake"), &SoftBodyRig::step);
         ClassDB::bind_method(D_METHOD("set_terrain", "mode"), &SoftBodyRig::set_terrain);
         ClassDB::bind_method(D_METHOD("set_neutral", "neutral"), &SoftBodyRig::set_neutral);
+        ClassDB::bind_method(D_METHOD("set_auto_hold", "enabled"), &SoftBodyRig::set_auto_hold);
         ClassDB::bind_method(D_METHOD("set_parking_brake", "enabled"), &SoftBodyRig::set_parking_brake);
         ClassDB::bind_method(D_METHOD("set_brake_pressure", "pressure"), &SoftBodyRig::set_brake_pressure);
         ClassDB::bind_method(D_METHOD("get_terrain_mode"), &SoftBodyRig::get_terrain_mode);
@@ -150,7 +151,9 @@ public:
         // master switch must not erase a mixed front/rear setup.
         c.locked_diffs = true;
         c.solid_axles = d.get("solid_axles",true);
+        c.inboard_coilovers = d.get("inboard_coilovers",false);
         rig.configure(c);
+        rig.set_auto_hold(d.get("auto_hold",true));
     }
     void reset(const Vector3 &origin) { rig.reset(cv(origin)); }
     bool recover_near(const Vector3 &origin, const Vector3 &heading) { return rig.recover_near(cv(origin), cv(heading)); }
@@ -202,6 +205,7 @@ public:
         const auto&w=boltyard::expedition_water(expedition_mode(mode));Dictionary d;d["x"]=w.x;d["z"]=w.z;d["rx"]=w.rx;d["rz"]=w.rz;d["height"]=w.height;return d;
     }
     void set_neutral(bool neutral) {rig.set_neutral(neutral);}
+    void set_auto_hold(bool enabled) {rig.set_auto_hold(enabled);}
     void set_parking_brake(bool enabled) {rig.set_parking_brake(enabled);}
     void set_brake_pressure(float value) {rig.set_brake_pressure(value);}
     void set_drivetrain(bool low, bool locked) { rig.set_drivetrain(low,locked); }
@@ -420,6 +424,8 @@ public:
         Dictionary d;
         d["speed"]=rig.speed(); d["damage"]=rig.damage();
         d["engine_rpm"]=rig.engine_rpm();d["gear"]=rig.drive_gear();d["drive_ratio"]=rig.drive_ratio();
+        d["auto_hold_active"]=rig.auto_hold_active();
+        d["inboard_coilovers"]=rig.config().inboard_coilovers; d["rigid_chassis_clusters"]=1; d["chassis_attachment_samples"]=16; d["chassis_model"]="rigid"; d["damage_enabled"]=false;
         d["converter_locked"]=rig.converter_locked();d["tire_pressure_psi"]=rig.tire_pressure_psi();
         d["broken_beams"]=rig.broken_count(); d["contacts"]=rig.contact_count();
         int wheels_grounded=0;

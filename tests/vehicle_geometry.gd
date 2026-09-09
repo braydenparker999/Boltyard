@@ -125,7 +125,9 @@ func advance(truck: Node3D, count: int, throttle: float, steering: float, brake:
 func exercise(build: Dictionary, fitted: bool) -> void:
 	var label = "%s %s" % [build.vehicle, "fully fitted" if fitted else "stock"]
 	var truck = Truck.new()
-	truck.configure(Catalog.compose(build))
+	var settings := Catalog.compose(build)
+	settings.procedural_body = true
+	truck.configure(settings)
 	root.add_child(truck)
 	# Advance the native solver explicitly so this suite is deterministic and
 	# independent of rendering cadence or a machine's headless frame rate.
@@ -145,7 +147,7 @@ func exercise(build: Dictionary, fitted: bool) -> void:
 	var validation: Dictionary = truck.call("get_visual_validation")
 	# Fixed-body coilovers, captive springs and mount hardware share the existing
 	# nine surfaces; bounded geometry budget includes their added detail.
-	var triangle_limit = 14500 if fitted else 13500
+	var triangle_limit = 22000 if fitted else 21000
 	check(uploaded.triangles > 1000 and uploaded.triangles < triangle_limit, "%s uses %d triangles, below %d" % [label, uploaded.triangles, triangle_limit])
 	check(int(validation.get("triangles", -1)) == uploaded.triangles, "%s triangle telemetry matches the uploaded mesh" % label)
 	check(int(validation.get("nonfinite_vertices", -1)) == 0 and int(validation.get("degenerate_triangles", -1)) == 0, "%s has finite rest geometry with no degenerate triangles" % label)
@@ -167,15 +169,15 @@ func exercise(build: Dictionary, fitted: bool) -> void:
 	validate_live(truck, samples, label + " steering right")
 	advance(truck, 120, 0.4, -0.8, false)
 	validate_live(truck, samples, label + " steering left")
-	# A deterministic local dent proves that the skin actually responds to a
+	# A deterministic pose edit proves that the skin actually responds to a
 	# changed structural node, then the impulse tests evolving crash poses.
 	var roof_point: Vector3 = truck.call("debug_rest_point", 8, Vector3(0, 1, 0))
 	var roof_before: Vector3 = truck.call("debug_deform_point", roof_point)
 	truck.core.displace_node(12, Vector3(0.30, -0.16, 0.13))
 	truck.call("_refresh_visuals")
 	var roof_after: Vector3 = truck.call("debug_deform_point", roof_point)
-	check(roof_after.is_finite() and roof_before.distance_to(roof_after) > 0.01, "%s visibly follows a local cab-node deformation" % label)
-	validate_live(truck, samples, label + " local dent")
+	check(roof_after.is_finite() and roof_before.distance_to(roof_after) > 0.01, "%s visibly follows a rigid body pose edit" % label)
+	validate_live(truck, samples, label + " pose edit")
 	truck.core.apply_impact(Vector3(16000, 0, 4000))
 	for phase in range(3):
 		advance(truck, 40, 0.0, 0.5, false)

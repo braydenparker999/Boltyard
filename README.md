@@ -1,8 +1,22 @@
+# Bolt Yard 3.4 — crawling and Ranger appearance
+
+The chassis and cab now form one rigid assembly. Crash damage, permanent deformation and the chassis-stiffness control are removed from play. Tires retain load-dependent deformation, surface friction and multiple rock contacts; four-link axles, coilovers, brake limits and weight transfer remain physical.
+
+Imported scenery candidates are filtered by distance to their actual geometry before repeated contact queries. Original terrain triangles remain intact. Godot catch-up is capped at two 60 Hz ticks per displayed frame; native integration stays at 240 Hz. Reports include ticks per frame and simulated time versus wall time, so overload cannot hide behind a misleading single-tick timing.
+
+Body, tire rotation, suspension mounts and camera share interpolated physics snapshots. Recovery and resume clear interpolation history. Auto-hold retains finite service-brake pressure after a stop and releases with throttle; it cannot hold on insufficient grip. A gentler converter reduces idle loading.
+
+Personal APKs can include the supplied NIX Ranger appearance. `python3 tools/import_ranger.py path/to/archive.zip` converts selected original panels, normals, UVs and available textures into ignored `assets/ranger/` resources. The pickup uses physical inboard coilovers, with motion-ratio corrections, plus modeled links, shafts, differential housings, brakes and steering links. Public source builds retain the procedural pickup. External shared engine/axle packs are not required; absent shared materials receive explicit fallback finishes.
+
+Run the native and Godot checks with `tools/ci_build.sh`. `tests/render_motion.gd` checks rigid render dimensions, rotating-tire interpolation and reset history. `native/benchmark_gridmap.cpp` compares exact trajectories with and without scenery filtering when private Gridmap data is installed. Phone frame rate and touch feel require the A15 test.
+
+## Earlier releases and project background
+
 ## 2.3 Thumbdrive
 
 Portrait-first analog steering and progressive throttle replace the digital driving pedals. Range, front/rear axle locks and local recovery sit in a permanent thumb-height row. FWD/REV selects direction; changing direction releases a held throttle. Pause offers control size, vertical position and steering sensitivity, saved with the garage.
 
-Recovery offers **Right vehicle nearby** and **Last safe spot**. It searches within 12 metres for gently sloped ground with conservative clearance from rocks, trees and movable objects; if no site fits, the rig stays put. Repositioning retains heading, damage, broken beams, tuning and world objects. Stable trail positions are kept for the current drive; before any are recorded, Last safe spot uses the trail start. Return to garage and garage repairs remain separate.
+Recovery offers **Right vehicle nearby** and **Last safe spot**. It searches within 12 metres for gently sloped ground with conservative clearance from rocks, trees and movable objects; if no site fits, the rig stays put. Repositioning retains heading, tuning and world objects. Stable trail positions are kept for the current drive; before any are recorded, Last safe spot uses the trail start. Return to garage remains separate.
 
 The A15 2.2 report supplied by the user covered 240 frames / 9.75 seconds at Performance quality, portrait 720×1560, scale .75: 24.6 FPS average, frame p95 48.06 ms and worst 54.19 ms, with no discarded simulation time or safety corrections. This is the device baseline, not a claim about 2.3 speed.
 

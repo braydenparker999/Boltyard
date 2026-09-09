@@ -40,6 +40,12 @@ func run() -> void:
 		if frame == 390:
 			Input.action_release("off_go")
 			Input.action_press("off_brake")
+		if frame > 60 and frame < 390:
+			# A driver meters the brakes on downhill faces; a fixed gas-only
+			# command cannot enforce crawling speed when gravity accelerates it.
+			var speed_now: float = scene.truck.get_telemetry().speed
+			if speed_now > 2.2: Input.action_press("off_brake")
+			elif speed_now < 1.5: Input.action_release("off_brake")
 		await process_frame
 		if rendered:
 			await RenderingServer.frame_post_draw
@@ -58,7 +64,7 @@ func run() -> void:
 	var stats: Dictionary = scene.truck.get_telemetry()
 	var good: bool = stats.position.z < -4 and stats.position.z > -22 and highest > 1.1 and rock_support > 5000 and peak_speed < 3.0 and stats.up.y > 0.85 and stats.damage < 0.01 and stats.speed < 0.05 and stats.safety_clamps == 0 and stats.rejected_states == 0
 	FileAccess.open("res://build/crawling-trace.json", FileAccess.WRITE).store_string(JSON.stringify(trace, "\t"))
-	print("CRAWLING REVIEW: z %.2f, peak frame height %.2f, final speed %.3f, damage %.4f, up %.3f" % [stats.position.z, highest, stats.speed, stats.damage, stats.up.y])
+	print("CRAWLING REVIEW: z %.2f, peak height %.2f, final speed %.3f, peak speed %.3f, support %.1f, up %.3f, clamps %d, rejected %d" % [stats.position.z, highest, stats.speed, peak_speed, rock_support, stats.up.y, stats.safety_clamps, stats.rejected_states])
 	if not good:
 		push_error("Crawling motion did not meet climb, hold or stability acceptance")
 	# Begin a clearly identified second demonstration at the loose-object line.

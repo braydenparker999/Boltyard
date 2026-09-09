@@ -33,7 +33,7 @@ const LIMITS = {
 # Fine tuning remains separate from the coefficients supplied by installed parts.
 const TUNING_KEYS = [
 	"tire_radius", "tire_pressure", "ride_height", "spring_rate", "damping",
-	"engine_torque", "mass", "track_width", "wheelbase", "body_stiffness",
+	"engine_torque", "mass", "track_width", "wheelbase",
 	"compression_damping", "rebound_damping", "compression_travel", "suspension_travel"
 ]
 const VEHICLES = {

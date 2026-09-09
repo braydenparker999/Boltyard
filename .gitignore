@@ -26,3 +26,6 @@ assets/gridmap/
 data/gridmap/
 *.uid
 *.import
+
+# Owner-supplied Ranger appearance stays outside public source.
+assets/ranger/
